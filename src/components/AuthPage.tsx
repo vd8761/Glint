@@ -45,7 +45,18 @@ export function AuthPage({ onLoginSuccess, onBackToHome }: AuthPageProps) {
         body: JSON.stringify(body)
       });
 
-      const data = await response.json();
+      let data: any = {};
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        const isHtml = text.trim().startsWith('<') || text.includes('<html>');
+        const errorMessage = isHtml 
+          ? `Server error (${response.status}): The server encountered an unexpected error. Please check backend logs.`
+          : text || `Server returned status ${response.status}`;
+        throw new Error(errorMessage);
+      }
 
       if (!response.ok) {
         throw new Error(data.error || 'Authentication failed');
@@ -54,7 +65,10 @@ export function AuthPage({ onLoginSuccess, onBackToHome }: AuthPageProps) {
       // Trigger success callback
       onLoginSuccess(data.token, data.user);
     } catch (err: any) {
-      setError(err.message || 'An error occurred during authentication.');
+      const friendlyMessage = err.message && err.message.includes('Unexpected token')
+        ? 'Failed to parse server response. The server may have returned an unexpected error page.'
+        : err.message || 'An unexpected error occurred during authentication.';
+      setError(friendlyMessage);
     } finally {
       setLoading(false);
     }
