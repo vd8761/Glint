@@ -8,6 +8,7 @@ import {
   Award, ShieldAlert, CheckCircle, Search, ExternalLink, ArrowRight, 
   Check, Zap, Layers, BarChart3, Globe, Lock, ShieldCheck, Sparkles, Star, Database 
 } from 'lucide-react';
+import { HeroScrollDemo } from './ui/demo';
 
 interface LandingPageProps {
   onStartFree: () => void;
@@ -399,6 +400,11 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
             </div>
           </div>
         </div>
+      </section>
+
+      {/* Scroll Showcase Section */}
+      <section className="relative z-10 -mt-12 md:-mt-20">
+        <HeroScrollDemo />
       </section>
 
       {/* Feature Value Matrix */}

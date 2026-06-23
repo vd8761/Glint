@@ -123,6 +123,15 @@ app.post('/api/auth/register', async (req, res) => {
     return res.status(400).json({ error: 'All fields (email, password, name, workspaceName) are required' });
   }
 
+  // Format validation
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ error: 'Invalid email address format' });
+  }
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -188,6 +197,9 @@ app.post('/api/auth/register', async (req, res) => {
   } catch (err: any) {
     await client.query('ROLLBACK');
     console.error('Error during registration:', err.message);
+    if (err.code === '23505') {
+      return res.status(400).json({ error: 'An account with this email already exists' });
+    }
     res.status(500).json({ error: 'Internal server error during registration' });
   } finally {
     client.release();
@@ -216,6 +228,131 @@ app.get('/api/auth/me', authenticateToken, async (req: any, res) => {
   } catch (err: any) {
     console.error('Error fetching user profile:', err.message);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Super Admin Authorization Middleware
+const requireAdmin = (req: any, res: any, next: any) => {
+  if (req.user && req.user.email === 'admin@gmail.com') {
+    next();
+  } else {
+    res.status(403).json({ error: 'Access denied: Super Admin credentials required' });
+  }
+};
+
+// ============================================
+// Super Admin API Endpoints
+// ============================================
+
+// List all workspaces
+app.get('/api/admin/workspaces', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM workspaces ORDER BY created_time DESC');
+    res.json(result.rows);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update a workspace (tier, names)
+app.put('/api/admin/workspaces/:id', authenticateToken, requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { name, brand_name, plan } = req.body;
+  try {
+    await pool.query(
+      'UPDATE workspaces SET name = $1, brand_name = $2, plan = $3 WHERE id = $4',
+      [name, brand_name, plan, id]
+    );
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete a workspace (cascade clean)
+app.delete('/api/admin/workspaces/:id', authenticateToken, requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM certificates WHERE workspace_id = $1', [id]);
+    await client.query('DELETE FROM email_logs WHERE workspace_id = $1', [id]);
+    await client.query('DELETE FROM programs WHERE workspace_id = $1', [id]);
+    await client.query('DELETE FROM templates WHERE workspace_id = $1', [id]);
+    await client.query('DELETE FROM users WHERE workspace_id = $1', [id]);
+    await client.query('DELETE FROM workspaces WHERE id = $1', [id]);
+    await client.query('COMMIT');
+    res.json({ success: true });
+  } catch (err: any) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// List all programs
+app.get('/api/admin/programs', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT p.*, w.name as workspace_name 
+      FROM programs p 
+      JOIN workspaces w ON p.workspace_id = w.id 
+      ORDER BY p.issue_date DESC
+    `);
+    res.json(result.rows);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Edit a program
+app.put('/api/admin/programs/:id', authenticateToken, requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { name, description } = req.body;
+  try {
+    await pool.query(
+      'UPDATE programs SET name = $1, description = $2 WHERE id = $3',
+      [name, description, id]
+    );
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete a program
+app.delete('/api/admin/programs/:id', authenticateToken, requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM certificates WHERE program_id = $1', [id]);
+    await client.query('DELETE FROM email_logs WHERE program_id = $1', [id]);
+    await client.query('DELETE FROM programs WHERE id = $1', [id]);
+    await client.query('COMMIT');
+    res.json({ success: true });
+  } catch (err: any) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// List all issued certificates
+app.get('/api/admin/certificates', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT c.*, p.name as program_name, w.name as workspace_name 
+      FROM certificates c
+      JOIN programs p ON c.program_id = p.id
+      JOIN workspaces w ON c.workspace_id = w.id
+      ORDER BY c.created_at DESC
+    `);
+    res.json(result.rows);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 

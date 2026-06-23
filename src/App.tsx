@@ -8,11 +8,13 @@ import { LandingPage } from './components/LandingPage';
 import { Dashboard } from './components/Dashboard';
 import { CertificateViewer } from './components/CertificateViewer';
 import { AuthPage } from './components/AuthPage';
+import { AdminDashboard } from './components/AdminDashboard';
 
 type RouteState = 
   | { type: 'home' }
   | { type: 'auth' }
   | { type: 'dashboard'; workspaceId: string; tab: 'overview' | 'programs' | 'templates' | 'recipients' | 'issued' | 'branding' | 'settings' | 'emails' }
+  | { type: 'admin'; tab: 'workspaces' | 'programs' | 'certificates' }
   | { type: 'credential'; id: string };
 
 export default function App() {
@@ -36,10 +38,26 @@ export default function App() {
       if (hash.startsWith('#credential=')) {
         const id = hash.replace('#credential=', '').trim();
         setRoute({ type: 'credential', id });
+      } else if (hash.startsWith('#/admin') || hash.startsWith('#admin')) {
+        if (!token || user?.email !== 'admin@gmail.com') {
+          window.location.hash = '#auth';
+          setRoute({ type: 'auth' });
+        } else {
+          const queryIndex = hash.indexOf('?');
+          let activeTab: any = 'workspaces';
+          if (queryIndex !== -1) {
+            const params = new URLSearchParams(hash.substring(queryIndex));
+            activeTab = params.get('tab') || 'workspaces';
+          }
+          setRoute({ type: 'admin', tab: activeTab });
+        }
       } else if (hash.startsWith('#/dashboard') || hash.startsWith('#dashboard')) {
         if (!token) {
           window.location.hash = '#auth';
           setRoute({ type: 'auth' });
+        } else if (user?.email === 'admin@gmail.com') {
+          window.location.hash = `#/admin?tab=workspaces`;
+          setRoute({ type: 'admin', tab: 'workspaces' });
         } else {
           const queryIndex = hash.indexOf('?');
           let wsId = user?.workspaceId || 'ws-google-infra';
@@ -53,8 +71,12 @@ export default function App() {
         }
       } else if (hash === '#auth' || hash.startsWith('#auth')) {
         if (token) {
-          const wsId = user?.workspaceId || 'ws-google-infra';
-          window.location.hash = `#/dashboard?workspaceId=${wsId}&tab=overview`;
+          if (user?.email === 'admin@gmail.com') {
+            window.location.hash = `#/admin?tab=workspaces`;
+          } else {
+            const wsId = user?.workspaceId || 'ws-google-infra';
+            window.location.hash = `#/dashboard?workspaceId=${wsId}&tab=overview`;
+          }
         } else {
           setRoute({ type: 'auth' });
         }
@@ -80,9 +102,22 @@ export default function App() {
     if (!token) {
       window.location.hash = '#auth';
       setRoute({ type: 'auth' });
+    } else if (user?.email === 'admin@gmail.com') {
+      window.location.hash = `#/admin?tab=workspaces`;
+      setRoute({ type: 'admin', tab: 'workspaces' });
     } else {
       window.location.hash = `#/dashboard?workspaceId=${workspaceId}&tab=${tab}`;
       setRoute({ type: 'dashboard', workspaceId, tab: tab as any });
+    }
+  };
+
+  const navigateToAdmin = (tab: string = 'workspaces') => {
+    if (!token || user?.email !== 'admin@gmail.com') {
+      window.location.hash = '#auth';
+      setRoute({ type: 'auth' });
+    } else {
+      window.location.hash = `#/admin?tab=${tab}`;
+      setRoute({ type: 'admin', tab: tab as any });
     }
   };
 
@@ -101,8 +136,12 @@ export default function App() {
     localStorage.setItem('glint_user', JSON.stringify(newUser));
     setToken(newToken);
     setUser(newUser);
-    const wsId = newUser.workspaceId || 'ws-google-infra';
-    window.location.hash = `#/dashboard?workspaceId=${wsId}&tab=overview`;
+    if (newUser.email === 'admin@gmail.com') {
+      window.location.hash = `#/admin?tab=workspaces`;
+    } else {
+      const wsId = newUser.workspaceId || 'ws-google-infra';
+      window.location.hash = `#/dashboard?workspaceId=${wsId}&tab=overview`;
+    }
   };
 
   const handleLogout = () => {
@@ -141,6 +180,14 @@ export default function App() {
           onTabChange={(tab) => navigateToDashboard(route.workspaceId, tab)}
           onWorkspaceChange={(id) => navigateToDashboard(id, route.tab)}
           onViewCertificatePage={(id) => navigateToCredential(id)}
+        />
+      )}
+
+      {route.type === 'admin' && (
+        <AdminDashboard 
+          token={token}
+          user={user}
+          onLogout={handleLogout}
         />
       )}
 
