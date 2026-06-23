@@ -9,6 +9,8 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import pg from 'pg';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 import { GoogleGenAI, Type } from '@google/genai';
 import {
   OrganizationWorkspace,
@@ -41,6 +43,26 @@ pool.query('SELECT NOW()', (err, res) => {
   }
 });
 
+const JWT_SECRET = process.env.JWT_SECRET || 'glint-super-secure-token-vault-key-2026';
+
+// Middleware to authenticate JWT tokens
+const authenticateToken = (req: any, res: any, next: any) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  
+  if (!token) {
+    return res.status(401).json({ error: 'Authentication token required' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
+    if (err) {
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+    req.user = user;
+    next();
+  });
+};
+
 const app = express();
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -49,6 +71,153 @@ const PORT = 3000;
 
 // REST Backend Routes
 // ====================
+
+// Authentication endpoints
+// ========================
+
+// Login endpoint
+app.post('/api/auth/login', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE email = $1', [email.toLowerCase().trim()]);
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    const user = result.rows[0];
+    const isPasswordValid = await bcrypt.compare(password, user.password_hash);
+    if (!isPasswordValid) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { userId: user.id, email: user.email, workspaceId: user.workspace_id },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        workspaceId: user.workspace_id
+      }
+    });
+  } catch (err: any) {
+    console.error('Error during login:', err.message);
+    res.status(500).json({ error: 'Internal server error during login' });
+  }
+});
+
+// Register endpoint
+app.post('/api/auth/register', async (req, res) => {
+  const { email, password, name, workspaceName } = req.body;
+  if (!email || !password || !name || !workspaceName) {
+    return res.status(400).json({ error: 'All fields (email, password, name, workspaceName) are required' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Check if user already exists
+    const userCheck = await client.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase().trim()]);
+    if (userCheck.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'An account with this email already exists' });
+    }
+
+    // Create a new workspace
+    const workspaceId = `ws-${Math.random().toString(36).substring(2, 9)}`;
+    const workspaceSlug = workspaceName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    
+    await client.query(
+      `INSERT INTO workspaces (id, name, slug, plan, brand_name, primary_color, accent_color, sender_name, sender_email, white_label, footer_text) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [
+        workspaceId,
+        workspaceName,
+        workspaceSlug,
+        'free', // Default registration plan
+        workspaceName, // brand_name
+        '#0F172A', // default primaryColor
+        '#F59E0B', // default accentColor (Glint gold)
+        `${workspaceName} Dispatch`, // default senderName
+        `noreply@glint.io`, // default senderEmail
+        false, // default whiteLabel
+        `Secured credential system by ${workspaceName}` // default footerText
+      ]
+    );
+
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(password, salt);
+
+    // Create user
+    const userId = `u-${Math.random().toString(36).substring(2, 9)}`;
+    await client.query(
+      'INSERT INTO users (id, email, password_hash, name, workspace_id) VALUES ($1, $2, $3, $4, $5)',
+      [userId, email.toLowerCase().trim(), passwordHash, name, workspaceId]
+    );
+
+    await client.query('COMMIT');
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { userId, email, workspaceId },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      token,
+      user: {
+        id: userId,
+        email,
+        name,
+        workspaceId
+      }
+    });
+  } catch (err: any) {
+    await client.query('ROLLBACK');
+    console.error('Error during registration:', err.message);
+    res.status(500).json({ error: 'Internal server error during registration' });
+  } finally {
+    client.release();
+  }
+});
+
+// Profile endpoint
+app.get('/api/auth/me', authenticateToken, async (req: any, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT id, email, name, workspace_id FROM users WHERE id = $1',
+      [req.user.userId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = result.rows[0];
+    res.json({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      workspaceId: user.workspace_id
+    });
+  } catch (err: any) {
+    console.error('Error fetching user profile:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 // 1. Workspace endpoints
 app.get('/api/workspaces', async (req, res) => {
@@ -149,7 +318,7 @@ app.post('/api/workspaces', async (req, res) => {
   }
 });
 
-app.put('/api/workspaces/:id', async (req, res) => {
+app.put('/api/workspaces/:id', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM workspaces WHERE id = $1', [req.params.id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Workspace not found' });
@@ -222,7 +391,7 @@ app.get('/api/programs', async (req, res) => {
   }
 });
 
-app.post('/api/programs', async (req, res) => {
+app.post('/api/programs', authenticateToken, async (req, res) => {
   const { workspaceId, name, description, templateId, issueDate, expiryDate, recipientFields } = req.body;
   if (!workspaceId || !name || !templateId) {
     return res.status(400).json({ error: 'workspaceId, name, and templateId are required' });
@@ -254,7 +423,7 @@ app.post('/api/programs', async (req, res) => {
   }
 });
 
-app.put('/api/programs/:id', async (req, res) => {
+app.put('/api/programs/:id', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM programs WHERE id = $1', [req.params.id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Program not found' });
@@ -350,7 +519,7 @@ app.get('/api/templates', async (req, res) => {
   }
 });
 
-app.post('/api/templates', async (req, res) => {
+app.post('/api/templates', authenticateToken, async (req, res) => {
   const { workspaceId, name } = req.body;
   if (!workspaceId || !name) {
     return res.status(400).json({ error: 'workspaceId and name are required' });
@@ -402,7 +571,7 @@ app.post('/api/templates', async (req, res) => {
   }
 });
 
-app.put('/api/templates/:id', async (req, res) => {
+app.put('/api/templates/:id', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM templates WHERE id = $1', [req.params.id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Template not found' });
@@ -518,7 +687,7 @@ app.put('/api/templates/:id', async (req, res) => {
 });
 
 // 4. Recipient Issue Operations
-app.post('/api/programs/:id/issue', async (req, res) => {
+app.post('/api/programs/:id/issue', authenticateToken, async (req, res) => {
   const programId = req.params.id;
   const recipients = req.body.recipients as Recipient[];
   if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
@@ -739,7 +908,7 @@ app.post('/api/certificates/:id/stats', async (req, res) => {
 });
 
 // Manual Revoking, Restoring, or Suspending Certificate
-app.post('/api/certificates/:id/status', async (req, res) => {
+app.post('/api/certificates/:id/status', authenticateToken, async (req, res) => {
   const { status, reason } = req.body;
   if (!status) return res.status(400).json({ error: 'Status is required' });
 
@@ -926,7 +1095,7 @@ app.get('/api/email-logs', async (req, res) => {
 });
 
 // Delete program
-app.delete('/api/programs/:id', async (req, res) => {
+app.delete('/api/programs/:id', authenticateToken, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -952,7 +1121,7 @@ app.delete('/api/programs/:id', async (req, res) => {
 });
 
 // Delete template
-app.delete('/api/templates/:id', async (req, res) => {
+app.delete('/api/templates/:id', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query('DELETE FROM templates WHERE id = $1', [req.params.id]);
     if (result.rowCount === 0) {
@@ -1059,7 +1228,7 @@ async function generateGeminiContentWithRetry(ai: any, params: any, retries = 3,
 }
 
 // AI Template Generation Endpoint
-app.post('/api/ai/generate-template', async (req, res) => {
+app.post('/api/ai/generate-template', authenticateToken, async (req, res) => {
   const { prompt, sampleImage } = req.body;
   if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
 
@@ -1185,6 +1354,11 @@ Follow these strict design guidelines:
 const isProd = process.env.NODE_ENV === 'production';
 
 async function startServer() {
+  if (process.env.VERCEL) {
+    console.log('[CertOps Server] Running in Vercel Serverless environment.');
+    return;
+  }
+
   if (!isProd) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -1207,3 +1381,5 @@ async function startServer() {
 }
 
 startServer();
+
+export default app;

@@ -7,7 +7,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   BarChart3, Award, Users, Database, ShieldCheck, Settings, Globe, Mail, Landmark, 
   Trash2, Plus, ArrowUpRight, UploadCloud, RefreshCw, Layers, Calendar, User, Search,
-  AlertTriangle, Check, Sliders, Play, CheckCircle2, ShieldAlert, Sparkles, BookOpen
+  AlertTriangle, Check, Sliders, Play, CheckCircle2, ShieldAlert, Sparkles, BookOpen,
+  LogOut
 } from 'lucide-react';
 import { 
   OrganizationWorkspace, CertificateProgram, CertificateTemplate, 
@@ -21,9 +22,22 @@ interface DashboardProps {
   onTabChange: (tab: 'overview' | 'programs' | 'templates' | 'recipients' | 'issued' | 'branding' | 'settings' | 'emails') => void;
   onWorkspaceChange: (id: string) => void;
   onViewCertificatePage: (id: string) => void;
+  token: string | null;
+  user: any;
+  onLogout: () => void;
 }
 
-export function Dashboard({ currentWorkspaceId, activeTab: activeTabProp, onTabChange, onWorkspaceChange, onViewCertificatePage }: DashboardProps) {
+export function Dashboard({ 
+  currentWorkspaceId, 
+  activeTab: activeTabProp, 
+  onTabChange, 
+  onWorkspaceChange, 
+  onViewCertificatePage,
+  token,
+  user,
+  onLogout
+}: DashboardProps) {
+  const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
   // Navigation tabs
   const [activeTab, setActiveTab] = useState<'overview' | 'programs' | 'templates' | 'recipients' | 'issued' | 'branding' | 'settings' | 'emails'>(activeTabProp || 'overview');
 
@@ -100,7 +114,7 @@ export function Dashboard({ currentWorkspaceId, activeTab: activeTabProp, onTabC
 
   const loadWorkspaces = async () => {
     try {
-      const res = await fetch('/api/workspaces');
+      const res = await fetch('/api/workspaces', { headers: authHeaders });
       if (res.ok) {
         const data = await res.json();
         setWorkspaces(data);
@@ -122,12 +136,12 @@ export function Dashboard({ currentWorkspaceId, activeTab: activeTabProp, onTabC
     try {
       // Parallel fetch to load workspace resources speed-first
       const [programsRes, templatesRes, certsRes, emailsRes, analyticsRes, workspaceRes] = await Promise.all([
-        fetch(`/api/programs?workspaceId=${currentWorkspaceId}`),
-        fetch(`/api/templates?workspaceId=${currentWorkspaceId}`),
-        fetch(`/api/certificates?workspaceId=${currentWorkspaceId}`),
-        fetch(`/api/email-logs?workspaceId=${currentWorkspaceId}`),
-        fetch(`/api/analytics?workspaceId=${currentWorkspaceId}`),
-        fetch(`/api/workspaces/${currentWorkspaceId}`)
+        fetch(`/api/programs?workspaceId=${currentWorkspaceId}`, { headers: authHeaders }),
+        fetch(`/api/templates?workspaceId=${currentWorkspaceId}`, { headers: authHeaders }),
+        fetch(`/api/certificates?workspaceId=${currentWorkspaceId}`, { headers: authHeaders }),
+        fetch(`/api/email-logs?workspaceId=${currentWorkspaceId}`, { headers: authHeaders }),
+        fetch(`/api/analytics?workspaceId=${currentWorkspaceId}`, { headers: authHeaders }),
+        fetch(`/api/workspaces/${currentWorkspaceId}`, { headers: authHeaders })
       ]);
 
       if (programsRes.ok) setPrograms(await programsRes.json());
@@ -158,7 +172,10 @@ export function Dashboard({ currentWorkspaceId, activeTab: activeTabProp, onTabC
     try {
       const res = await fetch('/api/workspaces', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...authHeaders
+        },
         body: JSON.stringify({
           name: newWsName,
           brandName: newWsBrandName,
@@ -170,7 +187,7 @@ export function Dashboard({ currentWorkspaceId, activeTab: activeTabProp, onTabC
       if (res.ok) {
         const created = await res.json();
         // Reload list
-        const listRes = await fetch('/api/workspaces');
+        const listRes = await fetch('/api/workspaces', { headers: authHeaders });
         if (listRes.ok) {
           const loadedList = await listRes.json();
           setWorkspaces(loadedList);
@@ -196,7 +213,10 @@ export function Dashboard({ currentWorkspaceId, activeTab: activeTabProp, onTabC
     try {
       const res = await fetch('/api/programs', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...authHeaders
+        },
         body: JSON.stringify({
           workspaceId: currentWorkspaceId,
           name: progName,
@@ -255,7 +275,10 @@ export function Dashboard({ currentWorkspaceId, activeTab: activeTabProp, onTabC
     try {
       const res = await fetch(`/api/templates/${editingTemplate.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...authHeaders
+        },
         body: JSON.stringify(editingTemplate)
       });
       if (res.ok) {
@@ -271,7 +294,10 @@ export function Dashboard({ currentWorkspaceId, activeTab: activeTabProp, onTabC
     try {
       const res = await fetch(`/api/templates/${updated.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...authHeaders
+        },
         body: JSON.stringify(updated)
       });
       if (res.ok) {
@@ -287,7 +313,10 @@ export function Dashboard({ currentWorkspaceId, activeTab: activeTabProp, onTabC
     try {
       const res = await fetch('/api/templates', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...authHeaders
+        },
         body: JSON.stringify({
           workspaceId: currentWorkspaceId,
           name: 'New Custom Workspace Template',
@@ -319,7 +348,10 @@ export function Dashboard({ currentWorkspaceId, activeTab: activeTabProp, onTabC
   const handleDeleteTemplate = async (id: string) => {
     if (!confirm('Are you absolutely sure you want to remove this template? This cannot be undone.')) return;
     try {
-      const res = await fetch(`/api/templates/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/templates/${id}`, { 
+        method: 'DELETE',
+        headers: authHeaders
+      });
       if (res.ok) {
         await triggerDataRefresh();
       }
@@ -422,7 +454,10 @@ export function Dashboard({ currentWorkspaceId, activeTab: activeTabProp, onTabC
     try {
       const res = await fetch(`/api/programs/${selectedProgramId}/issue`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...authHeaders
+        },
         body: JSON.stringify({ recipients: activeIssuables })
       });
 
@@ -450,7 +485,10 @@ export function Dashboard({ currentWorkspaceId, activeTab: activeTabProp, onTabC
     try {
       const res = await fetch(`/api/certificates/${revokingCertId}/status`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...authHeaders
+        },
         body: JSON.stringify({ status: 'revoked', reason: revocationReason })
       });
 
@@ -467,7 +505,10 @@ export function Dashboard({ currentWorkspaceId, activeTab: activeTabProp, onTabC
     try {
       const res = await fetch(`/api/certificates/${id}/status`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...authHeaders
+        },
         body: JSON.stringify({ status: 'valid' })
       });
       if (res.ok) {
@@ -485,7 +526,10 @@ export function Dashboard({ currentWorkspaceId, activeTab: activeTabProp, onTabC
     try {
       const res = await fetch(`/api/workspaces/${currentWorkspace.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...authHeaders
+        },
         body: JSON.stringify({
           branding: {
             ...currentWorkspace.branding,
@@ -506,7 +550,10 @@ export function Dashboard({ currentWorkspaceId, activeTab: activeTabProp, onTabC
   const handleDeleteProgram = async (id: string) => {
     if (!confirm('Are you absolutely sure you want to delete this program? All related certificates will be revoked.')) return;
     try {
-      const res = await fetch(`/api/programs/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/programs/${id}`, { 
+        method: 'DELETE',
+        headers: authHeaders
+      });
       if (res.ok) {
         await triggerDataRefresh();
       }
@@ -668,12 +715,22 @@ export function Dashboard({ currentWorkspaceId, activeTab: activeTabProp, onTabC
 
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center font-bold text-slate-700 text-xs shadow-inner">
-              {currentWorkspace?.name.charAt(0) || 'U'}
+              {(user?.name || currentWorkspace?.name || 'G').charAt(0).toUpperCase()}
             </div>
             <div className="flex-1 truncate">
-              <p className="text-xs font-semibold text-slate-900 truncate">Administrator Account</p>
-              <p className="text-[9px] font-mono text-slate-400">admin@certops.verify</p>
+              <p className="text-xs font-semibold text-slate-900 truncate">{user?.name || 'Administrator Account'}</p>
+              <p className="text-[9px] font-mono text-slate-400 truncate">{user?.email || 'admin@glint.io'}</p>
             </div>
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                title="Log Out"
+                className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600 transition-colors"
+                id="btn-logout"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
       </aside>
@@ -1114,6 +1171,7 @@ export function Dashboard({ currentWorkspaceId, activeTab: activeTabProp, onTabC
                       onCancel={() => setEditingTemplate(null)} 
                       brandName={currentWorkspace?.branding?.brandName || currentWorkspace?.name} 
                       primaryColor={currentWorkspace?.branding?.primaryColor || '#000000'}
+                      token={token}
                     />
                   ) : false ? (
                     <div className="space-y-6">

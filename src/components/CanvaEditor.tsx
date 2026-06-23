@@ -12,6 +12,7 @@ interface CanvaEditorProps {
   onCancel: () => void;
   brandName?: string;
   primaryColor?: string;
+  token?: string | null;
 }
 
 // 6+ Beautiful Canva Designer Presets
@@ -232,7 +233,7 @@ const GRADIENT_OPTIONS = [
   { name: 'Rosewood Petals', value: 'linear-gradient(135deg, #FAF5F5 0%, #FEE2E2 50%, #FCE7F3 100%)', isGradient: true },
 ];
 
-export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace', primaryColor = '#0F172A' }: CanvaEditorProps) {
+export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace', primaryColor = '#0F172A', token }: CanvaEditorProps) {
   // Current active template editing state
   const [currentTemplate, setCurrentTemplate] = useState<CertificateTemplate>(JSON.parse(JSON.stringify(template)));
   
@@ -787,7 +788,10 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
     try {
       const res = await fetch('/api/ai/generate-template', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({ 
           prompt: aiPrompt,
           sampleImage: aiSampleImage
