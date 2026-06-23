@@ -245,6 +245,44 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
+// Diagnostic route to check backend status and database connection details
+app.get('/api/diagnostic', async (req, res) => {
+  try {
+    const dbUrl = process.env.DATABASE_URL;
+    const dbConfigured = !!dbUrl;
+    const maskedUrl = dbUrl ? dbUrl.replace(/:[^:@]+@/, ':***@') : null;
+    
+    let dbStatus = 'disconnected';
+    let dbError = null;
+    let serverTime = null;
+    
+    try {
+      const dbRes = await pool.query('SELECT NOW()');
+      dbStatus = 'connected';
+      serverTime = dbRes.rows[0].now;
+    } catch (err: any) {
+      dbStatus = 'failed';
+      dbError = err.message || err;
+    }
+    
+    res.json({
+      environment: {
+        VERCEL: process.env.VERCEL || null,
+        NODE_ENV: process.env.NODE_ENV || null,
+        DATABASE_URL_CONFIGURED: dbConfigured,
+        DATABASE_URL_MASKED: maskedUrl
+      },
+      database: {
+        status: dbStatus,
+        error: dbError,
+        serverTime
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Profile endpoint
 app.get('/api/auth/me', authenticateToken, async (req: any, res) => {
   try {
