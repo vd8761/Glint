@@ -32,20 +32,20 @@ export const ContainerScroll = ({
   }, []);
 
   const scaleDimensions = () => {
-    return isMobile ? [0.8, 0.95] : [1.05, 1];
+    return isMobile ? [0.85, 0.95] : [1.02, 1];
   };
 
-  const rotate = useTransform(scrollYProgress, [0, 1], [15, 0]);
+  const rotate = useTransform(scrollYProgress, [0, 1], [10, 0]);
   const scale = useTransform(scrollYProgress, [0, 1], scaleDimensions());
-  const translate = useTransform(scrollYProgress, [0, 1], [0, -80]);
+  const translate = useTransform(scrollYProgress, [0, 1], [0, -50]);
 
   return (
     <div
-      className="h-[55rem] md:h-[75rem] flex items-center justify-center relative p-2 md:p-12 z-10"
+      className="h-[45rem] md:h-[62rem] flex items-center justify-center relative p-2 md:p-8 z-10"
       ref={containerRef}
     >
       <div
-        className="py-10 md:py-24 w-full relative"
+        className="py-6 md:py-16 w-full relative"
         style={{
           perspective: "1000px",
         }}
@@ -88,11 +88,11 @@ export const Card = ({
         rotateX: rotate,
         scale,
         boxShadow:
-          "0 10px 30px -10px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.02), 0 30px 60px -15px rgba(99, 102, 241, 0.05)",
+          "0 20px 40px -15px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.01), 0 30px 60px -20px rgba(99, 102, 241, 0.04)",
       }}
-      className="max-w-5xl -mt-16 mx-auto h-[32rem] md:h-[42rem] w-full border-4 border-slate-200/80 p-2 md:p-4 bg-slate-50/70 backdrop-blur-md rounded-[32px]"
+      className="max-w-5xl -mt-10 mx-auto h-[32rem] md:h-[42rem] w-full border border-slate-200/50 p-1 bg-slate-50/30 backdrop-blur-sm rounded-[24px]"
     >
-      <div className="h-full w-full overflow-hidden rounded-2xl bg-white shadow-inner border border-slate-100 flex flex-col justify-between">
+      <div className="h-full w-full overflow-hidden rounded-[20px] bg-white shadow-inner border border-slate-100 flex flex-col justify-between">
         {children}
       </div>
     </motion.div>

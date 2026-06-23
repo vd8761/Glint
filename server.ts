@@ -132,8 +132,9 @@ app.post('/api/auth/register', async (req, res) => {
     return res.status(400).json({ error: 'Password must be at least 6 characters long' });
   }
 
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
 
     // Check if user already exists
@@ -195,14 +196,18 @@ app.post('/api/auth/register', async (req, res) => {
       }
     });
   } catch (err: any) {
-    await client.query('ROLLBACK');
+    if (client) {
+      await client.query('ROLLBACK');
+    }
     console.error('Error during registration:', err.message);
     if (err.code === '23505') {
       return res.status(400).json({ error: 'An account with this email already exists' });
     }
-    res.status(500).json({ error: 'Internal server error during registration' });
+    res.status(500).json({ error: err.message || 'Internal server error during registration' });
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 });
 
@@ -272,8 +277,9 @@ app.put('/api/admin/workspaces/:id', authenticateToken, requireAdmin, async (req
 // Delete a workspace (cascade clean)
 app.delete('/api/admin/workspaces/:id', authenticateToken, requireAdmin, async (req, res) => {
   const { id } = req.params;
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
     await client.query('DELETE FROM certificates WHERE workspace_id = $1', [id]);
     await client.query('DELETE FROM email_logs WHERE workspace_id = $1', [id]);
@@ -284,10 +290,14 @@ app.delete('/api/admin/workspaces/:id', authenticateToken, requireAdmin, async (
     await client.query('COMMIT');
     res.json({ success: true });
   } catch (err: any) {
-    await client.query('ROLLBACK');
+    if (client) {
+      await client.query('ROLLBACK');
+    }
     res.status(500).json({ error: err.message });
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 });
 
@@ -324,8 +334,9 @@ app.put('/api/admin/programs/:id', authenticateToken, requireAdmin, async (req, 
 // Delete a program
 app.delete('/api/admin/programs/:id', authenticateToken, requireAdmin, async (req, res) => {
   const { id } = req.params;
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
     await client.query('DELETE FROM certificates WHERE program_id = $1', [id]);
     await client.query('DELETE FROM email_logs WHERE program_id = $1', [id]);
@@ -333,10 +344,14 @@ app.delete('/api/admin/programs/:id', authenticateToken, requireAdmin, async (re
     await client.query('COMMIT');
     res.json({ success: true });
   } catch (err: any) {
-    await client.query('ROLLBACK');
+    if (client) {
+      await client.query('ROLLBACK');
+    }
     res.status(500).json({ error: err.message });
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 });
 
@@ -831,13 +846,14 @@ app.post('/api/programs/:id/issue', authenticateToken, async (req, res) => {
     return res.status(400).json({ error: 'Recipients array is required and cannot be empty' });
   }
 
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
     
     const progResult = await client.query('SELECT * FROM programs WHERE id = $1', [programId]);
     if (progResult.rows.length === 0) {
-      client.release();
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Program not found' });
     }
     const program = progResult.rows[0];
@@ -920,17 +936,21 @@ app.post('/api/programs/:id/issue', authenticateToken, async (req, res) => {
     }
 
     await client.query('COMMIT');
-    client.release();
     
     res.json({
       message: `Successfully issued ${generatedCertificates.length} credentials!`,
       certificates: generatedCertificates
     });
   } catch (err: any) {
-    await client.query('ROLLBACK');
-    client.release();
+    if (client) {
+      await client.query('ROLLBACK');
+    }
     console.error('Error issuing certificates:', err);
     res.status(500).json({ error: 'Database error issuing certificates' });
+  } finally {
+    if (client) {
+      client.release();
+    }
   }
 });
 
@@ -1233,13 +1253,14 @@ app.get('/api/email-logs', async (req, res) => {
 
 // Delete program
 app.delete('/api/programs/:id', authenticateToken, async (req, res) => {
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
     
     const indexResult = await client.query('SELECT * FROM programs WHERE id = $1', [req.params.id]);
     if (indexResult.rows.length === 0) {
-      client.release();
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Program not found' });
     }
 
@@ -1247,13 +1268,17 @@ app.delete('/api/programs/:id', authenticateToken, async (req, res) => {
     await client.query('DELETE FROM programs WHERE id = $1', [req.params.id]);
 
     await client.query('COMMIT');
-    client.release();
     res.json({ message: 'Program deleted successfully' });
   } catch (err: any) {
-    await client.query('ROLLBACK');
-    client.release();
+    if (client) {
+      await client.query('ROLLBACK');
+    }
     console.error('Error deleting program:', err);
     res.status(500).json({ error: 'Database error deleting program' });
+  } finally {
+    if (client) {
+      client.release();
+    }
   }
 });
 
@@ -1484,6 +1509,12 @@ Follow these strict design guidelines:
   }
 });
 
+
+// Global error handling middleware
+app.use((err: any, req: any, res: any, next: any) => {
+  console.error('[Global Error Handler] Caught exception:', err);
+  res.status(500).json({ error: err.message || 'An internal server error occurred' });
+});
 
 // Standard Vite Dev Server Mounting (Express / Vite Middleware code)
 // =================================================================

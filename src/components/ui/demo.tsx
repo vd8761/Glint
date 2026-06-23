@@ -10,7 +10,7 @@ import { Award, ShieldCheck, Database, Layers, Sparkles } from "lucide-react";
 
 export function HeroScrollDemo() {
   return (
-    <div className="flex flex-col overflow-hidden bg-slate-50/50 py-12 rounded-3xl border border-slate-200/40">
+    <div className="w-full relative">
       <ContainerScroll
         titleComponent={
           <div className="space-y-4">
@@ -47,9 +47,9 @@ export function HeroScrollDemo() {
           </div>
 
           {/* Mock Workspace Content Grid */}
-          <div className="grid grid-cols-12 gap-6 my-6 grow items-stretch">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4 md:gap-6 my-4 md:my-6 grow items-stretch overflow-hidden">
             {/* Sidebar Controls */}
-            <div className="col-span-4 border border-slate-100 bg-slate-50/50 rounded-xl p-4 flex flex-col justify-between">
+            <div className="hidden md:flex md:col-span-4 border border-slate-100 bg-slate-50/50 rounded-xl p-4 flex-col justify-between">
               <div className="space-y-4">
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Design Elements</p>
                 <div className="space-y-2">
@@ -82,9 +82,9 @@ export function HeroScrollDemo() {
             </div>
 
             {/* Main Canvas Workspace */}
-            <div className="col-span-8 border-2 border-dashed border-slate-200 rounded-xl p-4 flex items-center justify-center bg-slate-50/20 relative overflow-hidden group">
+            <div className="col-span-12 md:col-span-8 border-2 border-dashed border-slate-200 rounded-xl p-3 md:p-4 flex items-center justify-center bg-slate-50/20 relative overflow-hidden group">
               {/* Simulated Certificate rendering */}
-              <div className="w-[90%] aspect-[1.414/1] bg-white border-[6px] border-indigo-600/80 rounded shadow-md p-4 flex flex-col justify-between transition-all duration-300 group-hover:scale-[1.02]">
+              <div className="w-full md:w-[90%] aspect-[1.414/1] bg-white border-[6px] border-indigo-600/80 rounded shadow-md p-4 flex flex-col justify-between transition-all duration-300 group-hover:scale-[1.02]">
                 <div className="flex justify-between items-start">
                   <div>
                     <h4 className="text-[8px] font-bold text-indigo-600 tracking-wider">OFFICIAL ACADEMIC CREDENTIAL</h4>
