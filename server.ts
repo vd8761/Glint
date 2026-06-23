@@ -27,6 +27,26 @@ import {
 dotenv.config({ path: path.join(process.cwd(), '.env.local') });
 dotenv.config();
 
+// Professional Logger Utility
+const logger = {
+  info: (message: string, context?: any) => {
+    const timestamp = new Date().toISOString();
+    const ctxString = context ? ` | Context: ${JSON.stringify(context)}` : '';
+    console.log(`[${timestamp}] [INFO] [CertOps] ${message}${ctxString}`);
+  },
+  warn: (message: string, context?: any) => {
+    const timestamp = new Date().toISOString();
+    const ctxString = context ? ` | Context: ${JSON.stringify(context)}` : '';
+    console.warn(`[${timestamp}] [WARN] [CertOps] ${message}${ctxString}`);
+  },
+  error: (message: string, error?: any, context?: any) => {
+    const timestamp = new Date().toISOString();
+    const errMessage = error ? (error.stack || error.message || error) : '';
+    const ctxString = context ? ` | Context: ${JSON.stringify(context)}` : '';
+    console.error(`[${timestamp}] [ERROR] [CertOps] ${message} | Error: ${errMessage}${ctxString}`);
+  }
+};
+
 const { Pool } = pg;
 
 // Connection Pool to PostgreSQL database
@@ -34,14 +54,31 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://postgres:0023@localhost:5432/Certificates_Platform'
 });
 
+// Idle connection error handling to prevent serverless function / process crashes
+pool.on('error', (err) => {
+  logger.error('Unexpected error on idle PostgreSQL client', err);
+});
+
 // Test PostgreSQL database connection on startup
 pool.query('SELECT NOW()', (err, res) => {
   if (err) {
-    console.error('[CertOps Database] Error connecting to PostgreSQL:', err.message);
+    logger.error('Failed to establish initial PostgreSQL connection', err);
   } else {
-    console.log('[CertOps Database] Connected to PostgreSQL successfully at:', res.rows[0].now);
+    logger.info('Connected to PostgreSQL successfully', { serverTime: res.rows[0].now });
   }
 });
+
+// Helper to safely rollback transactions without throwing uncaught errors
+const safeRollback = async (client: any) => {
+  if (client) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (err) {
+      logger.error('Failed to rollback transaction', err);
+    }
+  }
+};
+
 
 const JWT_SECRET = process.env.JWT_SECRET || 'glint-super-secure-token-vault-key-2026';
 
@@ -111,7 +148,7 @@ app.post('/api/auth/login', async (req, res) => {
       }
     });
   } catch (err: any) {
-    console.error('Error during login:', err.message);
+    logger.error('Error during login', err);
     res.status(500).json({ error: 'Internal server error during login' });
   }
 });
@@ -132,14 +169,15 @@ app.post('/api/auth/register', async (req, res) => {
     return res.status(400).json({ error: 'Password must be at least 6 characters long' });
   }
 
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
 
     // Check if user already exists
     const userCheck = await client.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase().trim()]);
     if (userCheck.rows.length > 0) {
-      await client.query('ROLLBACK');
+      await safeRollback(client);
       return res.status(400).json({ error: 'An account with this email already exists' });
     }
 
@@ -195,14 +233,16 @@ app.post('/api/auth/register', async (req, res) => {
       }
     });
   } catch (err: any) {
-    await client.query('ROLLBACK');
-    console.error('Error during registration:', err.message);
+    await safeRollback(client);
+    logger.error('Error during registration', err);
     if (err.code === '23505') {
       return res.status(400).json({ error: 'An account with this email already exists' });
     }
-    res.status(500).json({ error: 'Internal server error during registration' });
+    res.status(500).json({ error: err.message || 'Internal server error during registration' });
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 });
 
@@ -226,7 +266,7 @@ app.get('/api/auth/me', authenticateToken, async (req: any, res) => {
       workspaceId: user.workspace_id
     });
   } catch (err: any) {
-    console.error('Error fetching user profile:', err.message);
+    logger.error('Error fetching user profile', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -272,8 +312,9 @@ app.put('/api/admin/workspaces/:id', authenticateToken, requireAdmin, async (req
 // Delete a workspace (cascade clean)
 app.delete('/api/admin/workspaces/:id', authenticateToken, requireAdmin, async (req, res) => {
   const { id } = req.params;
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
     await client.query('DELETE FROM certificates WHERE workspace_id = $1', [id]);
     await client.query('DELETE FROM email_logs WHERE workspace_id = $1', [id]);
@@ -284,10 +325,13 @@ app.delete('/api/admin/workspaces/:id', authenticateToken, requireAdmin, async (
     await client.query('COMMIT');
     res.json({ success: true });
   } catch (err: any) {
-    await client.query('ROLLBACK');
+    await safeRollback(client);
+    logger.error(`Error admin deleting workspace ${id}`, err);
     res.status(500).json({ error: err.message });
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 });
 
@@ -324,8 +368,9 @@ app.put('/api/admin/programs/:id', authenticateToken, requireAdmin, async (req, 
 // Delete a program
 app.delete('/api/admin/programs/:id', authenticateToken, requireAdmin, async (req, res) => {
   const { id } = req.params;
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
     await client.query('DELETE FROM certificates WHERE program_id = $1', [id]);
     await client.query('DELETE FROM email_logs WHERE program_id = $1', [id]);
@@ -333,10 +378,13 @@ app.delete('/api/admin/programs/:id', authenticateToken, requireAdmin, async (re
     await client.query('COMMIT');
     res.json({ success: true });
   } catch (err: any) {
-    await client.query('ROLLBACK');
+    await safeRollback(client);
+    logger.error(`Error admin deleting program ${id}`, err);
     res.status(500).json({ error: err.message });
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 });
 
@@ -380,7 +428,7 @@ app.get('/api/workspaces', async (req, res) => {
     }));
     res.json(workspaces);
   } catch (err: any) {
-    console.error('Error fetching workspaces:', err);
+    logger.error('Error fetching workspaces', err);
     res.status(500).json({ error: 'Database error fetching workspaces' });
   }
 });
@@ -409,7 +457,7 @@ app.get('/api/workspaces/:id', async (req, res) => {
       }
     });
   } catch (err: any) {
-    console.error('Error fetching workspace:', err);
+    logger.error('Error fetching workspace', err);
     res.status(500).json({ error: 'Database error fetching workspace' });
   }
 });
@@ -450,7 +498,7 @@ app.post('/api/workspaces', async (req, res) => {
       branding
     });
   } catch (err: any) {
-    console.error('Error creating workspace:', err);
+    logger.error('Error creating workspace', err);
     res.status(500).json({ error: 'Database error creating workspace' });
   }
 });
@@ -493,7 +541,7 @@ app.put('/api/workspaces/:id', authenticateToken, async (req, res) => {
       branding
     });
   } catch (err: any) {
-    console.error('Error updating workspace:', err);
+    logger.error('Error updating workspace', err);
     res.status(500).json({ error: 'Database error updating workspace' });
   }
 });
@@ -523,7 +571,7 @@ app.get('/api/programs', async (req, res) => {
     }));
     res.json(programs);
   } catch (err: any) {
-    console.error('Error getting programs:', err);
+    logger.error('Error getting programs', err);
     res.status(500).json({ error: 'Database error fetching programs' });
   }
 });
@@ -555,7 +603,7 @@ app.post('/api/programs', authenticateToken, async (req, res) => {
     );
     res.json(newProgram);
   } catch (err: any) {
-    console.error('Error creating program:', err);
+    logger.error('Error creating program', err);
     res.status(500).json({ error: 'Database error creating program' });
   }
 });
@@ -594,7 +642,7 @@ app.put('/api/programs/:id', authenticateToken, async (req, res) => {
       recipientFields
     });
   } catch (err: any) {
-    console.error('Error updating program:', err);
+    logger.error('Error updating program', err);
     res.status(500).json({ error: 'Database error updating program' });
   }
 });
@@ -651,7 +699,7 @@ app.get('/api/templates', async (req, res) => {
     }));
     res.json(templates);
   } catch (err: any) {
-    console.error('Error fetching templates:', err);
+    logger.error('Error fetching templates', err);
     res.status(500).json({ error: 'Database error fetching templates' });
   }
 });
@@ -703,7 +751,7 @@ app.post('/api/templates', authenticateToken, async (req, res) => {
     );
     res.json(t);
   } catch (err: any) {
-    console.error('Error creating template:', err);
+    logger.error('Error creating template', err);
     res.status(500).json({ error: 'Database error creating template' });
   }
 });
@@ -818,7 +866,7 @@ app.put('/api/templates/:id', authenticateToken, async (req, res) => {
       backgroundImageUrl: t.backgroundImageUrl
     });
   } catch (err: any) {
-    console.error('Error updating template:', err);
+    logger.error('Error updating template', err);
     res.status(500).json({ error: 'Database error updating template' });
   }
 });
@@ -831,13 +879,14 @@ app.post('/api/programs/:id/issue', authenticateToken, async (req, res) => {
     return res.status(400).json({ error: 'Recipients array is required and cannot be empty' });
   }
 
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
     
     const progResult = await client.query('SELECT * FROM programs WHERE id = $1', [programId]);
     if (progResult.rows.length === 0) {
-      client.release();
+      await safeRollback(client);
       return res.status(404).json({ error: 'Program not found' });
     }
     const program = progResult.rows[0];
@@ -920,17 +969,19 @@ app.post('/api/programs/:id/issue', authenticateToken, async (req, res) => {
     }
 
     await client.query('COMMIT');
-    client.release();
     
     res.json({
       message: `Successfully issued ${generatedCertificates.length} credentials!`,
       certificates: generatedCertificates
     });
   } catch (err: any) {
-    await client.query('ROLLBACK');
-    client.release();
-    console.error('Error issuing certificates:', err);
+    await safeRollback(client);
+    logger.error('Error issuing certificates', err);
     res.status(500).json({ error: 'Database error issuing certificates' });
+  } finally {
+    if (client) {
+      client.release();
+    }
   }
 });
 
@@ -979,7 +1030,7 @@ app.get('/api/certificates/:id', async (req, res) => {
       branding
     });
   } catch (err: any) {
-    console.error('Error verifying certificate:', err);
+    logger.error('Error verifying certificate', err);
     res.status(500).json({ error: 'Database error fetching certificate details' });
   }
 });
@@ -1039,7 +1090,7 @@ app.post('/api/certificates/:id/stats', async (req, res) => {
       auditTrail
     });
   } catch (err: any) {
-    console.error('Error logging certificate stats:', err);
+    logger.error('Error logging certificate stats', err);
     res.status(500).json({ error: 'Database error logging statistics' });
   }
 });
@@ -1100,7 +1151,7 @@ app.post('/api/certificates/:id/status', authenticateToken, async (req, res) => 
       auditTrail
     });
   } catch (err: any) {
-    console.error('Error changing certificate status:', err);
+    logger.error('Error changing certificate status:', err);
     res.status(500).json({ error: 'Database error updating certificate status' });
   }
 });
@@ -1150,8 +1201,8 @@ app.post('/api/certificates/:id/verify', async (req, res) => {
       timestamp
     });
   } catch (err: any) {
-    console.error('Error verifying certificate:', err);
-    res.status(500).json({ error: 'Database error auditing verification' });
+    logger.error('Error verifying certificate', err);
+    res.status(500).json({ error: 'Database error verifying certificate' });
   }
 });
 
@@ -1200,7 +1251,7 @@ app.get('/api/certificates', async (req, res) => {
     }));
     res.json(certificates);
   } catch (err: any) {
-    console.error('Error fetching certificates:', err);
+    logger.error('Error fetching certificates', err);
     res.status(500).json({ error: 'Database error fetching certificates' });
   }
 });
@@ -1226,20 +1277,21 @@ app.get('/api/email-logs', async (req, res) => {
     }));
     res.json(logs);
   } catch (err: any) {
-    console.error('Error fetching email logs:', err);
+    logger.error('Error fetching email logs', err);
     res.status(500).json({ error: 'Database error fetching email logs' });
   }
 });
 
 // Delete program
 app.delete('/api/programs/:id', authenticateToken, async (req, res) => {
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
     
     const indexResult = await client.query('SELECT * FROM programs WHERE id = $1', [req.params.id]);
     if (indexResult.rows.length === 0) {
-      client.release();
+      await safeRollback(client);
       return res.status(404).json({ error: 'Program not found' });
     }
 
@@ -1247,13 +1299,15 @@ app.delete('/api/programs/:id', authenticateToken, async (req, res) => {
     await client.query('DELETE FROM programs WHERE id = $1', [req.params.id]);
 
     await client.query('COMMIT');
-    client.release();
     res.json({ message: 'Program deleted successfully' });
   } catch (err: any) {
-    await client.query('ROLLBACK');
-    client.release();
-    console.error('Error deleting program:', err);
+    await safeRollback(client);
+    logger.error(`Error deleting program ${req.params.id}`, err);
     res.status(500).json({ error: 'Database error deleting program' });
+  } finally {
+    if (client) {
+      client.release();
+    }
   }
 });
 
@@ -1266,7 +1320,7 @@ app.delete('/api/templates/:id', authenticateToken, async (req, res) => {
     }
     res.json({ message: 'Template deleted successfully' });
   } catch (err: any) {
-    console.error('Error deleting template:', err);
+    logger.error('Error deleting template', err);
     res.status(500).json({ error: 'Database error deleting template' });
   }
 });
@@ -1343,7 +1397,7 @@ app.get('/api/analytics', async (req, res) => {
 
     res.json(payload);
   } catch (err: any) {
-    console.error('Error generating analytics:', err);
+    logger.error('Error generating analytics', err);
     res.status(500).json({ error: 'Database error calculating analytics' });
   }
 });
@@ -1355,7 +1409,7 @@ async function generateGeminiContentWithRetry(ai: any, params: any, retries = 3,
       return await ai.models.generateContent(params);
     } catch (err: any) {
       if (err.message && err.message.includes('503') && i < retries - 1) {
-        console.warn(`[Gemini API] 503 Overloaded, retrying in ${delay}ms... (Attempt ${i + 1}/${retries})`);
+        logger.warn(`[Gemini API] 503 Overloaded, retrying (Attempt ${i + 1}/${retries})`, { delay });
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
@@ -1479,11 +1533,17 @@ Follow these strict design guidelines:
       backgroundImageUrl
     });
   } catch (err: any) {
-    console.error('Error generating AI template:', err);
+    logger.error('Error generating AI template', err);
     res.status(500).json({ error: err.message || 'Error generating AI template' });
   }
 });
 
+
+// Global error handling middleware
+app.use((err: any, req: any, res: any, next: any) => {
+  logger.error('Caught exception in Global Error Handler', err);
+  res.status(500).json({ error: err.message || 'An internal server error occurred' });
+});
 
 // Standard Vite Dev Server Mounting (Express / Vite Middleware code)
 // =================================================================
@@ -1492,7 +1552,7 @@ const isProd = process.env.NODE_ENV === 'production';
 
 async function startServer() {
   if (process.env.VERCEL) {
-    console.log('[CertOps Server] Running in Vercel Serverless environment.');
+    logger.info('Running in Vercel Serverless environment.');
     return;
   }
 
@@ -1513,7 +1573,7 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[CertOps Server] Running on http://localhost:${PORT} in ${isProd ? 'production' : 'development'} mode.`);
+    logger.info(`Server running on http://localhost:${PORT} in ${isProd ? 'production' : 'development'} mode.`);
   });
 }
 

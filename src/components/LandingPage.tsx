@@ -3,12 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  Award, ShieldAlert, CheckCircle, Search, ExternalLink, ArrowRight, 
-  Check, Zap, Layers, BarChart3, Globe, Lock, ShieldCheck, Sparkles, Star, Database 
+  Award, ShieldAlert, CheckCircle, Search, ArrowRight, 
+  Check, Zap, Layers, Sparkles, Star, RefreshCw
 } from 'lucide-react';
 import { HeroScrollDemo } from './ui/demo';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface LandingPageProps {
   onStartFree: () => void;
@@ -16,38 +17,20 @@ interface LandingPageProps {
   onSelectWorkspace: (id: string) => void;
 }
 
-// Custom hook to trigger animations when elements enter the viewport
-function useReveal() {
-  const ref = useRef<HTMLDivElement>(null);
-  const [revealed, setRevealed] = useState(false);
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setRevealed(true);
-          observer.unobserve(entry.target);
-        }
-      },
-      { threshold: 0.05 }
-    );
-
-    if (ref.current) {
-      observer.observe(ref.current);
-    }
-    return () => observer.disconnect();
-  }, []);
-
-  return [ref, revealed] as const;
-}
-
 export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: LandingPageProps) {
-  const [searchId, setSearchId] = useState('');
   const [previewName, setPreviewName] = useState('Dr. Elias Vance');
   const [previewLayout, setPreviewLayout] = useState<'google' | 'stellar'>('google');
   const [scrollY, setScrollY] = useState(0);
-  const [isVerifying, setIsVerifying] = useState(false);
   const [hoverCard, setHoverCard] = useState({ x: 0, y: 0, hover: false });
+
+  // Verification Simulator State
+  const [certCode, setCertCode] = useState('');
+  const [scanState, setScanState] = useState<'idle' | 'scanning' | 'success' | 'failed'>('idle');
+  const [scanLogs, setScanLogs] = useState<string[]>([]);
+  const [scannedCert, setScannedCert] = useState<any>(null);
+
+  // Interactive Feature Explorer State
+  const [activeFeatureTab, setActiveFeatureTab] = useState(0);
 
   // Parallax Scroll listener
   useEffect(() => {
@@ -60,100 +43,127 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleanId = searchId.trim().toUpperCase();
-    if (!cleanId) return;
-    setIsVerifying(true);
-    setTimeout(() => {
-      onViewSample(cleanId);
-      setIsVerifying(false);
-    }, 800);
-  };
-
   // Card Mouse Move for 3D Tilt Effect
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const card = e.currentTarget;
     const rect = card.getBoundingClientRect();
     const x = e.clientX - rect.left - rect.width / 2;
     const y = e.clientY - rect.top - rect.height / 2;
-    setHoverCard({ x: x / 15, y: y / 15, hover: true });
+    setHoverCard({ x: x / 20, y: y / 20, hover: true });
   };
 
   const handleMouseLeave = () => {
     setHoverCard({ x: 0, y: 0, hover: false });
   };
 
-  // Sections reveal hooks
-  const [heroRef, heroRevealed] = useReveal();
-  const [featuresRef, featuresRevealed] = useReveal();
-  const [ledgerRef, ledgerRevealed] = useReveal();
-  const [pricingRef, pricingRevealed] = useReveal();
+  // Triggering the Verification Simulator
+  const handleVerifyScan = (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = certCode.trim().toUpperCase();
+    if (!code) return;
+
+    setScanState('scanning');
+    setScanLogs([]);
+    setScannedCert(null);
+
+    const logs = [
+      "Establishing secure connection to Neon cloud cluster...",
+      "Querying distributed public registry for hash matching...",
+      "Validating digital signature integrity seal...",
+      "Cryptographic SHA256 integrity: 100% SECURE MATCH.",
+      "Sync complete. Loading verified ledger page receipt..."
+    ];
+
+    logs.forEach((log, idx) => {
+      setTimeout(() => {
+        setScanLogs(prev => [...prev, log]);
+      }, (idx + 1) * 450);
+    });
+
+    setTimeout(() => {
+      setScanState('success');
+      setScannedCert({
+        id: code.includes('CERT') ? code : 'CERT-2026-1014',
+        recipient: "Dr. Elias Vance",
+        program: "Advanced API & Platform Ledger System",
+        date: "2026-06-17",
+        status: "VALID"
+      });
+    }, 2500);
+  };
+
+  // Reset simulator
+  const handleResetScan = () => {
+    setScanState('idle');
+    setCertCode('');
+    setScanLogs([]);
+    setScannedCert(null);
+  };
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA] text-slate-900 font-sans overflow-x-hidden relative selection:bg-indigo-500 selection:text-white">
+    <div className="min-h-screen bg-[#F9FBFC] text-slate-900 font-sans overflow-x-hidden relative selection:bg-indigo-500 selection:text-white">
       {/* Dynamic Embedded Styles for Custom Animations */}
       <style>{`
-        @keyframes float {
-          0% { transform: translateY(0px) rotate(0deg); }
-          50% { transform: translateY(-10px) rotate(2deg); }
-          100% { transform: translateY(0px) rotate(0deg); }
+        @keyframes scan-line {
+          0% { top: 0%; opacity: 0.7; }
+          50% { top: 100%; opacity: 1; }
+          100% { top: 0%; opacity: 0.7; }
         }
-        @keyframes float-reverse {
-          0% { transform: translateY(0px) rotate(0deg); }
-          50% { transform: translateY(12px) rotate(-2deg); }
-          100% { transform: translateY(0px) rotate(0deg); }
-        }
-        @keyframes pulse-slow {
-          0%, 100% { opacity: 0.4; transform: scale(1); }
-          50% { opacity: 0.65; transform: scale(1.08); }
-        }
-        .animate-float {
-          animation: float 6s ease-in-out infinite;
-        }
-        .animate-float-delayed {
-          animation: float-reverse 7s ease-in-out infinite;
-          animation-delay: 1s;
-        }
-        .animate-glow {
-          animation: pulse-slow 5s ease-in-out infinite;
+        .animate-scan {
+          animation: scan-line 3s ease-in-out infinite;
         }
         .perspective-1000 {
           perspective: 1000px;
         }
-        .reveal-on-scroll {
-          opacity: 0;
-          transform: translateY(35px);
-          transition: opacity 1.2s cubic-bezier(0.16, 1, 0.3, 1), transform 1.2s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .reveal-on-scroll.revealed {
-          opacity: 1;
-          transform: translateY(0);
+        .glossy-glow {
+          box-shadow: 0 0 30px rgba(99, 102, 241, 0.05), inset 0 1px 1px rgba(255,255,255,0.8);
         }
       `}</style>
 
       {/* Grid Pattern Background with Scroll Parallax */}
       <div 
         style={{ 
-          transform: `translateY(${scrollY * 0.2}px)`,
-          backgroundImage: 'radial-gradient(rgba(99, 102, 241, 0.08) 1.5px, transparent 1.5px)',
+          transform: `translateY(${scrollY * 0.15}px)`,
+          backgroundImage: 'radial-gradient(rgba(99, 102, 241, 0.06) 1.5px, transparent 1.5px)',
           backgroundSize: '32px 32px'
         }}
-        className="absolute top-0 left-0 w-full h-[120vh] pointer-events-none z-0"
+        className="absolute top-0 left-0 w-full h-[150vh] pointer-events-none z-0"
       />
 
-      {/* Ambient Color Blobs with Parallax */}
-      <div 
-        style={{ transform: `translateY(${scrollY * 0.12}px)` }}
-        className="absolute top-[-10%] right-[-10%] w-[600px] h-[600px] rounded-full bg-gradient-to-br from-indigo-500/10 to-purple-500/10 blur-3xl pointer-events-none z-0 animate-glow"
+      {/* Ambient Color Blobs with Dynamic Framer Motion Animations */}
+      <motion.div 
+        animate={{
+          x: [0, 40, -20, 0],
+          y: [0, -35, 25, 0],
+          scale: [1, 1.05, 0.95, 1],
+        }}
+        transition={{
+          duration: 15,
+          repeat: Infinity,
+          ease: "easeInOut"
+        }}
+        className="absolute top-[-10%] right-[-10%] w-[600px] h-[600px] rounded-full bg-gradient-to-br from-indigo-500/10 to-purple-500/10 blur-[120px] pointer-events-none z-0"
       />
-      <div 
-        style={{ transform: `translateY(${scrollY * -0.08}px)` }}
-        className="absolute top-[25%] left-[-15%] w-[500px] h-[500px] rounded-full bg-gradient-to-br from-blue-500/10 to-emerald-500/10 blur-3xl pointer-events-none z-0 animate-glow"
+      <motion.div 
+        animate={{
+          x: [0, -30, 25, 0],
+          y: [0, 40, -20, 0],
+          scale: [1, 0.95, 1.05, 1],
+        }}
+        transition={{
+          duration: 18,
+          repeat: Infinity,
+          ease: "easeInOut"
+        }}
+        className="absolute top-[25%] left-[-15%] w-[500px] h-[500px] rounded-full bg-gradient-to-br from-blue-500/10 to-emerald-500/10 blur-[100px] pointer-events-none z-0"
       />
 
-      {/* Premium Sticky Navigation with Glassmorphism */}
-      <header className="sticky top-0 z-50 bg-white/45 backdrop-blur-xl border-b border-white/30 h-16 flex items-center justify-between px-6 lg:px-16 transition-all duration-300 shadow-[0_4px_30px_rgba(0,0,0,0.03)]">
+      {/* Premium Sticky Navigation with Glossy Glassmorphism Effect */}
+      <header className={`sticky top-0 z-50 flex items-center justify-between px-6 lg:px-16 transition-all duration-500 ${
+        scrollY > 20 
+          ? "h-14 bg-white/75 backdrop-blur-2xl border-b border-white/50 shadow-[0_10px_35px_rgba(0,0,0,0.03)] glossy-glow" 
+          : "h-16 bg-white/45 backdrop-blur-xl border-b border-white/20 shadow-none"
+      }`}>
         <div className="flex items-center gap-2.5">
           <svg className="w-8 h-8 shrink-0 hover:scale-105 transition-transform duration-300" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M23 16C23 19.866 19.866 23 16 23C12.134 23 9 19.866 9 16C9 12.134 12.134 9 16 9C18.6 9 20.9 10.4 22.1 12.5" stroke="#0F172A" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
@@ -166,13 +176,13 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
         <div className="flex items-center gap-3">
           <button 
             onClick={() => onSelectWorkspace('ws-google-infra')}
-            className="text-xs font-medium text-slate-600 hover:text-slate-900 px-3.5 py-2 transition-all border border-[#E9ECEF]/85 hover:bg-white rounded-lg shadow-sm"
+            className="text-xs font-semibold text-slate-700 hover:text-slate-950 px-3.5 py-2 transition-all border border-[#E9ECEF]/85 hover:bg-white rounded-lg shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
           >
             Sign In
           </button>
           <button 
             onClick={onStartFree}
-            className="bg-slate-950 text-white text-xs px-5 py-2.5 rounded-full font-medium shadow-sm hover:bg-slate-800 transition-all flex items-center gap-1 group"
+            className="bg-slate-950 text-white text-xs px-5 py-2.5 rounded-full font-semibold shadow-[0_4px_12px_rgba(0,0,0,0.05)] hover:bg-indigo-650 hover:shadow-indigo-100 transition-all duration-300 flex items-center gap-1 group"
           >
             Start Free <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
           </button>
@@ -180,67 +190,113 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
       </header>
 
       {/* Hero Section */}
-      <section ref={heroRef} className={`px-6 lg:px-16 pt-16 pb-12 grid grid-cols-1 lg:grid-cols-12 gap-12 max-w-7xl mx-auto items-center relative z-10 reveal-on-scroll ${heroRevealed ? 'revealed' : ''}`}>
-        <div className="lg:col-span-6 space-y-8">
+      <section className="px-6 lg:px-16 pt-16 pb-12 grid grid-cols-1 lg:grid-cols-12 gap-12 max-w-7xl mx-auto items-center relative z-10">
+        <motion.div 
+          initial="hidden"
+          animate="visible"
+          variants={{
+            hidden: { opacity: 0 },
+            visible: { opacity: 1, transition: { staggerChildren: 0.12 } }
+          }}
+          className="lg:col-span-6 space-y-8"
+        >
           {/* Subtle upper badge */}
-          <div className="inline-flex items-center gap-2 px-3 py-1 bg-white border border-slate-200 shadow-sm rounded-full animate-float">
-            <Sparkles className="w-3 h-3 text-amber-500 fill-amber-500 animate-spin-slow" />
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-600">Enterprise Credential Infrastructure</span>
-          </div>
+          <motion.div 
+            variants={{
+              hidden: { y: 15, opacity: 0 },
+              visible: { y: 0, opacity: 1, transition: { type: "spring", stiffness: 100 } }
+            }}
+            className="inline-flex items-center gap-2 px-3 py-1 bg-white border border-slate-200/80 shadow-[0_2px_8px_rgba(0,0,0,0.02)] rounded-full hover:border-indigo-200 transition-colors cursor-default"
+          >
+            <Sparkles className="w-3 h-3 text-amber-500 fill-amber-500" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-650">Enterprise Credential Infrastructure</span>
+          </motion.div>
 
-          <h1 className="font-serif text-5xl md:text-6.5xl italic text-slate-950 leading-[1.12]">
+          <motion.h1 
+            variants={{
+              hidden: { y: 25, opacity: 0 },
+              visible: { y: 0, opacity: 1, transition: { type: "spring", stiffness: 80, damping: 14 } }
+            }}
+            className="font-serif text-5xl md:text-6.5xl italic text-slate-950 leading-[1.12]"
+          >
             Credential trust is <br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 via-indigo-500 to-indigo-700 font-sans tracking-tight font-extrabold not-italic">
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 via-indigo-500 to-indigo-750 font-sans tracking-tight font-extrabold not-italic">
               an absolute standard.
             </span>
-          </h1>
+          </motion.h1>
 
-          <p className="text-slate-500 text-sm max-w-lg leading-relaxed font-sans">
+          <motion.p 
+            variants={{
+              hidden: { y: 15, opacity: 0 },
+              visible: { y: 0, opacity: 1, transition: { duration: 0.6 } }
+            }}
+            className="text-slate-500 text-sm max-w-lg leading-relaxed font-sans"
+          >
             Create, bulk-issue, and instantly audit secure professional certificates at industrial scale. Supported by permanent cryptographic seals, custom branding overrides, and public-facing high-fidelity verification boards.
-          </p>
+          </motion.p>
 
           {/* Professional Action Buttons */}
-          <div className="flex flex-col sm:flex-row gap-4 pt-4">
+          <motion.div 
+            variants={{
+              hidden: { y: 15, opacity: 0 },
+              visible: { y: 0, opacity: 1, transition: { duration: 0.6 } }
+            }}
+            className="flex flex-col sm:flex-row gap-4 pt-4"
+          >
             <button 
               onClick={onStartFree}
-              className="relative group overflow-hidden bg-slate-950 text-white text-xs px-8 py-4 rounded-xl font-bold shadow-lg hover:shadow-slate-950/20 transition-all flex items-center justify-center gap-2"
+              className="relative group overflow-hidden bg-slate-950 text-white text-xs px-8 py-4 rounded-xl font-bold shadow-lg hover:shadow-indigo-600/10 transition-all flex items-center justify-center gap-2"
             >
               <span className="relative z-10 flex items-center gap-1.5">
                 Launch Console <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
               </span>
-              <div className="absolute inset-0 bg-indigo-600 scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-300" />
+              <div className="absolute inset-0 bg-indigo-600 scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-350" />
             </button>
             <button 
-              onClick={() => onViewSample('CERT-2026-1014')}
-              className="group border border-[#E9ECEF] bg-white text-xs px-8 py-4 rounded-xl font-bold text-slate-700 hover:text-indigo-600 hover:bg-indigo-50/20 hover:border-indigo-200 transition-all flex items-center justify-center gap-2 shadow-sm"
+              onClick={() => {
+                document.getElementById('sandbox')?.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className="group border border-slate-200 bg-white text-xs px-8 py-4 rounded-xl font-bold text-slate-700 hover:text-indigo-600 hover:bg-indigo-50/20 hover:border-indigo-200 transition-all flex items-center justify-center gap-2 shadow-sm"
             >
               <Award className="w-4 h-4 text-amber-500 group-hover:scale-110 transition-transform" />
-              Verify Sample Credential
+              Explore Ledger Verifier
             </button>
-          </div>
+          </motion.div>
 
           {/* Real Customer Trust Logos */}
-          <div className="pt-6 space-y-3">
+          <motion.div 
+            variants={{
+              hidden: { opacity: 0 },
+              visible: { opacity: 0.55, transition: { delay: 0.5 } }
+            }}
+            className="pt-6 space-y-3"
+          >
             <p className="text-[10px] uppercase tracking-widest text-[#9CA3AF] font-bold">Trusted by verification authorities</p>
-            <div className="flex flex-wrap items-center gap-x-8 gap-y-4 opacity-50">
+            <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
               <span className="font-display font-bold tracking-tight text-slate-950 text-sm">COLUMBIA UNIVERSITY</span>
               <span className="font-display font-mono text-slate-950 text-xs tracking-widest">GOOGLE.CLOUD.SECURE</span>
               <span className="font-sans font-semibold text-slate-950 text-sm italic">Stellar.Academy</span>
               <span className="font-serif font-black text-slate-950 text-sm">MIT_COGNITIVE</span>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
 
         {/* Hero Interactive Certificate Preview Card */}
-        <div id="preview" className="lg:col-span-6 flex flex-col items-center relative perspective-1000">
+        <motion.div 
+          initial={{ opacity: 0, x: 50, rotateY: 10 }}
+          animate={{ opacity: 1, x: 0, rotateY: 0 }}
+          transition={{ type: "spring", stiffness: 70, damping: 15, delay: 0.25 }}
+          id="preview" 
+          className="lg:col-span-6 flex flex-col items-center relative perspective-1000"
+        >
           <div 
             onMouseMove={handleMouseMove}
             onMouseLeave={handleMouseLeave}
             style={{
               transform: hoverCard.hover 
-                ? `rotateY(${hoverCard.x}deg) rotateX(${-hoverCard.y}deg) scale(1.02)` 
+                ? `rotateY(${hoverCard.x}deg) rotateX(${-hoverCard.y}deg) scale(1.025)` 
                 : 'rotateY(0deg) rotateX(0deg) scale(1)',
-              transition: hoverCard.hover ? 'none' : 'all 0.5s ease'
+              transition: hoverCard.hover ? 'none' : 'all 0.5s cubic-bezier(0.16, 1, 0.3, 1)'
             }}
             className="w-full max-w-xl bg-white border border-[#E9ECEF] rounded-2xl p-6 shadow-2xl relative overflow-hidden group cursor-pointer"
           >
@@ -250,19 +306,19 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); setPreviewLayout('google'); }}
-                  className={`text-[10px] font-bold px-3 py-1 rounded-lg transition-all uppercase tracking-wide ${previewLayout === 'google' ? 'bg-slate-950 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                  className={`text-[10px] font-bold px-3 py-1 rounded-lg transition-all uppercase tracking-wide cursor-pointer ${previewLayout === 'google' ? 'bg-slate-950 text-white shadow-sm' : 'bg-slate-105 text-slate-500 hover:bg-slate-200'}`}
                 >
                   Classic Minimalist
                 </button>
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); setPreviewLayout('stellar'); }}
-                  className={`text-[10px] font-bold px-3 py-1 rounded-lg transition-all uppercase tracking-wide ${previewLayout === 'stellar' ? 'bg-slate-950 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                  className={`text-[10px] font-bold px-3 py-1 rounded-lg transition-all uppercase tracking-wide cursor-pointer ${previewLayout === 'stellar' ? 'bg-slate-950 text-white shadow-sm' : 'bg-slate-105 text-slate-500 hover:bg-slate-200'}`}
                 >
                   Slate Modern
                 </button>
               </div>
-              <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-100 animate-pulse">
+              <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-650 bg-emerald-50/70 px-2.5 py-1 rounded-lg border border-emerald-100 animate-pulse">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 inline-block"></span>
                 LIVE BUILD PREVIEW
               </div>
@@ -341,68 +397,360 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
             </div>
 
             {/* Quick Helper Explainer */}
-            <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 mt-4 text-xs text-slate-500 flex items-start gap-2.5 group-hover:bg-indigo-50/30 group-hover:border-indigo-100 transition-colors">
+            <div className="bg-slate-50 border border-slate-105 rounded-xl p-3 mt-4 text-xs text-slate-505 flex items-start gap-2.5 group-hover:bg-indigo-50/20 group-hover:border-indigo-100 transition-colors duration-300">
               <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
               <div>
                 <span className="font-bold text-slate-800">Real-time Rendering & Variables:</span> Play around! This is an interactive sandbox simulation. Recipients receive high-fidelity vectors optimized perfectly for print.
               </div>
             </div>
           </div>
-        </div>
+        </motion.div>
       </section>
 
       {/* Scroll Showcase Section */}
-      <section className="relative z-10 -mt-12 md:-mt-20">
+      <section className="relative z-10 w-full overflow-hidden">
         <HeroScrollDemo />
       </section>
 
-      {/* Feature Value Matrix */}
-      <section ref={featuresRef} id="features" className={`bg-white border-y border-[#E9ECEF] py-24 px-6 lg:px-16 reveal-on-scroll relative z-10 ${featuresRevealed ? 'revealed' : ''}`}>
-        <div className="max-w-7xl mx-auto space-y-16">
-          <div className="text-center max-w-2xl mx-auto space-y-4">
-            <h2 className="font-serif text-3xl md:text-4xl italic text-slate-950">Industrial grade trust framework</h2>
-            <p className="text-slate-500 text-sm">
-              We design software for credentialing where security, speed, and beautiful layouts can exist within a single unified API pipeline.
+      {/* Interactive Verification Simulator Sandbox */}
+      <motion.section 
+        initial={{ opacity: 0, y: 40 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, margin: "-120px" }}
+        transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+        id="sandbox" 
+        className="py-24 px-6 lg:px-16 bg-white border-y border-slate-200/50 relative z-10"
+      >
+        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+          {/* Left Text details */}
+          <div className="lg:col-span-5 space-y-6">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-full border border-indigo-100">
+              Platform Registry Verification
+            </span>
+            <h2 className="font-serif text-3xl md:text-4.5xl italic text-slate-950 leading-tight">
+              Test the cryptographic verifier simulator
+            </h2>
+            <p className="text-slate-500 text-sm leading-relaxed">
+              Verify actual issued credentials dynamically. Try typing code <span className="font-mono bg-slate-100 px-1 py-0.5 rounded text-indigo-600 text-xs font-bold">CERT-2026-1014</span> inside the terminal scanner and see how the ledger resolves cryptographic data, signatures, and timestamps.
             </p>
+            
+            {/* Input Form */}
+            {scanState === 'idle' && (
+              <form onSubmit={handleVerifyScan} className="bg-slate-50 p-2 rounded-2xl border border-[#E9ECEF] flex items-center shadow-sm max-w-md focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all duration-300">
+                <Search className="text-slate-400 w-4 h-4 ml-2 mr-3 shrink-0" />
+                <input 
+                  type="text" 
+                  placeholder="Verify code (e.g. CERT-2026-1014)" 
+                  value={certCode}
+                  onChange={(e) => setCertCode(e.target.value)}
+                  className="w-full bg-transparent border-none text-xs focus:outline-none placeholder-slate-400 text-slate-800"
+                />
+                <button 
+                  type="submit"
+                  className="bg-indigo-600 hover:bg-indigo-755 text-white text-xs px-5 py-2.5 rounded-xl font-bold transition-all shadow-sm shrink-0 cursor-pointer"
+                >
+                  Verify Ledger
+                </button>
+              </form>
+            )}
+
+            {scanState === 'scanning' && (
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 max-w-md shadow-lg space-y-4 font-mono text-[10px] text-slate-400 min-h-[160px] flex flex-col justify-center relative overflow-hidden">
+                <div className="absolute top-0 left-0 h-1 bg-indigo-500 animate-pulse w-full" />
+                <div className="flex items-center gap-2 text-indigo-400 font-semibold">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>RESOLVING CREDENTIAL HASH...</span>
+                </div>
+                <div className="space-y-1.5 border-t border-slate-800/80 pt-3">
+                  <AnimatePresence>
+                    {scanLogs.map((log, i) => (
+                      <motion.p 
+                        key={i} 
+                        initial={{ opacity: 0, x: -5 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className="text-slate-300 flex items-start gap-1.5"
+                      >
+                        <span className="text-indigo-500">▶</span> {log}
+                      </motion.p>
+                    ))}
+                  </AnimatePresence>
+                </div>
+              </div>
+            )}
+
+            {scanState === 'success' && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-5 max-w-md shadow-sm space-y-4"
+              >
+                <div className="flex items-center gap-2.5 text-emerald-700">
+                  <CheckCircle className="w-5 h-5 fill-emerald-50 text-emerald-600" />
+                  <span className="text-xs font-bold uppercase tracking-wider">Ledger Match Confirmed</span>
+                </div>
+                <div className="space-y-1.5 text-xs text-slate-600 border-t border-emerald-100 pt-3">
+                  <p><strong>Certificate ID:</strong> {scannedCert.id}</p>
+                  <p><strong>Recipient:</strong> {scannedCert.recipient}</p>
+                  <p><strong>Program:</strong> {scannedCert.program}</p>
+                  <p><strong>Issue Date:</strong> {scannedCert.date}</p>
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button 
+                    onClick={() => onViewSample(scannedCert.id)}
+                    className="bg-emerald-600 hover:bg-emerald-705 text-white text-xs px-4 py-2 rounded-lg font-bold transition-all shadow-sm cursor-pointer"
+                  >
+                    View Official Ledger Page
+                  </button>
+                  <button 
+                    onClick={handleResetScan}
+                    className="border border-slate-200 hover:bg-slate-100 text-slate-600 text-xs px-4 py-2 rounded-lg font-bold transition-all cursor-pointer"
+                  >
+                    Reset
+                  </button>
+                </div>
+              </motion.div>
+            )}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
-            <div className="space-y-5 p-8 bg-slate-50 rounded-2xl border border-slate-100 hover:shadow-lg hover:bg-white hover:border-indigo-50 hover:-translate-y-1.5 transition-all duration-300">
-              <div className="w-11 h-11 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-sm shadow-indigo-200">
-                <Layers className="w-5 h-5" />
-              </div>
-              <h3 className="text-sm font-bold text-slate-950">Modular Drag-and-Drop Editor</h3>
-              <p className="text-xs text-[#64748B] leading-relaxed">
-                Design custom certificates tailored exactly to your brand. Set layout alignments, signature vectors, seals, dynamically binding names, dates, custom scores, and participant roles.
-              </p>
-            </div>
+          {/* Right Visual Simulator Card with Laser Line */}
+          <div className="lg:col-span-7 flex justify-center relative">
+            <div className="relative w-full max-w-lg bg-slate-50 border border-slate-205 rounded-2xl p-6 overflow-hidden shadow-inner flex items-center justify-center min-h-[300px]">
+              
+              {/* Laser Scanning Animation Overlay */}
+              {scanState === 'scanning' && (
+                <div className="absolute left-0 w-full h-[3px] bg-indigo-500 shadow-[0_0_18px_rgba(99,102,241,1)] z-30 animate-scan pointer-events-none" />
+              )}
+              
+              {/* Mock Certificate inside scanner */}
+              <div className={`w-[85%] aspect-[1.414/1] bg-white border-4 border-slate-300 rounded shadow-md p-4 flex flex-col justify-between transition-all duration-500 relative z-10 ${scanState === 'scanning' ? 'opacity-40 blur-[0.8px]' : ''}`}>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h4 className="text-[6px] font-bold text-slate-400 uppercase tracking-widest">OFFICIAL PUBLIC REGISTRY</h4>
+                    <p className="text-[5px] text-slate-300">TRUST ROOT SHA256:0edf88cf...</p>
+                  </div>
+                  <div className="w-8 h-3 border border-slate-200 bg-slate-50 rounded flex items-center justify-center text-[4px] font-bold">
+                    ★ SECURED
+                  </div>
+                </div>
 
-            <div className="space-y-5 p-8 bg-slate-50 rounded-2xl border border-slate-100 hover:shadow-lg hover:bg-white hover:border-indigo-50 hover:-translate-y-1.5 transition-all duration-300">
-              <div className="w-11 h-11 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-sm shadow-indigo-200">
-                <Zap className="w-5 h-5" />
-              </div>
-              <h3 className="text-sm font-bold text-slate-950">Massive CSV Mapping Engine</h3>
-              <p className="text-xs text-[#64748B] leading-relaxed">
-                Upload recipient databases instantly. Dynamic columns coordinate to mapped certificate variables with strict formatting validators. Prevents duplicates, format anomalies, or spelling issues automatically.
-              </p>
-            </div>
+                <div className="text-center space-y-1">
+                  <h5 className="text-[7.5px] font-bold tracking-widest text-slate-700">CERTIFICATE OF ACHIEVEMENT</h5>
+                  <p className="text-[10px] font-serif italic font-bold text-slate-900 border-b border-dashed border-slate-200 w-24 mx-auto pb-0.5">
+                    Dr. Elias Vance
+                  </p>
+                  <p className="text-[5px] text-slate-400 max-w-[200px] mx-auto">
+                    for demonstrating complete mastery of advanced cryptographic database indexing architectures.
+                  </p>
+                </div>
 
-            <div className="space-y-5 p-8 bg-slate-50 rounded-2xl border border-slate-100 hover:shadow-lg hover:bg-white hover:border-indigo-50 hover:-translate-y-1.5 transition-all duration-300">
-              <div className="w-11 h-11 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-sm shadow-indigo-200">
-                <Globe className="w-5 h-5" />
+                <div className="flex justify-between items-end pt-1 border-t border-slate-100">
+                  <div>
+                    <p className="text-[4px] text-slate-400 uppercase">ISSUED</p>
+                    <p className="text-[5px] font-bold text-slate-600">2026-06-17</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[5px] font-bold text-slate-700">Thomas Kurian</p>
+                    <p className="text-[3.5px] text-slate-400">Chief Officer</p>
+                  </div>
+                  <div className="w-5 h-5 bg-white border border-slate-200 rounded p-0.5 flex items-center justify-center">
+                    <img 
+                      src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://credentials.os/%23preview&color=0f172a" 
+                      alt="Verifier QR"
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+                </div>
               </div>
-              <h3 className="text-sm font-bold text-slate-950">Permanent Public Verifier</h3>
-              <p className="text-xs text-[#64748B] leading-relaxed">
-                Every credential carries a permanent ledger UID and secure custom QR. Verification is live, public-accessible, and requires zero software, login, or registration from auditors.
-              </p>
             </div>
           </div>
         </div>
-      </section>
+      </motion.section>
+
+      {/* Interactive Feature Explorer Section */}
+      <motion.section 
+        initial={{ opacity: 0, y: 40 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, margin: "-120px" }}
+        transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+        id="features" 
+        className="py-24 px-6 lg:px-16 bg-[#F9FBFC] relative z-10"
+      >
+        <div className="max-w-7xl mx-auto space-y-16">
+          <div className="text-center max-w-2xl mx-auto space-y-4">
+            <span className="text-xs font-bold uppercase tracking-widest text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-full border border-indigo-100">
+              Interactive Explorer
+            </span>
+            <h2 className="font-serif text-3xl md:text-4.5xl italic text-slate-950">Industrial grade platform features</h2>
+            <p className="text-slate-500 text-sm">
+              Explore the core mechanics that make Glint the leading engine for bulk digital credential operations.
+            </p>
+          </div>
+
+          {/* Interactive Explorer Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-stretch">
+            {/* Left selector tabs with sliding glow background */}
+            <div className="lg:col-span-5 flex flex-col justify-center space-y-3 relative">
+              {[
+                {
+                  title: "1. Canva-Style Designer",
+                  desc: "Design custom certificates dynamically using drag-and-drop vectors, customizable seals, custom text elements, and signatory logos.",
+                  icon: Layers
+                },
+                {
+                  title: "2. Bulk CSV Dispatch Mapper",
+                  desc: "Import large recipient databases. Automatically validate emails and map dynamic fields (like grades, roles, or dates) dynamically.",
+                  icon: Zap
+                },
+                {
+                  title: "3. Cryptographic Verification Ledger",
+                  desc: "Provide public-facing lookup portals with immutable check logs, dynamic verification QR codes, and custom domain white-labeling.",
+                  icon: Search
+                }
+              ].map((tab, idx) => {
+                const IconComponent = tab.icon;
+                const isActive = activeFeatureTab === idx;
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => setActiveFeatureTab(idx)}
+                    className="relative text-left p-6 rounded-2xl transition-all duration-350 flex items-start gap-4 cursor-pointer focus:outline-none w-full border border-transparent"
+                  >
+                    {isActive && (
+                      <motion.div
+                        layoutId="activeFeatureGlow"
+                        className="absolute inset-0 bg-white border border-indigo-100/70 rounded-2xl shadow-[0_12px_30px_rgba(99,102,241,0.03)] -z-10"
+                        transition={{ type: "spring", stiffness: 350, damping: 28 }}
+                      />
+                    )}
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-colors ${isActive ? 'bg-indigo-600 text-white' : 'bg-slate-200/60 text-slate-600'}`}>
+                      <IconComponent className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className={`text-sm font-bold transition-colors duration-200 ${isActive ? 'text-indigo-950' : 'text-slate-700'}`}>{tab.title}</h3>
+                      <p className="text-xs text-slate-500 leading-relaxed mt-1.5">{tab.desc}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Right visual showcase box */}
+            <div className="lg:col-span-7 border border-slate-200/60 bg-white rounded-3xl p-6 shadow-xl flex items-center justify-center min-h-[350px] relative overflow-hidden">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={activeFeatureTab}
+                  initial={{ opacity: 0, y: 15 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -15 }}
+                  transition={{ duration: 0.28, ease: "easeInOut" }}
+                  className="w-full"
+                >
+                  {/* Feature Tab 0: Canvas Designer Preview */}
+                  {activeFeatureTab === 0 && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-3 text-xs text-slate-400">
+                        <span className="font-bold text-slate-800">Visual Layout Editor</span>
+                        <span>Layers (5)</span>
+                      </div>
+                      <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 space-y-4">
+                        <div className="flex flex-wrap gap-2">
+                          <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-1 rounded border border-indigo-100 font-bold font-mono">RecipientName [Dynamic]</span>
+                          <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-1 rounded border border-indigo-100 font-bold font-mono">ProgramTitle [Dynamic]</span>
+                          <span className="text-[10px] bg-slate-205 text-slate-600 px-2 py-1 rounded font-bold font-mono">SignatorySeal [Static]</span>
+                        </div>
+                        {/* Mock editor guides */}
+                        <div className="border border-indigo-400/30 rounded bg-white p-6 relative flex flex-col items-center justify-center aspect-[1.618/1] shadow-sm">
+                          {/* Interactive outline boxes */}
+                          <div className="absolute top-2 left-2 w-4 h-4 border-t-2 border-l-2 border-indigo-500" />
+                          <div className="absolute top-2 right-2 w-4 h-4 border-t-2 border-r-2 border-indigo-500" />
+                          <div className="absolute bottom-2 left-2 w-4 h-4 border-b-2 border-l-2 border-indigo-500" />
+                          <div className="absolute bottom-2 right-2 w-4 h-4 border-b-2 border-r-2 border-indigo-500" />
+                          
+                          <div className="border border-dashed border-indigo-450 px-4 py-2 text-xs font-bold text-indigo-600 bg-indigo-50/5">
+                            Drag & Position Element: {"{{name}}"}
+                          </div>
+                          <p className="text-[9px] text-slate-400 mt-2">X: 50% | Y: 45% (Center Align)</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Feature Tab 1: CSV Mapper Preview */}
+                  {activeFeatureTab === 1 && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-3 text-xs text-slate-400">
+                        <span className="font-bold text-slate-800">CSV Column Mapping</span>
+                        <span className="text-emerald-600 font-bold">✓ 3 Dynamic columns mapped</span>
+                      </div>
+                      <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 space-y-3 font-mono text-[10px]">
+                        <table className="w-full border-collapse bg-white border border-slate-200 shadow-sm rounded-lg overflow-hidden">
+                          <thead>
+                            <tr className="bg-slate-100 border-b border-slate-202">
+                              <th className="p-2 text-left text-slate-600 font-bold border-r border-slate-200">CSV Header</th>
+                              <th className="p-2 text-left text-slate-600 font-bold border-r border-slate-200">Mapped Template Field</th>
+                              <th className="p-2 text-left text-slate-600 font-bold">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-slate-700">
+                            <tr className="border-b border-slate-100">
+                              <td className="p-2 border-r border-slate-200 font-bold">full_name</td>
+                              <td className="p-2 border-r border-slate-200 text-indigo-600 font-bold">{"{{name}}"}</td>
+                              <td className="p-2 text-emerald-650 font-bold">OK</td>
+                            </tr>
+                            <tr className="border-b border-slate-100">
+                              <td className="p-2 border-r border-slate-200 font-bold">email_address</td>
+                              <td className="p-2 border-r border-slate-200 text-indigo-600 font-bold">RecipientEmail</td>
+                              <td className="p-2 text-emerald-655 font-bold">OK</td>
+                            </tr>
+                            <tr>
+                              <td className="p-2 border-r border-slate-200 font-bold">score_grade</td>
+                              <td className="p-2 border-r border-slate-200 text-indigo-600 font-bold">{"{{customFields.Grade}}"}</td>
+                              <td className="p-2 text-emerald-650 font-bold">OK</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Feature Tab 2: Ledger Audit Preview */}
+                  {activeFeatureTab === 2 && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-3 text-xs text-slate-400">
+                        <span className="font-bold text-slate-800">Stateful Cryptographic Audit Logs</span>
+                        <span>Audit Matches (248)</span>
+                      </div>
+                      <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 space-y-3 font-mono text-[9px] text-[#64748B]">
+                        <div className="p-3 bg-white rounded-lg border border-slate-200 shadow-sm flex items-center justify-between">
+                          <span className="flex items-center gap-1.5"><Check className="text-emerald-500 w-3.5 h-3.5" /> [2026-06-20] VIEW_ATTEMPT - Verified</span>
+                          <span className="text-slate-405">IP: 198.162.1.4</span>
+                        </div>
+                        <div className="p-3 bg-white rounded-lg border border-slate-200 shadow-sm flex items-center justify-between">
+                          <span className="flex items-center gap-1.5"><Check className="text-emerald-500 w-3.5 h-3.5" /> [2026-06-21] PDF_DOWNLOAD - Verified</span>
+                          <span className="text-slate-405">IP: 72.44.15.110</span>
+                        </div>
+                        <div className="p-3 bg-rose-50/50 border border-rose-100 text-rose-700 rounded-lg flex items-center justify-between">
+                          <span className="flex items-center gap-1.5"><ShieldAlert className="text-rose-550 w-3.5 h-3.5" /> [2026-06-23] STATUS_REVOKED - Academic Violation</span>
+                          <span className="text-rose-400">By Admin</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </motion.div>
+              </AnimatePresence>
+            </div>
+          </div>
+        </div>
+      </motion.section>
 
       {/* High-fidelity verification overview banner */}
-      <section ref={ledgerRef} className={`bg-slate-950 text-white py-24 px-6 lg:px-16 overflow-hidden relative z-10 reveal-on-scroll ${ledgerRevealed ? 'revealed' : ''}`}>
-        
+      <motion.section 
+        initial={{ opacity: 0, y: 40 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, margin: "-120px" }}
+        transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+        className="bg-slate-955 text-white py-24 px-6 lg:px-16 overflow-hidden relative z-10 bg-slate-950"
+      >
         {/* Parallax elements inside the dark section */}
         <div 
           style={{ transform: `translateY(${scrollY * 0.05}px)` }}
@@ -415,7 +763,7 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
               <Star className="w-3.5 h-3.5 text-[#B4C6FC] fill-[#B4C6FC]" /> Tamper-Proof Audit Trails
             </p>
             <h2 className="font-serif text-4.5xl italic leading-tight">Verification is <br />the true product.</h2>
-            <p className="text-slate-400 text-xs leading-relaxed">
+            <p className="text-slate-400 text-xs leading-relaxed font-sans">
               A certificate is only as valuable as its verification capacity. Glint features stateful revocation registers, tamper-evident hash indicators, and public blockchain-style check logs ensuring zero credential forgery.
             </p>
             <div className="space-y-4 pt-4 border-t border-white/10">
@@ -430,32 +778,39 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
             </div>
           </div>
 
-          <div className="lg:col-span-7 bg-white/5 border border-white/10 rounded-2xl p-6 relative hover:border-white/20 transition-colors shadow-2xl">
+          <div className="lg:col-span-7 bg-white/5 border border-white/10 rounded-2xl p-6 relative hover:border-white/20 transition-colors duration-300 shadow-2xl">
             <h4 className="font-serif italic text-lg text-white mb-4">Verification Audit Ledger</h4>
             <div className="space-y-3 font-mono text-[9px] text-[#9CA3AF]">
-              <div className="p-3 bg-white/5 rounded-lg border border-white/5 flex justify-between items-center hover:bg-white/10 transition-colors">
+              <div className="p-3 bg-white/5 rounded-lg border border-white/5 flex justify-between items-center hover:bg-white/10 transition-colors duration-200">
                 <span>[2026-06-12 10:00:00 UTC] WORKSPACE_BATCH_GENERATE</span>
                 <span className="text-emerald-400 font-bold">SUCCESS</span>
               </div>
-              <div className="p-3 bg-white/5 rounded-lg border border-white/5 flex justify-between items-center hover:bg-white/10 transition-colors">
+              <div className="p-3 bg-white/5 rounded-lg border border-white/5 flex justify-between items-center hover:bg-white/10 transition-colors duration-200">
                 <span>[2026-06-12 10:01:15 UTC] DISPATCHED_VERIFICATION_MAIL - admissions@stellarworkshops.io</span>
                 <span className="text-emerald-400 font-bold">SENT</span>
               </div>
-              <div className="p-3 bg-white/5 rounded-lg border border-white/5 flex justify-between items-center hover:bg-white/10 transition-colors">
+              <div className="p-3 bg-white/5 rounded-lg border border-white/5 flex justify-between items-center hover:bg-white/10 transition-colors duration-200">
                 <span>[2026-06-15 15:30:00 UTC] CRYPTOGRAPHIC_REHASH_LEDGER_AUDIT</span>
                 <span className="text-indigo-400 font-bold">VERIFIED sha256:0edf88cf...</span>
               </div>
-              <div className="p-3 bg-[#3F111E]/40 rounded-lg border border-rose-900/40 flex justify-between items-center text-rose-300">
+              <div className="p-3 bg-[#3F111E]/40 rounded-lg border border-rose-900/30 flex justify-between items-center text-rose-300">
                 <span>[2026-06-16 11:24:10 UTC] REVOCATION_TRIGGER - Flagged Academic Integrity Non-compliance</span>
-                <span className="text-rose-400 font-bold">REVOKED STATE</span>
+                <span className="text-rose-455 font-bold text-rose-400">REVOKED STATE</span>
               </div>
             </div>
           </div>
         </div>
-      </section>
+      </motion.section>
 
       {/* Pricing Matrix */}
-      <section ref={pricingRef} id="pricing" className={`py-24 px-6 lg:px-16 max-w-7xl mx-auto space-y-16 reveal-on-scroll relative z-10 ${pricingRevealed ? 'revealed' : ''}`}>
+      <motion.section 
+        initial={{ opacity: 0, y: 40 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, margin: "-120px" }}
+        transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+        id="pricing" 
+        className="py-24 px-6 lg:px-16 max-w-7xl mx-auto space-y-16 relative z-10"
+      >
         <div className="text-center max-w-2xl mx-auto space-y-4">
           <p className="text-xs font-bold uppercase tracking-widest text-[#9CA3AF]">SaaS Plans for Every Scale</p>
           <h2 className="font-serif text-3xl md:text-4xl italic text-slate-950">Transparent, enterprise-ready options</h2>
@@ -466,59 +821,59 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {/* Free Starter */}
-          <div className="bg-white rounded-2xl border border-[#E9ECEF] p-8 space-y-6 flex flex-col justify-between hover:shadow-xl hover:border-slate-300/80 transition-all duration-300">
+          <div className="bg-white rounded-2xl border border-[#E9ECEF] p-8 space-y-6 flex flex-col justify-between hover:shadow-xl hover:border-slate-300/60 transition-all duration-300">
             <div className="space-y-4">
               <p className="text-xs font-bold uppercase tracking-widest text-[#9CA3AF]">Free Trial</p>
               <h3 className="text-2xl font-bold text-slate-950 font-sans">$0<span className="text-xs text-slate-400 font-normal"> / forever</span></h3>
-              <p className="text-xs text-slate-500">Perfect to test layouts and seed sample program lists.</p>
-              <ul className="space-y-2.5 pt-4 text-xs text-slate-600 border-t border-slate-100">
+              <p className="text-xs text-slate-500 font-sans">Perfect to test layouts and seed sample program lists.</p>
+              <ul className="space-y-2.5 pt-4 text-xs text-slate-650 border-t border-slate-100">
                 <li className="flex gap-2 items-center"><Check className="w-3.5 h-3.5 text-emerald-500" /> up to 10 active certificates</li>
                 <li className="flex gap-2 items-center"><Check className="w-3.5 h-3.5 text-emerald-500" /> Landscape & Portrait layouts</li>
                 <li className="flex gap-2 items-center"><Check className="w-3.5 h-3.5 text-emerald-500" /> Default brand footer links</li>
-                <li className="flex gap-2 text-slate-300 line-through items-center"><Check className="w-3.5 h-3.5" /> High-volume CSV loader</li>
-                <li className="flex gap-2 text-slate-300 line-through items-center"><Check className="w-3.5 h-3.5" /> Custom domains & white-label</li>
+                <li className="flex gap-2 text-slate-300 line-through items-center"><Check className="w-3.5 h-3.5 text-slate-300" /> High-volume CSV loader</li>
+                <li className="flex gap-2 text-slate-300 line-through items-center"><Check className="w-3.5 h-3.5 text-slate-300" /> Custom domains & white-label</li>
               </ul>
             </div>
             <button 
               onClick={onStartFree}
-              className="w-full bg-slate-50 text-slate-900 border border-[#E9ECEF] hover:bg-slate-100 py-3 rounded-xl text-xs font-bold transition-all text-center"
+              className="w-full bg-slate-50 text-slate-900 border border-[#E9ECEF] hover:bg-slate-100 py-3 rounded-xl text-xs font-bold transition-all text-center cursor-pointer"
             >
               Start Instantly
             </button>
           </div>
 
           {/* Premium Professional */}
-          <div className="bg-white rounded-2xl border-2 border-indigo-600 p-8 space-y-6 flex flex-col justify-between relative shadow-xl hover:scale-102 transition-all duration-300">
+          <div className="bg-white rounded-2xl border-2 border-indigo-650 p-8 space-y-6 flex flex-col justify-between relative shadow-xl hover:scale-102 border-indigo-600 transition-all duration-300">
             <div className="absolute top-0 right-6 -translate-y-1/2 bg-indigo-600 text-white text-[9px] font-bold uppercase tracking-widest px-3 py-1 rounded-full border border-white">
               RECOMMENDED
             </div>
             <div className="space-y-4">
               <p className="text-xs font-bold uppercase tracking-widest text-indigo-600 font-mono">Professional Tier</p>
               <h3 className="text-3xl font-bold text-slate-950 font-sans">$49<span className="text-xs text-slate-400 font-normal"> / month</span></h3>
-              <p className="text-xs text-slate-500">Excellent for intensive conference teams & professional workshops.</p>
-              <ul className="space-y-2.5 pt-4 text-xs text-slate-600 border-t border-slate-100">
+              <p className="text-xs text-slate-500 font-sans">Excellent for intensive conference teams & professional workshops.</p>
+              <ul className="space-y-2.5 pt-4 text-xs text-slate-650 border-t border-slate-100">
                 <li className="flex gap-2 items-center"><Check className="w-3.5 h-3.5 text-emerald-500" /> Unlimited active certs</li>
                 <li className="flex gap-2 items-center"><Check className="w-3.5 h-3.5 text-emerald-500" /> Bulk CSV & excel mapper</li>
                 <li className="flex gap-2 items-center"><Check className="w-3.5 h-3.5 text-emerald-500" /> Interactive stats & downloads</li>
                 <li className="flex gap-2 items-center"><Check className="w-3.5 h-3.5 text-emerald-500" /> Sender email override</li>
-                <li className="flex gap-2 text-slate-300 line-through items-center"><Check className="w-3.5 h-3.5" /> White-label domain proxy</li>
+                <li className="flex gap-2 text-slate-300 line-through items-center"><Check className="w-3.5 h-3.5 text-slate-300" /> White-label domain proxy</li>
               </ul>
             </div>
             <button 
               onClick={() => onSelectWorkspace('ws-stellar')}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl text-xs font-bold transition-all text-center shadow-md shadow-indigo-100"
+              className="w-full bg-indigo-600 hover:bg-indigo-705 text-white py-3 rounded-xl text-xs font-bold transition-all text-center shadow-md shadow-indigo-100 cursor-pointer"
             >
               Upgrade & Onboard Workspace
             </button>
           </div>
 
           {/* Enterprise Scaler */}
-          <div className="bg-white rounded-2xl border border-[#E9ECEF] p-8 space-y-6 flex flex-col justify-between hover:shadow-xl hover:border-slate-300/80 transition-all duration-300">
+          <div className="bg-white rounded-2xl border border-[#E9ECEF] p-8 space-y-6 flex flex-col justify-between hover:shadow-xl hover:border-slate-300/60 transition-all duration-300">
             <div className="space-y-4">
               <p className="text-xs font-bold uppercase tracking-widest text-[#9CA3AF]">Enterprise Scale</p>
               <h3 className="text-2xl font-bold text-slate-950 font-sans">$249<span className="text-xs text-slate-400 font-normal"> / month</span></h3>
-              <p className="text-xs text-slate-500">For universities, massive bootcamps, and government programs.</p>
-              <ul className="space-y-2.5 pt-4 text-xs text-slate-600 border-t border-slate-100">
+              <p className="text-xs text-slate-500 font-sans">For universities, massive bootcamps, and government programs.</p>
+              <ul className="space-y-2.5 pt-4 text-xs text-slate-655 border-t border-slate-100">
                 <li className="flex gap-2 items-center"><Check className="w-3.5 h-3.5 text-emerald-500" /> All Pro features included</li>
                 <li className="flex gap-2 items-center"><Check className="w-3.5 h-3.5 text-emerald-500" /> Custom Domain (TLS automatic)</li>
                 <li className="flex gap-2 items-center"><Check className="w-3.5 h-3.5 text-emerald-500" /> 100% white-label system footprint</li>
@@ -528,13 +883,13 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
             </div>
             <button 
               onClick={() => onSelectWorkspace('ws-google-infra')}
-              className="w-full bg-slate-50 text-slate-900 border border-[#E9ECEF] hover:bg-slate-100 py-3 rounded-xl text-xs font-bold transition-all text-center"
+              className="w-full bg-slate-50 text-slate-900 border border-[#E9ECEF] hover:bg-slate-100 py-3 rounded-xl text-xs font-bold transition-all text-center cursor-pointer"
             >
               Configure Enterprise
             </button>
           </div>
         </div>
-      </section>
+      </motion.section>
 
       {/* Modern minimal footer */}
       <footer className="bg-slate-900 text-slate-400 py-16 px-6 lg:px-16 border-t border-slate-800 text-xs relative z-10">
@@ -548,10 +903,10 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
             <span className="font-display font-bold tracking-tight text-white">GLINT</span>
           </div>
           <div className="flex gap-8">
-            <a href="#" className="hover:text-white transition-colors">Security Architecture</a>
-            <a href="#" className="hover:text-white transition-colors">API Reference</a>
-            <a href="#" className="hover:text-white transition-colors">Compliance Standard</a>
-            <a href="#" className="hover:text-white transition-colors">Legal Ledger</a>
+            <a href="#" className="hover:text-white transition-colors duration-200">Security Architecture</a>
+            <a href="#" className="hover:text-white transition-colors duration-200">API Reference</a>
+            <a href="#" className="hover:text-white transition-colors duration-200">Compliance Standard</a>
+            <a href="#" className="hover:text-white transition-colors duration-200">Legal Ledger</a>
           </div>
           <p>© 2026 Glint Inc. All rights reserved globally.</p>
         </div>
