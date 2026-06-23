@@ -58,15 +58,6 @@ pool.on('error', (err) => {
   logger.error('Unexpected error on idle PostgreSQL client', err);
 });
 
-// Test PostgreSQL database connection on startup
-pool.query('SELECT NOW()', (err, res) => {
-  if (err) {
-    logger.error('Failed to establish initial PostgreSQL connection', err);
-  } else {
-    logger.info('Connected to PostgreSQL successfully', { serverTime: res.rows[0].now });
-  }
-});
-
 // Helper to safely rollback transactions without throwing uncaught errors
 const safeRollback = async (client: any) => {
   if (client) {
