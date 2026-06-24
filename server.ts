@@ -1007,6 +1007,8 @@ app.get('/api/templates', async (req, res) => {
       showQrCode: row.show_qr_code,
       qrCodeX: Number(row.qr_code_x),
       qrCodeY: Number(row.qr_code_y),
+      qrCodeWidth: row.qr_code_width ? Number(row.qr_code_width) : 32,
+      sealWidth: row.seal_width ? Number(row.seal_width) : 40,
       logoUrl: row.logo_url || undefined,
       logoX: Number(row.logo_x),
       logoY: Number(row.logo_y),
@@ -1059,6 +1061,8 @@ app.post('/api/templates', authenticateToken, async (req, res) => {
     showQrCode: req.body.showQrCode !== undefined ? req.body.showQrCode : true,
     qrCodeX: req.body.qrCodeX !== undefined ? req.body.qrCodeX : 10,
     qrCodeY: req.body.qrCodeY !== undefined ? req.body.qrCodeY : 85,
+    qrCodeWidth: req.body.qrCodeWidth !== undefined ? req.body.qrCodeWidth : 32,
+    sealWidth: req.body.sealWidth !== undefined ? req.body.sealWidth : 40,
     logoX: req.body.logoX !== undefined ? req.body.logoX : 50,
     logoY: req.body.logoY !== undefined ? req.body.logoY : 10,
     logoWidth: req.body.logoWidth !== undefined ? req.body.logoWidth : 100,
@@ -1075,14 +1079,16 @@ app.post('/api/templates', authenticateToken, async (req, res) => {
          show_seal, seal_type, show_qr_code, qr_code_x, qr_code_y, logo_url, logo_x, logo_y, logo_width, 
          signature_url, secondary_signature_url, signature_x, signature_y, signature_width, signatory_name, signatory_title, 
          text_elements, border_radius, border_style, background_gradient, decor_flourish, logo_icon_type, signature_style, 
-         show_secondary_signatory, secondary_signatory_name, secondary_signatory_title, secondary_signature_x, secondary_signature_y, secondary_signature_width, background_image_url
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37)`,
+         show_secondary_signatory, secondary_signatory_name, secondary_signatory_title, secondary_signature_x, secondary_signature_y, secondary_signature_width, background_image_url,
+         qr_code_width, seal_width
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39)`,
       [
         t.id, t.workspaceId, t.name, t.layout, t.backgroundColor, t.borderColor, t.borderWidth,
         t.showSeal, t.sealType, t.showQrCode, t.qrCodeX, t.qrCodeY, t.logoUrl || null, t.logoX, t.logoY, t.logoWidth,
         t.signatureUrl || null, t.secondarySignatureUrl || null, t.signatureX, t.signatureY, t.signatureWidth, t.signatoryName || null, t.signatoryTitle || null,
         JSON.stringify(t.textElements), t.borderRadius || 0, t.borderStyle || 'solid', t.backgroundGradient || null, t.decorFlourish || 'none', t.logoIconType || null, t.signatureStyle || null,
-        t.showSecondarySignatory || false, t.secondarySignatoryName || null, t.secondarySignatoryTitle || null, t.secondarySignatureX || null, t.secondarySignatureY || null, t.secondarySignatureWidth || null, t.backgroundImageUrl || null
+        t.showSecondarySignatory || false, t.secondarySignatoryName || null, t.secondarySignatoryTitle || null, t.secondarySignatureX || null, t.secondarySignatureY || null, t.secondarySignatureWidth || null, t.backgroundImageUrl || null,
+        t.qrCodeWidth || 32, t.sealWidth || 40
       ]
     );
     res.json(t);
@@ -1111,6 +1117,8 @@ app.put('/api/templates/:id', authenticateToken, async (req, res) => {
       showQrCode: current.show_qr_code,
       qrCodeX: Number(current.qr_code_x),
       qrCodeY: Number(current.qr_code_y),
+      qrCodeWidth: current.qr_code_width ? Number(current.qr_code_width) : 32,
+      sealWidth: current.seal_width ? Number(current.seal_width) : 40,
       logoUrl: current.logo_url || undefined,
       logoX: Number(current.logo_x),
       logoY: Number(current.logo_y),
@@ -1149,8 +1157,9 @@ app.put('/api/templates/:id', authenticateToken, async (req, res) => {
          show_seal = $6, seal_type = $7, show_qr_code = $8, qr_code_x = $9, qr_code_y = $10, logo_url = $11, logo_x = $12, logo_y = $13, logo_width = $14, 
          signature_url = $15, secondary_signature_url = $16, signature_x = $17, signature_y = $18, signature_width = $19, signatory_name = $20, signatory_title = $21, 
          text_elements = $22, border_radius = $23, border_style = $24, background_gradient = $25, decor_flourish = $26, logo_icon_type = $27, signature_style = $28, 
-         show_secondary_signatory = $29, secondary_signatory_name = $30, secondary_signatory_title = $31, secondary_signature_x = $32, secondary_signature_y = $33, secondary_signature_width = $34, background_image_url = $35
-       WHERE id = $36`,
+         show_secondary_signatory = $29, secondary_signatory_name = $30, secondary_signatory_title = $31, secondary_signature_x = $32, secondary_signature_y = $33, secondary_signature_width = $34, background_image_url = $35,
+         qr_code_width = $36, seal_width = $37
+       WHERE id = $38`,
       [
         t.name, t.layout, t.backgroundColor, t.borderColor, t.borderWidth,
         t.showSeal, t.sealType, t.showQrCode, t.qrCodeX, t.qrCodeY, t.logoUrl || null, t.logoX, t.logoY, t.logoWidth,
@@ -1158,6 +1167,7 @@ app.put('/api/templates/:id', authenticateToken, async (req, res) => {
         typeof t.textElements === 'string' ? t.textElements : JSON.stringify(t.textElements || []),
         t.borderRadius || 0, t.borderStyle || 'solid', t.backgroundGradient || null, t.decorFlourish || 'none', t.logoIconType || null, t.signatureStyle || null,
         t.showSecondarySignatory || false, t.secondarySignatoryName || null, t.secondarySignatoryTitle || null, t.secondarySignatureX || null, t.secondarySignatureY || null, t.secondarySignatureWidth || null, t.backgroundImageUrl || null,
+        t.qrCodeWidth || 32, t.sealWidth || 40,
         req.params.id
       ]
     );
@@ -1175,6 +1185,8 @@ app.put('/api/templates/:id', authenticateToken, async (req, res) => {
       showQrCode: t.showQrCode,
       qrCodeX: t.qrCodeX,
       qrCodeY: t.qrCodeY,
+      qrCodeWidth: t.qrCodeWidth,
+      sealWidth: t.sealWidth,
       logoUrl: t.logoUrl,
       logoX: t.logoX,
       logoY: t.logoY,
@@ -1248,8 +1260,8 @@ app.post('/api/programs/:id/issue', authenticateToken, async (req, res) => {
       verificationUrl?: string;
     }[] = [];
 
-    // Dynamically build the base app URL (prioritizing APP_URL env variable, falling back to request host)
-    const appUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+    // Dynamically build the base app URL (prioritizing APP_URL env variable, falling back to production URL)
+    const appUrl = process.env.APP_URL || 'https://glint-pi.vercel.app';
 
     for (let idx = 0; idx < recipients.length; idx++) {
       const rec = recipients[idx];
@@ -1817,7 +1829,7 @@ app.post('/api/ai/generate-template', authenticateToken, async (req, res) => {
 Analyze the uploaded sample certificate design image and generate a new certificate template design that mimics the uploaded sample certificate style, layout, border style, colors, background, and element placements as closely as possible.
 Also consider this prompt: "${prompt}".
 
-Follow these strict design guidelines to achieve an identical matches:
+Follow these strict design guidelines to achieve an identical match:
 1. BACKGROUND & BORDERS:
    - Identify the exact background color, gradients, and border style/borders from the sample image.
    - Generate a clean, valid SVG certificate border and background design in the "svg" field. The SVG must have a viewBox of "0 0 1200 900" and contain absolutely NO text (<text>) elements. Use paths, rects, gradients, filters, and groups to recreate the visual appearance of the sample's borders and background patterns.
@@ -1831,7 +1843,12 @@ Follow these strict design guidelines to achieve an identical matches:
    - Recreate the text content, font family (Inter, Space Grotesk, Playfair Display, JetBrains Mono), font size (scaled relative to standard text sizes, e.g., 20-30 for titles, 12-16 for name/body, 9-11 for dates/meta), font weight (normal, medium, bold), and hex color to match the sample.
    - Ensure the name placeholder uses text "{{name}}" with "isPlaceholder": true.
    - Ensure the program/course placeholder uses text "{{program}}" with "isPlaceholder": true.
-   - Create additional text elements for the certificate title, description, date, signatory names, and titles, placing them at the exact same relative positions as in the sample image.`
+   - Create additional text elements for the certificate title, description, date, signatory names, and titles, placing them at the exact same relative positions as in the sample image.
+
+3. LOGO, SIGNATURES, AND TRUST STAMPS:
+   - If there is a logo in the sample certificate, detect its position and size, mapping to logoX (0-100), logoY (0-100), and logoWidth (e.g. 50-150).
+   - If there are signatures in the sample, detect their positions: signatureX/Y (primary) and secondarySignatureX/Y (secondary), along with their widths, signatoryName, and signatoryTitle. Set showSecondarySignatory to true if two signatures are present.
+   - If there is a QR code or seal/stamp in the sample, locate it and map to qrCodeX/Y, qrCodeWidth (e.g. 16-80), showQrCode (true/false), showSeal (true/false), sealType ('classic' | 'modern' | 'stellar' | 'crimson_wax' | 'emerald_shield' | 'gold_medallion'), and sealWidth (e.g. 20-100).`
         }
       ];
     } else {
@@ -1862,6 +1879,27 @@ Follow these strict design guidelines:
             backgroundColor: { type: Type.STRING, description: 'Hex color for background' },
             borderColor: { type: Type.STRING, description: 'Hex color for border' },
             borderWidth: { type: Type.INTEGER, description: 'Border width in px' },
+            logoX: { type: Type.INTEGER },
+            logoY: { type: Type.INTEGER },
+            logoWidth: { type: Type.INTEGER },
+            signatureX: { type: Type.INTEGER },
+            signatureY: { type: Type.INTEGER },
+            signatureWidth: { type: Type.INTEGER },
+            signatoryName: { type: Type.STRING },
+            signatoryTitle: { type: Type.STRING },
+            showSecondarySignatory: { type: Type.BOOLEAN },
+            secondarySignatureX: { type: Type.INTEGER },
+            secondarySignatureY: { type: Type.INTEGER },
+            secondarySignatureWidth: { type: Type.INTEGER },
+            secondarySignatoryName: { type: Type.STRING },
+            secondarySignatoryTitle: { type: Type.STRING },
+            showQrCode: { type: Type.BOOLEAN },
+            qrCodeX: { type: Type.INTEGER },
+            qrCodeY: { type: Type.INTEGER },
+            qrCodeWidth: { type: Type.INTEGER },
+            showSeal: { type: Type.BOOLEAN },
+            sealType: { type: Type.STRING, enum: ['classic', 'modern', 'stellar', 'crimson_wax', 'emerald_shield', 'gold_medallion', 'none'] },
+            sealWidth: { type: Type.INTEGER },
             textElements: {
               type: Type.ARRAY,
               items: {
@@ -1902,11 +1940,32 @@ Follow these strict design guidelines:
       backgroundColor: design.backgroundColor,
       borderColor: design.borderColor,
       borderWidth: design.borderWidth,
-      textElements: design.textElements.map((el: any, idx: number) => ({
+      textElements: (design.textElements || []).map((el: any, idx: number) => ({
         id: `ai-el-${idx}-${Math.random().toString(36).substring(2, 5)}`,
         ...el
       })),
-      backgroundImageUrl
+      backgroundImageUrl,
+      logoX: design.logoX !== undefined ? Number(design.logoX) : undefined,
+      logoY: design.logoY !== undefined ? Number(design.logoY) : undefined,
+      logoWidth: design.logoWidth !== undefined ? Number(design.logoWidth) : undefined,
+      signatureX: design.signatureX !== undefined ? Number(design.signatureX) : undefined,
+      signatureY: design.signatureY !== undefined ? Number(design.signatureY) : undefined,
+      signatureWidth: design.signatureWidth !== undefined ? Number(design.signatureWidth) : undefined,
+      signatoryName: design.signatoryName || undefined,
+      signatoryTitle: design.signatoryTitle || undefined,
+      showSecondarySignatory: design.showSecondarySignatory !== undefined ? Boolean(design.showSecondarySignatory) : undefined,
+      secondarySignatureX: design.secondarySignatureX !== undefined ? Number(design.secondarySignatureX) : undefined,
+      secondarySignatureY: design.secondarySignatureY !== undefined ? Number(design.secondarySignatureY) : undefined,
+      secondarySignatureWidth: design.secondarySignatureWidth !== undefined ? Number(design.secondarySignatureWidth) : undefined,
+      secondarySignatoryName: design.secondarySignatoryName || undefined,
+      secondarySignatoryTitle: design.secondarySignatoryTitle || undefined,
+      showQrCode: design.showQrCode !== undefined ? Boolean(design.showQrCode) : undefined,
+      qrCodeX: design.qrCodeX !== undefined ? Number(design.qrCodeX) : undefined,
+      qrCodeY: design.qrCodeY !== undefined ? Number(design.qrCodeY) : undefined,
+      qrCodeWidth: design.qrCodeWidth !== undefined ? Number(design.qrCodeWidth) : undefined,
+      showSeal: design.showSeal !== undefined ? Boolean(design.showSeal) : undefined,
+      sealType: design.sealType || undefined,
+      sealWidth: design.sealWidth !== undefined ? Number(design.sealWidth) : undefined
     });
   } catch (err: any) {
     logger.error('Error generating AI template', err);

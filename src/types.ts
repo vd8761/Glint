@@ -53,6 +53,8 @@ export interface CertificateTemplate {
   showQrCode: boolean;
   qrCodeX: number; // percentage alignment
   qrCodeY: number;
+  qrCodeWidth?: number;
+  sealWidth?: number;
   logoUrl?: string; // override/specific template logo
   logoX: number;
   logoY: number;

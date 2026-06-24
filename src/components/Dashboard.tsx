@@ -85,7 +85,8 @@ export function Dashboard({
   const [progTemplateId, setProgTemplateId] = useState('');
   const [progIssueDate, setProgIssueDate] = useState('2026-06-17');
   const [progExpiryDate, setProgExpiryDate] = useState('');
-  const [fieldString, setFieldString] = useState('Grade, Score, Class');
+  const [fieldString, setFieldString] = useState('');
+  const [editingProgram, setEditingProgram] = useState<CertificateProgram | null>(null);
 
   // Template Editor states
   const [editingTemplate, setEditingTemplate] = useState<CertificateTemplate | null>(null);
@@ -217,7 +218,7 @@ export function Dashboard({
     }
   };
 
-  // 3. Create a Program
+  // 3. Create or Edit a Program
   const handleCreateProgram = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!progName || !progTemplateId) return;
@@ -237,8 +238,11 @@ export function Dashboard({
     });
 
     try {
-      const res = await fetch('/api/programs', {
-        method: 'POST',
+      const url = editingProgram ? `/api/programs/${editingProgram.id}` : '/api/programs';
+      const method = editingProgram ? 'PUT' : 'POST';
+
+      const res = await fetch(url, {
+        method,
         headers: { 
           'Content-Type': 'application/json',
           ...authHeaders
@@ -256,13 +260,15 @@ export function Dashboard({
 
       if (res.ok) {
         setShowProgramForm(false);
+        setEditingProgram(null);
         setProgName('');
         setProgDesc('');
-        setFieldString('Grade, Score, Class');
+        setProgExpiryDate('');
+        setFieldString('');
         await triggerDataRefresh();
       }
     } catch (err) {
-      console.error('Failed to create program', err);
+      console.error('Failed to save program', err);
     }
   };
 
@@ -642,6 +648,21 @@ export function Dashboard({
     } catch (err) {
       console.error(err);
     }
+  };
+
+  const handleEditProgram = (prog: CertificateProgram) => {
+    setEditingProgram(prog);
+    setProgName(prog.name);
+    setProgDesc(prog.description);
+    setProgTemplateId(prog.templateId);
+    setProgIssueDate(prog.issueDate);
+    setProgExpiryDate(prog.expiryDate || '');
+    setFieldString(
+      prog.recipientFields
+        .filter(f => !['name', 'email', 'date', 'id', 'program'].includes(f.toLowerCase()))
+        .join(', ')
+    );
+    setShowProgramForm(true);
   };
 
   // Filter Issued List
@@ -1074,6 +1095,11 @@ export function Dashboard({
                             alert('Create at least one template program layout before configuring certificate programs.');
                             return;
                           }
+                          setEditingProgram(null);
+                          setProgName('');
+                          setProgDesc('');
+                          setProgExpiryDate('');
+                          setFieldString('');
                           setProgTemplateId(templates[0].id);
                           setShowProgramForm(true);
                         }}
@@ -1087,7 +1113,9 @@ export function Dashboard({
                   {/* Create Program Block Form */}
                   {showProgramForm && (
                     <form onSubmit={handleCreateProgram} className="bg-white border border-[#E9ECEF] rounded-2xl p-8 card-shadow space-y-6 max-w-2xl">
-                      <h3 className="text-sm font-bold text-slate-950 uppercase tracking-widest pb-3 border-b border-slate-100">Configure Program Variable Matrix</h3>
+                      <h3 className="text-sm font-bold text-slate-950 uppercase tracking-widest pb-3 border-b border-slate-100">
+                        {editingProgram ? 'Edit Credential Program' : 'Configure Program Variable Matrix'}
+                      </h3>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-1">
@@ -1168,7 +1196,14 @@ export function Dashboard({
                       <div className="flex gap-3 justify-end pt-2">
                         <button
                           type="button"
-                          onClick={() => setShowProgramForm(false)}
+                          onClick={() => {
+                            setShowProgramForm(false);
+                            setEditingProgram(null);
+                            setProgName('');
+                            setProgDesc('');
+                            setProgExpiryDate('');
+                            setFieldString('');
+                          }}
                           className="bg-slate-100 text-slate-800 text-xs px-4 py-2 rounded-lg font-bold"
                         >
                           Cancel
@@ -1177,7 +1212,7 @@ export function Dashboard({
                           type="submit"
                           className="bg-slate-950 text-white text-xs px-5 py-2.5 rounded-lg font-bold hover:bg-slate-800"
                         >
-                          Register Program Track
+                          {editingProgram ? 'Save Changes' : 'Register Program Track'}
                         </button>
                       </div>
                     </form>
@@ -1230,6 +1265,13 @@ export function Dashboard({
                                 </div>
                               </td>
                               <td className="px-8 py-5 text-right space-x-3.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleEditProgram(prog)}
+                                  className="text-[10px] uppercase text-[#1a73e8] hover:underline font-bold"
+                                >
+                                  Edit
+                                </button>
                                 <button
                                   type="button"
                                   onClick={() => {

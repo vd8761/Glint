@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Award, CheckCircle, ShieldAlert, BadgeAlert, Printer, Share2, Copy, Play, Database, Calendar, User, Building, Landmark, ChevronRight, RefreshCw, Hash, Sparkles, QrCode } from 'lucide-react';
+import { Award, CheckCircle, ShieldAlert, BadgeAlert, Printer, Share2, Copy, Play, Database, Calendar, User, Building, Landmark, ChevronRight, RefreshCw, Hash, Sparkles, QrCode, Download } from 'lucide-react';
 import { Certificate, CertificateTemplate, OrganizationBranding } from '../types';
 
 interface CertificateViewerProps {
@@ -119,7 +119,8 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
   };
 
   const copyUrl = () => {
-    const url = window.location.origin + '/#credential=' + certificateId;
+    const origin = window.location.origin.includes('localhost') ? 'https://glint-pi.vercel.app' : window.location.origin;
+    const url = origin + '/#credential=' + certificateId;
     navigator.clipboard.writeText(url);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -151,7 +152,8 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
     
     const name = cert.programName;
     const orgName = branding?.brandName || 'Verified Certifications';
-    const certUrl = window.location.origin + '/#credential=' + cert.id;
+    const origin = window.location.origin.includes('localhost') ? 'https://glint-pi.vercel.app' : window.location.origin;
+    const certUrl = origin + '/#credential=' + cert.id;
     const certId = cert.id;
     
     const linkedInAddUrl = `https://www.linkedin.com/profile/add?startTask=CERTIFICATION_NAME&name=${encodeURIComponent(name)}&organizationName=${encodeURIComponent(orgName)}&issueYear=${issueYear}&issueMonth=${issueMonth}&certUrl=${encodeURIComponent(certUrl)}&certId=${encodeURIComponent(certId)}`;
@@ -269,9 +271,15 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
           </span>
           <button 
             onClick={executeDownloadStat}
-            className="bg-slate-950 hover:bg-slate-800 text-white text-xs px-4 py-2 rounded-full font-medium transition-all shadow-sm flex items-center gap-1.5"
+            className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs px-4 py-2 rounded-full font-medium transition-all shadow-sm flex items-center gap-1.5"
           >
             <Printer className="w-3.5 h-3.5" /> Print Vector Cert
+          </button>
+          <button 
+            onClick={executeDownloadStat}
+            className="bg-slate-950 hover:bg-slate-800 text-white text-xs px-4 py-2 rounded-full font-medium transition-all shadow-sm flex items-center gap-1.5"
+          >
+            <Download className="w-3.5 h-3.5" /> Download PDF
           </button>
         </div>
       </header>
@@ -699,7 +707,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                 )}
 
                 {/* Absolute Stamp and Secure QR blocks combo */}
-                {activeTemplate.showQrCode && (
+                {(activeTemplate.showQrCode || activeTemplate.showSeal) && (
                   <div
                     style={{
                       position: 'absolute',
@@ -707,38 +715,56 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                       top: `${activeTemplate.qrCodeY}%`,
                       transform: 'translate(-50%, -50%)',
                     }}
-                    className="flex items-center gap-2 select-none z-30 pointer-events-none"
+                    className="flex items-center gap-2 select-none z-30"
                   >
                     {activeTemplate.showSeal && (
-                      <div className="inline-flex items-center justify-center w-10 h-10 rounded-full border border-amber-500/30">
+                      <div 
+                        style={{ 
+                          width: `${(activeTemplate.sealWidth || 40) * 0.125}cqw`, 
+                          height: `${(activeTemplate.sealWidth || 40) * 0.125}cqw` 
+                        }} 
+                        className="inline-flex items-center justify-center rounded-full border border-amber-500/30 shrink-0"
+                      >
                         {activeTemplate.sealType === 'classic' && (
-                          <div className="w-8 h-8 rounded-full border border-dashed border-amber-500 flex items-center justify-center text-amber-600 font-bold text-xs bg-amber-50/10">🏆</div>
+                          <div className="w-full h-full rounded-full border border-dashed border-amber-500 flex items-center justify-center text-amber-600 font-bold text-[1.2cqw] bg-amber-50/10">🏆</div>
                         )}
                         {activeTemplate.sealType === 'stellar' && (
-                          <div className="w-8 h-8 rounded-full bg-slate-900 border border-cyan-400 text-cyan-400 flex items-center justify-center font-bold text-xs">✧</div>
+                          <div className="w-full h-full rounded-full bg-slate-900 border border-cyan-400 text-cyan-400 flex items-center justify-center font-bold text-[1.2cqw]">✧</div>
                         )}
                         {activeTemplate.sealType === 'modern' && (
-                          <div className="w-8 h-8 rounded-full bg-indigo-500 text-white flex items-center justify-center text-[7px] font-bold">VERIFIED</div>
+                          <div className="w-full h-full rounded-full bg-indigo-500 text-white flex items-center justify-center text-[0.7cqw] font-bold">VERIFIED</div>
                         )}
                         {activeTemplate.sealType === 'crimson_wax' && (
-                          <div className="w-9 h-9 bg-rose-700 text-amber-300 rounded-full flex items-center justify-center font-serif font-bold text-[8px] border border-amber-500/20 shadow">SEAL</div>
+                          <div className="w-full h-full bg-rose-700 text-amber-300 rounded-full flex items-center justify-center font-serif font-bold text-[0.8cqw] border border-amber-500/20 shadow">SEAL</div>
                         )}
                         {activeTemplate.sealType === 'emerald_shield' && (
-                          <div className="w-8 h-9 bg-emerald-900 text-amber-300 rounded flex items-center justify-center font-bold text-xs shadow">⛨</div>
+                          <div className="w-full h-full bg-emerald-900 text-amber-300 rounded flex items-center justify-center font-bold text-[1.2cqw] shadow">⛨</div>
                         )}
                         {activeTemplate.sealType === 'gold_medallion' && (
-                          <div className="w-9 h-9 bg-gradient-to-tr from-yellow-600 via-amber-400 to-yellow-600 border border-yellow-300 rounded-full flex items-center justify-center text-yellow-950 font-serif font-bold text-[8px] shadow">🏅</div>
+                          <div className="w-full h-full bg-gradient-to-tr from-yellow-600 via-amber-400 to-yellow-600 border border-yellow-300 rounded-full flex items-center justify-center text-yellow-950 font-serif font-bold text-[0.8cqw] shadow">🏅</div>
                         )}
                       </div>
                     )}
 
-                    <div className="w-8 h-8 bg-white p-0.5 rounded-sm border border-slate-200 shadow-sm flex items-center justify-center">
-                      <img 
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(window.location.origin + '/#credential=' + cert.id)}&color=0f172a`}
-                        alt="Verification QR"
-                        className="w-full h-full object-contain"
-                      />
-                    </div>
+                    {activeTemplate.showQrCode && (
+                      <a
+                        href={`https://glint-pi.vercel.app/#credential=${cert.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ 
+                          width: `${(activeTemplate.qrCodeWidth || 32) * 0.125}cqw`, 
+                          height: `${(activeTemplate.qrCodeWidth || 32) * 0.125}cqw` 
+                        }}
+                        className="bg-white p-0.5 rounded-sm border border-slate-200 shadow-sm flex items-center justify-center hover:scale-110 transition-transform cursor-pointer shrink-0"
+                        title="Click to Verify"
+                      >
+                        <img 
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent('https://glint-pi.vercel.app/#credential=' + cert.id)}&color=0f172a`}
+                          alt="Verification QR"
+                          className="w-full h-full object-contain"
+                        />
+                      </a>
+                    )}
                   </div>
                 )}
 
