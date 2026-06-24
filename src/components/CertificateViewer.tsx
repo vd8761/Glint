@@ -23,6 +23,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
   const [auditProgress, setAuditProgress] = useState<'idle' | 'running' | 'success'>('idle');
   const [auditMessage, setAuditMessage] = useState('');
   const [copied, setCopied] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
 
   // Reference for the printable certificate area
   const printRef = useRef<HTMLDivElement>(null);
@@ -48,7 +49,14 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'view' })
-      });
+      })
+        .then(res => {
+          if (res.ok) return res.json();
+        })
+        .then(updated => {
+          if (updated) setCert(updated);
+        })
+        .catch(err => console.error('Failed to log view statistic', err));
 
       // Load related template logic to support customized certificate preview
       // If we don't find it on API, fallback on standard preset template
@@ -112,10 +120,84 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'download' })
-    });
+    })
+      .then(res => {
+        if (res.ok) return res.json();
+      })
+      .then(updated => {
+        if (updated) setCert(updated);
+      })
+      .catch(err => console.error('Failed to log download statistic', err));
     
     // Trigger standard browser print window targeting certificate area
     window.print();
+  };
+
+  const executePdfDownload = async () => {
+    if (!cert || !printRef.current) return;
+    setIsDownloadingPdf(true);
+
+    // Log Download
+    fetch(`/api/certificates/${cert.id}/stats`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'download' })
+    })
+      .then(res => {
+        if (res.ok) return res.json();
+      })
+      .then(updated => {
+        if (updated) setCert(updated);
+      })
+      .catch(err => console.error('Failed to log download statistic', err));
+
+    try {
+      const html2pdfLib = (window as any).html2pdf;
+      if (!html2pdfLib) {
+        throw new Error('PDF conversion engine not loaded yet. Please wait a moment and try again.');
+      }
+
+      // Clone the node so we can manipulate it off-screen without altering the UI
+      const originalElement = printRef.current;
+      const element = originalElement.cloneNode(true) as HTMLElement;
+
+      // Force fixed dimensions on the cloned element so that container queries (cqw) 
+      // evaluate correctly at a high resolution.
+      element.style.width = '1120px';
+      element.style.height = '792px';
+      element.style.position = 'absolute';
+      element.style.left = '-9999px';
+      element.style.top = '-9999px';
+
+      document.body.appendChild(element);
+
+      const opt = {
+        margin:       0,
+        filename:     `Glint_Certificate_${cert.id}.pdf`,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { 
+          scale: 2, 
+          useCORS: true,
+          logging: false
+        },
+        jsPDF:        { 
+          unit: 'in', 
+          format: 'a4', 
+          orientation: activeTemplate.layout || 'landscape' 
+        }
+      };
+
+      // Generate the PDF
+      await html2pdfLib().set(opt).from(element).save();
+
+      // Clean up the DOM element
+      document.body.removeChild(element);
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || 'Failed to download certificate PDF');
+    } finally {
+      setIsDownloadingPdf(false);
+    }
   };
 
   const copyUrl = () => {
@@ -131,7 +213,14 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'share' })
-      });
+      })
+        .then(res => {
+          if (res.ok) return res.json();
+        })
+        .then(updated => {
+          if (updated) setCert(updated);
+        })
+        .catch(err => console.error('Failed to log share statistic', err));
     }
   };
 
@@ -166,12 +255,13 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'share' })
     })
-      .then(() => {
-        setCert(prev => prev ? { ...prev, shareCount: (prev.shareCount || 0) + 1 } : null);
+      .then(res => {
+        if (res.ok) return res.json();
       })
-      .catch(() => {
-        setCert(prev => prev ? { ...prev, shareCount: (prev.shareCount || 0) + 1 } : null);
-      });
+      .then(updated => {
+        if (updated) setCert(updated);
+      })
+      .catch(err => console.error('Failed to log share statistic', err));
   };
 
   // Safe fallback template if not present
@@ -276,10 +366,11 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
             <Printer className="w-3.5 h-3.5" /> Print Vector Cert
           </button>
           <button 
-            onClick={executeDownloadStat}
-            className="bg-slate-950 hover:bg-slate-800 text-white text-xs px-4 py-2 rounded-full font-medium transition-all shadow-sm flex items-center gap-1.5"
+            onClick={executePdfDownload}
+            disabled={isDownloadingPdf}
+            className="bg-slate-950 hover:bg-slate-800 text-white text-xs px-4 py-2 rounded-full font-medium transition-all shadow-sm flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            <Download className="w-3.5 h-3.5" /> Download PDF
+            <Download className="w-3.5 h-3.5" /> {isDownloadingPdf ? 'Downloading...' : 'Download PDF'}
           </button>
         </div>
       </header>
