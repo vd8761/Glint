@@ -79,7 +79,7 @@ export function HeroScrollDemo() {
               <div className="bg-indigo-600/5 border border-indigo-100 p-3 rounded-lg text-[10px] text-slate-500 flex items-start gap-2">
                 <Sparkles className="w-3.5 h-3.5 text-indigo-600 shrink-0 mt-0.5" />
                 <span>
-                  <strong className="text-indigo-900 block font-bold">Gemini Design Assistant:</strong>
+                  <strong className="text-indigo-900 block font-bold">AI Design Assistant:</strong>
                   Try prompting AI to create borders, fonts, or color themes instantly.
                 </span>
               </div>

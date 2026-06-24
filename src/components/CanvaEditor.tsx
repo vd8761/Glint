@@ -1368,7 +1368,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                     <Sparkles className="w-3.5 h-3.5 text-indigo-650 animate-pulse" /> AI Certificate Generator
                   </h3>
                   <p className="text-[10px] text-slate-500">
-                    Use Google Gemini 2.5 Flash to automatically design a stunning vector certificate background and layout based on your prompt.
+                    Use AI to automatically design a stunning vector certificate background and layout based on your prompt.
                   </p>
                 </div>
                 
