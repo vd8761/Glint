@@ -30,6 +30,10 @@
 }
 
 @media print {
+  @page {
+    size: landscape;
+    margin: 0;
+  }
   body {
     background: white !important;
     color: black !important;
@@ -51,6 +55,8 @@
     box-shadow: none !important;
     width: 100vw !important;
     height: 70.72vw !important; /* 1.414 ratio landscape */
+    background: transparent !important;
+    position: relative !important;
   }
   .printable-certificate {
     width: 100% !important;

@@ -41,7 +41,11 @@ export function HeroScrollDemo() {
             </div>
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span> Connected to Neon Cloud
+                <span className="w-1.5 h-1.5 bg-emerald-600 rounded-full animate-pulse" />
+                Live Preview
+              </span>
+              <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded border border-slate-100">
+                Demo Mode
               </span>
             </div>
           </div>
