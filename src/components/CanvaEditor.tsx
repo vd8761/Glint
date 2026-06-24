@@ -6,6 +6,10 @@ import {
 } from 'lucide-react';
 import { CertificateTemplate, TextElement } from '../types';
 
+const capitalizeWords = (str: string) => {
+  return str.replace(/\b\w/g, char => char.toUpperCase());
+};
+
 interface CanvaEditorProps {
   template: CertificateTemplate;
   onSave: (updatedTemplate: CertificateTemplate) => void;
@@ -13,6 +17,7 @@ interface CanvaEditorProps {
   brandName?: string;
   primaryColor?: string;
   token?: string | null;
+  programs?: any[];
 }
 
 // 6+ Beautiful Canva Designer Presets
@@ -233,7 +238,7 @@ const GRADIENT_OPTIONS = [
   { name: 'Rosewood Petals', value: 'linear-gradient(135deg, #FAF5F5 0%, #FEE2E2 50%, #FCE7F3 100%)', isGradient: true },
 ];
 
-export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace', primaryColor = '#0F172A', token }: CanvaEditorProps) {
+export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace', primaryColor = '#0F172A', token, programs = [] }: CanvaEditorProps) {
   // Current active template editing state
   const [currentTemplate, setCurrentTemplate] = useState<CertificateTemplate>(JSON.parse(JSON.stringify(template)));
   
@@ -242,7 +247,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
   const [historyIndex, setHistoryIndex] = useState<number>(0);
   
   // Active Sidebar Nav Tab inside Canva Editor
-  const [activeSideTab, setActiveSideTab] = useState<'templates' | 'text' | 'borders' | 'backdrop' | 'seals' | 'sign' | 'layers' | 'ai'>('templates');
+  const [activeSideTab, setActiveSideTab] = useState<'templates' | 'text' | 'borders' | 'backdrop' | 'seals' | 'sign' | 'layers' | 'ai' | 'uploads'>('templates');
   
   // Currently highlighted / selected element ID on visual canvas
   const [selectedElId, setSelectedElId] = useState<string | null>(null);
@@ -252,6 +257,61 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
   const [isGeneratingAi, setIsGeneratingAi] = useState<boolean>(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiSampleImage, setAiSampleImage] = useState<{ data: string; mimeType: string } | null>(null);
+
+  // Selected program for field insertion helpers
+  const [selectedProgramId, setSelectedProgramId] = useState<string>('');
+  
+  // Custom uploaded assets library
+  const [uploadedAssets, setUploadedAssets] = useState<string[]>([]);
+  
+  const getPlaceholderTags = () => {
+    const baseTags = ['name', 'program', 'date', 'id'];
+    if (!selectedProgramId || !programs) return baseTags;
+    const selectedProg = programs.find(p => p.id === selectedProgramId);
+    if (!selectedProg || !selectedProg.recipientFields) return baseTags;
+    return [...baseTags, ...selectedProg.recipientFields];
+  };
+
+  const addUploadedImageToCanvas = (imageUrl: string) => {
+    const id = `t-img-${Math.random().toString(36).substring(2, 7)}`;
+    const newElement: TextElement = {
+      id,
+      type: 'image',
+      imageUrl,
+      text: '',
+      xPercent: 50,
+      yPercent: 50,
+      width: 120,
+      fontSize: 12, // default for framework resizing safety
+      fontWeight: 'normal',
+      fontFamily: 'Inter',
+      color: '#000000',
+      align: 'center'
+    };
+    
+    const updated = {
+      ...currentTemplate,
+      textElements: [...currentTemplate.textElements, newElement]
+    };
+    setCurrentTemplate(updated);
+    pushToHistory(updated);
+    setSelectedElId(id);
+  };
+
+  const handleCustomImageElementUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64Data = event.target?.result as string;
+      if (base64Data) {
+        setUploadedAssets(prev => [base64Data, ...prev]);
+        addUploadedImageToCanvas(base64Data);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Drag and drop state manager
   const [draggedItem, setDraggedItem] = useState<{
@@ -820,7 +880,32 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
       borderColor: design.borderColor,
       borderWidth: design.borderWidth,
       backgroundImageUrl: design.backgroundImageUrl,
-      textElements: design.textElements
+      textElements: design.textElements,
+      // Logo settings
+      ...(design.logoX !== undefined ? { logoX: design.logoX } : {}),
+      ...(design.logoY !== undefined ? { logoY: design.logoY } : {}),
+      ...(design.logoWidth !== undefined ? { logoWidth: design.logoWidth } : {}),
+      // Signature settings
+      ...(design.signatureX !== undefined ? { signatureX: design.signatureX } : {}),
+      ...(design.signatureY !== undefined ? { signatureY: design.signatureY } : {}),
+      ...(design.signatureWidth !== undefined ? { signatureWidth: design.signatureWidth } : {}),
+      ...(design.signatoryName !== undefined ? { signatoryName: design.signatoryName } : {}),
+      ...(design.signatoryTitle !== undefined ? { signatoryTitle: design.signatoryTitle } : {}),
+      // Secondary signatory settings
+      ...(design.showSecondarySignatory !== undefined ? { showSecondarySignatory: design.showSecondarySignatory } : {}),
+      ...(design.secondarySignatureX !== undefined ? { secondarySignatureX: design.secondarySignatureX } : {}),
+      ...(design.secondarySignatureY !== undefined ? { secondarySignatureY: design.secondarySignatureY } : {}),
+      ...(design.secondarySignatureWidth !== undefined ? { secondarySignatureWidth: design.secondarySignatureWidth } : {}),
+      ...(design.secondarySignatoryName !== undefined ? { secondarySignatoryName: design.secondarySignatoryName } : {}),
+      ...(design.secondarySignatoryTitle !== undefined ? { secondarySignatoryTitle: design.secondarySignatoryTitle } : {}),
+      // QR Code and Seal settings
+      ...(design.showQrCode !== undefined ? { showQrCode: design.showQrCode } : {}),
+      ...(design.qrCodeX !== undefined ? { qrCodeX: design.qrCodeX } : {}),
+      ...(design.qrCodeY !== undefined ? { qrCodeY: design.qrCodeY } : {}),
+      ...(design.qrCodeWidth !== undefined ? { qrCodeWidth: design.qrCodeWidth } : {}),
+      ...(design.showSeal !== undefined ? { showSeal: design.showSeal } : {}),
+      ...(design.sealType !== undefined ? { sealType: design.sealType } : {}),
+      ...(design.sealWidth !== undefined ? { sealWidth: design.sealWidth } : {})
     };
     setCurrentTemplate(updated);
     pushToHistory(updated);
@@ -1170,7 +1255,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
   const renderLogoVector = (type: string, width: number) => {
     if (!type || type === 'none') return null;
     return (
-      <div style={{ width: `${width}px` }} className="flex items-center justify-center pointer-events-none select-none">
+      <div style={{ width: `${width * 0.125}cqw` }} className="flex items-center justify-center pointer-events-none select-none">
         {type === 'tech' && (
           <div className="w-full aspect-square bg-gradient-to-tr from-cyan-500 to-indigo-500 rounded-lg p-2 shadow-sm flex items-center justify-center text-white">
             <Sparkles className="w-2/3 h-2/3" />
@@ -1236,7 +1321,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
   };
 
   return (
-    <div className="bg-[#F8F9FA] text-slate-800 h-[calc(100vh-64px)] flex flex-col overflow-hidden -m-8 relative z-30 font-sans">
+    <div className="bg-[#F8F9FA] text-slate-800 h-full flex flex-col overflow-hidden relative z-30 font-sans">
       
       {/* Editor Action Top bar */}
       <div className="h-14 bg-white border-b border-slate-200 px-6 flex justify-between items-center z-20 shrink-0 shadow-sm">
@@ -1252,7 +1337,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
             <input 
               type="text"
               value={currentTemplate.name}
-              onChange={(e) => updateTemplateProperty('name', e.target.value)}
+              onChange={(e) => updateTemplateProperty('name', capitalizeWords(e.target.value))}
               className="bg-slate-50 text-sm font-bold text-slate-900 max-w-sm border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:bg-white rounded py-1 px-2.5 transition-all"
               placeholder="Enter Template Title..."
             />
@@ -1287,18 +1372,17 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
             <Save className="w-3.5 h-3.5" /> Save Canva Slate
           </button>
         </div>
-      </div>
-
-      {/* Split core workspace content */}
-      <div className="flex-1 flex overflow-hidden min-w-0">
+      </div>      {/* Split core workspace content */}
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-w-0">
         
         {/* Sidebar Nav Category Rail (Canva Style) */}
-        <div className="w-16 bg-slate-50 border-r border-slate-200 flex flex-col items-center justify-between py-6 shrink-0 z-10">
-          <div className="space-y-4 w-full">
+        <div className="w-full h-16 md:w-16 md:h-full bg-slate-50 border-b md:border-b-0 md:border-r border-slate-200 flex flex-row md:flex-col items-center justify-between px-4 md:px-0 py-2 md:py-6 shrink-0 z-10">
+          <div className="flex flex-row md:flex-col gap-1 md:gap-4 md:space-y-4 w-full justify-between md:justify-start overflow-x-auto md:overflow-x-visible">
             {[
               { id: 'templates', icon: Award, label: 'Design presets' },
               { id: 'ai', icon: Sparkles, label: 'AI Design Agent' },
               { id: 'text', icon: Type, label: 'Add Text' },
+              { id: 'uploads', icon: Upload, label: 'Upload Elements' },
               { id: 'backdrop', icon: Image, label: 'Backgrounds' },
               { id: 'borders', icon: Sliders, label: 'Borders' },
               { id: 'seals', icon: QrCode, label: 'Stamps' },
@@ -1311,25 +1395,25 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                 <button
                   key={tab.id}
                   onClick={() => setActiveSideTab(tab.id as any)}
-                  className={`w-full flex flex-col items-center justify-center p-2.5 transition-all outline-none border-l-2 relative ${
+                  className={`flex-1 md:w-full flex flex-col items-center justify-center p-2.5 transition-all outline-none border-t-2 md:border-t-0 md:border-l-2 relative ${
                     isActive ? 'border-indigo-650 text-indigo-650 bg-white font-bold' : 'border-transparent text-slate-400 hover:text-slate-800'
                   }`}
                   title={tab.label}
                 >
-                  <Icon className="w-5 h-5 mb-1" />
+                  <Icon className="w-5 h-5 mb-0.5 md:mb-1" />
                   <span className="text-[8px] font-bold text-center scale-90 truncate max-w-full">{tab.id.toUpperCase()}</span>
                 </button>
               );
             })}
           </div>
           
-          <div className="text-center">
+          <div className="text-center hidden md:block">
             <HelpCircle className="w-4 h-4 text-slate-400 hover:text-slate-600 cursor-pointer mx-auto" />
           </div>
         </div>
 
         {/* Floating properties drawer specific to the active side tab */}
-        <div className="w-80 bg-white border-r border-slate-200 flex flex-col overflow-y-auto shrink-0 z-10 shadow-sm text-xs leading-normal text-slate-700">
+        <div className="w-full h-48 md:w-80 md:h-full bg-white border-b md:border-b-0 md:border-r border-slate-200 flex flex-col overflow-y-auto shrink-0 z-10 shadow-sm text-xs leading-normal text-slate-700 font-sans">
           <div className="p-5 space-y-6">
             
             {/* TAB: TEMPLATES */}
@@ -1454,22 +1538,42 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                   <p className="text-[10px] text-slate-500">Add customizable dynamic typography layers on the canvas stage.</p>
                 </div>
 
+                {/* Program Selector for Dynamic Fields */}
+                <div className="space-y-1.5 bg-slate-50 border border-slate-200 p-3 rounded-xl text-slate-700 shadow-sm">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                    Certificate Program Fields Context
+                  </label>
+                  <p className="text-[9px] text-slate-550 mb-1.5 leading-relaxed">
+                    Select a program to load its custom spreadsheet mapping variables.
+                  </p>
+                  <select
+                    value={selectedProgramId}
+                    onChange={(e) => setSelectedProgramId(e.target.value)}
+                    className="w-full bg-white border border-slate-200 p-1.5 rounded-lg text-xs text-slate-900 focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="">None (Default Fields Only)</option>
+                    {programs && programs.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+
                 <div className="grid grid-cols-2 gap-2 pt-2">
                   <button
                     onClick={() => addNewTextLayer('heading')}
-                    className="bg-slate-50 hover:bg-slate-100 p-3 rounded-lg text-center font-bold text-slate-800 border border-slate-200 hover:border-indigo-500 transition-colors shadow-sm"
+                    className="bg-slate-50 hover:bg-slate-100 p-3 rounded-lg text-center font-bold text-slate-800 border border-slate-200 hover:border-indigo-500 transition-colors shadow-sm cursor-pointer"
                   >
                     + Add Heading
                   </button>
                   <button
                     onClick={() => addNewTextLayer('subheading')}
-                    className="bg-slate-50 hover:bg-slate-100 p-3 rounded-lg text-center font-semibold text-slate-700 border border-slate-200 hover:border-indigo-500 transition-colors shadow-sm"
+                    className="bg-slate-50 hover:bg-slate-100 p-3 rounded-lg text-center font-semibold text-slate-700 border border-slate-200 hover:border-indigo-500 transition-colors shadow-sm cursor-pointer"
                   >
                     + Add Subtitle
                   </button>
                   <button
                     onClick={() => addNewTextLayer('body')}
-                    className="bg-slate-50 hover:bg-slate-100 p-3 rounded-lg text-center text-slate-700 border border-slate-200 hover:border-indigo-500 transition-colors col-span-2 shadow-sm"
+                    className="bg-slate-50 hover:bg-slate-100 p-3 rounded-lg text-center text-slate-700 border border-slate-200 hover:border-indigo-500 transition-colors col-span-2 shadow-sm cursor-pointer"
                   >
                     + Add Body Paragraph Block
                   </button>
@@ -1486,7 +1590,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                           <span className="text-[10px] font-bold uppercase text-indigo-600">Selected Layer Controls</span>
                           <button
                             onClick={() => deleteSelectedElement()}
-                            className="bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 p-1.5 rounded transition-colors"
+                            className="bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 p-1.5 rounded transition-colors cursor-pointer"
                             title="Delete this text layer"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -1507,11 +1611,11 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                         <div className="space-y-1.5">
                           <span className="text-[10px] font-bold text-slate-500 uppercase">Insert Spreadsheet Placeholder Fields</span>
                           <div className="flex flex-wrap gap-1.5">
-                            {['name', 'program', 'date', 'id'].map(tag => (
+                            {getPlaceholderTags().map(tag => (
                               <button
                                 key={tag}
                                 onClick={() => insertPlaceholderTag(tag)}
-                                className="bg-white hover:bg-slate-100 text-slate-700 text-[9px] font-mono px-2 py-0.5 rounded transition-colors border border-slate-200 shadow-sm"
+                                className="bg-white hover:bg-slate-100 text-slate-700 text-[9px] font-mono px-2 py-0.5 rounded transition-colors border border-slate-200 shadow-sm cursor-pointer animate-fade-in"
                               >
                                 {"{{" + tag + "}}"}
                               </button>
@@ -1563,13 +1667,13 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                               {/* Weight toggles */}
                               <button
                                 onClick={() => updateTextElementProperty(el.id, 'fontWeight', el.fontWeight === 'bold' ? 'normal' : 'bold')}
-                                className={`flex-1 p-1.5 rounded border transition-colors ${el.fontWeight === 'bold' ? 'bg-indigo-600 border-indigo-550 text-white font-bold' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-105 hover:text-slate-900'}`}
+                                className={`flex-1 p-1.5 rounded border transition-colors cursor-pointer ${el.fontWeight === 'bold' ? 'bg-indigo-600 border-indigo-550 text-white font-bold' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-105 hover:text-slate-900'}`}
                               >
                                 <strong>B</strong>
                               </button>
                               <button
                                 onClick={() => updateTextElementProperty(el.id, 'fontWeight', el.fontWeight === 'medium' ? 'normal' : 'medium')}
-                                className={`flex-1 p-1.5 rounded border transition-colors ${el.fontWeight === 'medium' ? 'bg-indigo-600 border-indigo-550 text-white font-bold' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-105 hover:text-slate-900'}`}
+                                className={`flex-1 p-1.5 rounded border transition-colors cursor-pointer ${el.fontWeight === 'medium' ? 'bg-indigo-600 border-indigo-550 text-white font-bold' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-105 hover:text-slate-900'}`}
                               >
                                 <strong>M</strong>
                               </button>
@@ -1577,19 +1681,19 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                               {/* Alignments */}
                               <button
                                 onClick={() => updateTextElementProperty(el.id, 'align', 'left')}
-                                className={`p-1.5 rounded border transition-colors ${el.align === 'left' ? 'bg-indigo-600 border-indigo-550 text-white' : 'bg-white border-slate-200 text-slate-550'}`}
+                                className={`p-1.5 rounded border transition-colors cursor-pointer ${el.align === 'left' ? 'bg-indigo-600 border-indigo-550 text-white' : 'bg-white border-slate-200 text-slate-550'}`}
                               >
                                 <AlignLeft className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 onClick={() => updateTextElementProperty(el.id, 'align', 'center')}
-                                className={`p-1.5 rounded border transition-colors ${el.align === 'center' ? 'bg-indigo-600 border-indigo-550 text-white' : 'bg-white border-slate-200 text-slate-550'}`}
+                                className={`p-1.5 rounded border transition-colors cursor-pointer ${el.align === 'center' ? 'bg-indigo-600 border-indigo-550 text-white' : 'bg-white border-slate-200 text-slate-550'}`}
                               >
                                 <AlignCenter className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 onClick={() => updateTextElementProperty(el.id, 'align', 'right')}
-                                className={`p-1.5 rounded border transition-colors ${el.align === 'right' ? 'bg-indigo-600 border-indigo-550 text-white' : 'bg-white border-slate-200 text-slate-555'}`}
+                                className={`p-1.5 rounded border transition-colors cursor-pointer ${el.align === 'right' ? 'bg-indigo-600 border-indigo-550 text-white' : 'bg-white border-slate-200 text-slate-555'}`}
                               >
                                 <AlignRight className="w-3.5 h-3.5" />
                               </button>
@@ -1601,7 +1705,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                               <label className="text-[10px] uppercase text-slate-500 font-bold">Box Width: {el.width || 512}px</label>
                               <button 
                                 onClick={() => updateTextElementProperty(el.id, 'width', undefined)}
-                                className="text-[9px] text-indigo-650 font-bold hover:underline"
+                                className="text-[9px] text-indigo-650 font-bold hover:underline cursor-pointer"
                               >
                                 Auto/Reset
                               </button>
@@ -1626,6 +1730,55 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                 ) : (
                   <div className="bg-slate-50 p-4 rounded-xl text-slate-500 text-center border border-slate-200 shadow-sm">
                     <p className="text-xs">Click on any text block on the live canvas to unlock full style properties!</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB: UPLOADS */}
+            {activeSideTab === 'uploads' && (
+              <div className="space-y-5">
+                <div className="space-y-1">
+                  <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                    <Upload className="w-4 h-4 text-indigo-650" /> Uploaded Elements
+                  </h3>
+                  <p className="text-[10px] text-slate-500">Upload custom graphics, badges, or seals (PNG/JPG) to add them to your certificate template.</p>
+                </div>
+
+                <div className="pt-2">
+                  <label
+                    htmlFor="custom-element-upload-input"
+                    className="flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-xl p-6 hover:bg-slate-50 hover:border-indigo-500 transition-all cursor-pointer shadow-sm group"
+                  >
+                    <Upload className="w-6 h-6 text-slate-400 group-hover:text-indigo-600 mb-2 transition-colors" />
+                    <span className="text-[10px] font-bold text-slate-600 group-hover:text-indigo-600 transition-colors">
+                      Upload Custom Graphic Element
+                    </span>
+                    <span className="text-[8px] text-slate-400 mt-1">PNG, JPG, or SVG max 2MB</span>
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleCustomImageElementUpload}
+                    className="hidden"
+                    id="custom-element-upload-input"
+                  />
+                </div>
+
+                {uploadedAssets.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-[10px] font-bold uppercase text-slate-500 tracking-wider">Your Assets Library</h4>
+                    <div className="grid grid-cols-3 gap-2">
+                      {uploadedAssets.map((asset, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => addUploadedImageToCanvas(asset)}
+                          className="aspect-square bg-slate-50 border border-slate-200 hover:border-indigo-500 rounded-lg p-1.5 transition-all overflow-hidden flex items-center justify-center hover:scale-105 shadow-sm cursor-pointer"
+                        >
+                          <img src={asset} className="max-h-full max-w-full object-contain pointer-events-none" alt={`Asset ${idx}`} />
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1835,19 +1988,40 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                   <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
                     <QrCode className="w-4 h-4 text-indigo-650" /> Stamps & Seals
                   </h3>
-                  <p className="text-[10px] text-slate-500">Add secure verification, wax seals, or custom shields to bolster trust metrics.</p>
+                  <p className="text-[10px] text-slate-500">Configure trust verification elements, custom stamps, or dynamic QR codes.</p>
                 </div>
 
                 <div className="space-y-4 pt-2">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase block">Seal stamp rendering</label>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase block">Verification Display Mode</label>
                     <select
-                      value={currentTemplate.showSeal ? 'true' : 'false'}
-                      onChange={(e) => updateTemplateProperty('showSeal', e.target.value === 'true')}
+                      value={
+                        currentTemplate.showQrCode && currentTemplate.showSeal
+                          ? 'both'
+                          : currentTemplate.showQrCode
+                          ? 'qrcode'
+                          : currentTemplate.showSeal
+                          ? 'seal'
+                          : 'none'
+                      }
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === 'both') {
+                          updateTemplateProperties({ showQrCode: true, showSeal: true });
+                        } else if (val === 'qrcode') {
+                          updateTemplateProperties({ showQrCode: true, showSeal: false });
+                        } else if (val === 'seal') {
+                          updateTemplateProperties({ showQrCode: false, showSeal: true });
+                        } else {
+                          updateTemplateProperties({ showQrCode: false, showSeal: false });
+                        }
+                      }}
                       className="w-full bg-white border border-slate-200 p-2 rounded text-slate-900 focus:outline-none"
                     >
-                      <option value="true">Enable official trust badge</option>
-                      <option value="false">Disable / Hide trust badge</option>
+                      <option value="both">Both QR Code & Seal Badge</option>
+                      <option value="qrcode">QR Code Only</option>
+                      <option value="seal">Seal Badge Only</option>
+                      <option value="none">Disabled (Hide both)</option>
                     </select>
                   </div>
 
@@ -1869,11 +2043,45 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                     </div>
                   )}
 
+                  {currentTemplate.showQrCode && (
+                    <div className="space-y-1 pt-1">
+                      <div className="flex justify-between items-center">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase">QR Code Size</label>
+                        <span className="text-[10px] font-mono font-bold text-indigo-650">{currentTemplate.qrCodeWidth || 32}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="16"
+                        max="80"
+                        value={currentTemplate.qrCodeWidth || 32}
+                        onChange={(e) => updateTemplateProperty('qrCodeWidth', parseInt(e.target.value))}
+                        className="w-full accent-indigo-600"
+                      />
+                    </div>
+                  )}
+
+                  {currentTemplate.showSeal && (
+                    <div className="space-y-1 pt-1">
+                      <div className="flex justify-between items-center">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase">Seal Badge Size</label>
+                        <span className="text-[10px] font-mono font-bold text-indigo-650">{currentTemplate.sealWidth || 40}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="20"
+                        max="100"
+                        value={currentTemplate.sealWidth || 40}
+                        onChange={(e) => updateTemplateProperty('sealWidth', parseInt(e.target.value))}
+                        className="w-full accent-indigo-600"
+                      />
+                    </div>
+                  )}
+
                   <div className="space-y-1 border-t border-slate-200 pt-3">
                     <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Audit Ledger QR Code</span>
                     <label className="text-[10px] font-mono text-slate-500 flex items-center gap-1 leading-normal">
                       <Info className="w-3.5 h-3.5 text-indigo-650 shrink-0" />
-                      QR verification anchors to workspace domains automatically. Click on QR code in visual canvas to drag position.
+                      Click on the QR Code / Seal elements in the visual canvas to drag position.
                     </label>
                   </div>
                 </div>
@@ -1982,7 +2190,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                       <input
                         type="text"
                         value={currentTemplate.signatoryName || ''}
-                        onChange={(e) => updateTemplateProperty('signatoryName', e.target.value)}
+                        onChange={(e) => updateTemplateProperty('signatoryName', capitalizeWords(e.target.value))}
                         className="w-full bg-white border border-slate-200 rounded p-1.5 text-slate-900"
                         placeholder="John Doe"
                       />
@@ -1993,7 +2201,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                       <input
                         type="text"
                         value={currentTemplate.signatoryTitle || ''}
-                        onChange={(e) => updateTemplateProperty('signatoryTitle', e.target.value)}
+                        onChange={(e) => updateTemplateProperty('signatoryTitle', capitalizeWords(e.target.value))}
                         className="w-full bg-white border border-slate-200 rounded p-1.5 text-slate-900"
                         placeholder="Chancellor"
                       />
@@ -2069,7 +2277,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                           <input
                             type="text"
                             value={currentTemplate.secondarySignatoryName || ''}
-                            onChange={(e) => updateTemplateProperty('secondarySignatoryName', e.target.value)}
+                            onChange={(e) => updateTemplateProperty('secondarySignatoryName', capitalizeWords(e.target.value))}
                             className="w-full bg-white border border-slate-200 rounded p-1.5 text-slate-900"
                             placeholder="Dr. Clara Masters"
                           />
@@ -2080,7 +2288,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                           <input
                             type="text"
                             value={currentTemplate.secondarySignatoryTitle || ''}
-                            onChange={(e) => updateTemplateProperty('secondarySignatoryTitle', e.target.value)}
+                            onChange={(e) => updateTemplateProperty('secondarySignatoryTitle', capitalizeWords(e.target.value))}
                             className="w-full bg-white border border-slate-200 rounded p-1.5 text-slate-900"
                             placeholder="Admissions Registrar"
                           />
@@ -2282,7 +2490,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                   )}
 
                   {/* Audit Seals */}
-                  {currentTemplate.showQrCode && (
+                  {(currentTemplate.showQrCode || currentTemplate.showSeal) && (
                     <div
                       onClick={() => setSelectedElId('seal')}
                       className={`flex justify-between items-center p-2 rounded-lg cursor-pointer border transition-colors ${selectedElId === 'seal' ? 'bg-indigo-50 border-indigo-500 text-indigo-955' : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'}`}
@@ -2309,14 +2517,14 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
         </div>
 
         {/* Outer Designer Stage canvas container */}
-        <div className="flex-1 bg-[#E2E8F0] p-12 flex flex-col items-center justify-center overflow-y-auto selection:bg-slate-200 relative">
+        <div className="flex-1 bg-[#E2E8F0] p-4 sm:p-12 flex flex-col items-center justify-center overflow-y-auto selection:bg-slate-200 relative">
           
-          <div className="absolute top-4 left-4 bg-white border border-slate-200 p-2.5 rounded-lg text-[10px] text-slate-500 max-w-sm space-y-1.5 shadow-md z-10">
+          <div className="hidden md:block absolute top-4 left-4 bg-white border border-slate-200 p-2.5 rounded-lg text-[10px] text-slate-500 max-w-sm space-y-1.5 shadow-md z-10">
             <h4 className="font-bold text-slate-800 flex items-center gap-1.5"><MousePointerClick className="w-3.5 h-3.5 text-indigo-650" /> Interactive Canva Workspace</h4>
             <p className="leading-relaxed">Click and drag <strong>ANY element</strong> (logos, signatures, seals, or text blocks) directly on the canvas to visually adjust their placement coordinates in real-time!</p>
           </div>
 
-          <div className="absolute top-4 right-4 flex gap-2 font-mono text-[9px] text-slate-500 bg-white border border-slate-200 p-2 rounded-lg select-none z-10 shadow-sm">
+          <div className="hidden sm:flex absolute top-4 right-4 flex gap-2 font-mono text-[9px] text-slate-500 bg-white border border-slate-200 p-2 rounded-lg select-none z-10 shadow-sm">
             <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span> Vector precision lock: bound</span>
           </div>
 
@@ -2336,7 +2544,8 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                 borderColor: currentTemplate.borderColor,
                 borderWidth: `${currentTemplate.borderWidth}px`,
                 borderStyle: currentTemplate.borderStyle === 'double' ? 'double' : (currentTemplate.borderStyle === 'dashed' ? 'dashed' : (currentTemplate.borderStyle === 'none' ? 'none' : 'solid')),
-                borderRadius: `${currentTemplate.borderRadius || 0}px`
+                borderRadius: `${currentTemplate.borderRadius || 0}px`,
+                containerType: 'inline-size'
               }}
               className="aspect-[1.414/1] w-full bg-white relative shadow-2xl transition-all duration-150 overflow-hidden select-none border-indigo-400 cursor-default"
             >
@@ -2390,7 +2599,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                   {currentTemplate.logoUrl ? (
                     <img 
                       src={currentTemplate.logoUrl} 
-                      style={{ width: `${currentTemplate.logoWidth}px` }} 
+                      style={{ width: `${currentTemplate.logoWidth * 0.125}cqw` }} 
                       className="pointer-events-none select-none max-h-32 object-contain"
                       alt="Uploaded Logo"
                     />
@@ -2471,6 +2680,96 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
 
               {/* DYNAMIC TEXT LAYERS WYSIWYG ABSOLUTE COORDINATES MAP */}
               {currentTemplate.textElements.map(el => {
+                if (el.imageUrl) {
+                  const isSelected = el.id === selectedElId;
+                  return (
+                    <div
+                      key={el.id}
+                      id={`canvas-item-${el.id}`}
+                      onMouseDown={(e) => handleMouseDown(e, el.id, el.xPercent, el.yPercent)}
+                      onContextMenu={(e) => handleContextMenu(e, el.id)}
+                      style={{
+                        position: 'absolute',
+                        left: `${el.xPercent}%`,
+                        top: `${el.yPercent}%`,
+                        transform: 'translate(-50%, -50%)',
+                        width: `${(el.width || 120) * 0.125}cqw`,
+                        zIndex: isSelected ? 40 : 20,
+                      }}
+                      className={`cursor-pointer group select-none border-box transition-all px-1 py-1 ${
+                        isSelected ? 'outline border-dashed outline-2 outline-indigo-500 outline-offset-2 bg-indigo-500/5 rounded-md' : 'hover:outline hover:outline-dashed hover:outline-1 hover:outline-slate-400 hover:outline-offset-2'
+                      }`}
+                    >
+                      <img
+                        src={el.imageUrl}
+                        style={{ width: '100%', maxHeight: '200px', objectFit: 'contain' }}
+                        className="pointer-events-none select-none mx-auto"
+                        alt="Uploaded Element"
+                      />
+
+                      {/* Floating context label */}
+                      <div className="absolute -top-7 left-1/2 -translate-x-1/2 font-mono text-[7px] bg-slate-900 border border-slate-700 text-slate-300 px-1 py-0.2 rounded opacity-0 group-hover:opacity-100 transition-opacity shrink-0 pointer-events-none select-none flex items-center gap-1 whitespace-nowrap flex items-center gap-1">
+                        <span>IMAGE (L:{el.xPercent}%, T:{el.yPercent}%)</span>
+                      </div>
+
+                      {isSelected && (
+                        <>
+                          {/* Quick Delete Button */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              deleteSelectedElement();
+                            }}
+                            className="absolute right-[-14px] top-[-26px] bg-rose-600 hover:bg-rose-700 text-white rounded-full p-1 shadow-lg transition-transform hover:scale-110 z-[65] border border-white flex items-center justify-center pointer-events-auto cursor-pointer"
+                            title="Delete Element"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+
+                          {/* Top-left handle */}
+                          <div
+                            onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'top-left', el.width || 120)}
+                            className="absolute left-[-5px] top-[-5px] w-2 h-2 bg-indigo-600 rounded-full cursor-nwse-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
+                            title="Drag to resize"
+                          />
+                          {/* Top-right handle */}
+                          <div
+                            onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'top-right', el.width || 120)}
+                            className="absolute right-[-5px] top-[-5px] w-2 h-2 bg-indigo-600 rounded-full cursor-nesw-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
+                            title="Drag to resize"
+                          />
+                          {/* Bottom-left handle */}
+                          <div
+                            onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'bottom-left', el.width || 120)}
+                            className="absolute left-[-5px] bottom-[-5px] w-2 h-2 bg-indigo-600 rounded-full cursor-nesw-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
+                            title="Drag to resize"
+                          />
+                          {/* Bottom-right handle */}
+                          <div
+                            onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'bottom-right', el.width || 120)}
+                            className="absolute right-[-5px] bottom-[-5px] w-2 h-2 bg-indigo-600 rounded-full cursor-nwse-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
+                            title="Drag to resize"
+                          />
+                          {/* Left edge handle */}
+                          <div
+                            onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'left', el.width || 120)}
+                            className="absolute left-[-5px] top-1/2 -translate-y-1/2 w-1.5 h-3 bg-indigo-600 rounded-sm cursor-ew-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
+                            title="Drag to resize width"
+                          />
+                          {/* Right edge handle */}
+                          <div
+                            onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'right', el.width || 120)}
+                            className="absolute right-[-5px] top-1/2 -translate-y-1/2 w-1.5 h-3 bg-indigo-600 rounded-sm cursor-ew-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
+                            title="Drag to resize width"
+                          />
+                        </>
+                      )}
+                    </div>
+                  );
+                }
+
                 let value = el.text;
                 if (el.text.includes('{{name}}')) value = value.replace('{{name}}', 'Alex Rivera (Recipient Name)');
                 if (el.text.includes('{{program}}')) value = value.replace('{{program}}', 'Gemini Developer Mastery Program');
@@ -2501,7 +2800,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                       top: `${el.yPercent}%`,
                       transform: 'translate(-50%, -50%)',
                       color: el.color,
-                      fontSize: `${el.fontSize * 0.72}px`,
+                      fontSize: `${el.fontSize * 0.09}cqw`,
                       textAlign: el.align,
                       zIndex: isSelected ? 40 : 20,
                       maxWidth: el.width ? `${el.width}px` : '512px'
@@ -2598,14 +2897,14 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                     left: `${currentTemplate.signatureX}%`,
                     top: `${currentTemplate.signatureY}%`,
                     transform: 'translate(-50%, -50%)',
-                    width: `${currentTemplate.signatureWidth}px`,
+                    width: `${currentTemplate.signatureWidth * 0.125}cqw`,
                   }}
                   className={`cursor-pointer group z-30 p-2 text-center select-none ${selectedElId === 'signature' ? 'outline border-dashed outline-2 outline-indigo-500 outline-offset-4 rounded' : 'hover:outline hover:outline-dashed hover:outline-1 hover:outline-slate-400'}`}
                 >
                   {currentTemplate.signatureUrl ? (
                     <img 
                       src={currentTemplate.signatureUrl}
-                      style={{ width: `${currentTemplate.signatureWidth}px` }}
+                      style={{ width: `${currentTemplate.signatureWidth * 0.125}cqw` }}
                       className="pointer-events-none select-none object-contain mx-auto max-h-16"
                       alt="Signature"
                     />
@@ -2696,14 +2995,14 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                     left: `${currentTemplate.secondarySignatureX || 70}%`,
                     top: `${currentTemplate.secondarySignatureY || 78}%`,
                     transform: 'translate(-50%, -50%)',
-                    width: `${currentTemplate.secondarySignatureWidth || 100}px`,
+                    width: `${(currentTemplate.secondarySignatureWidth || 100) * 0.125}cqw`,
                   }}
                   className={`cursor-pointer group z-30 p-2 text-center select-none ${selectedElId === 'secondarySignature' ? 'outline border-dashed outline-2 outline-indigo-500 outline-offset-4 rounded' : 'hover:outline hover:outline-dashed hover:outline-1 hover:outline-slate-400'}`}
                 >
                   {currentTemplate.secondarySignatureUrl ? (
                     <img 
                       src={currentTemplate.secondarySignatureUrl}
-                      style={{ width: `${currentTemplate.secondarySignatureWidth || 100}px` }}
+                      style={{ width: `${(currentTemplate.secondarySignatureWidth || 100) * 0.125}cqw` }}
                       className="pointer-events-none select-none object-contain mx-auto max-h-16"
                       alt="Secondary Signature"
                     />
@@ -2784,7 +3083,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
               )}
 
               {/* DYNAMIC STAMP / QR CODE */}
-              {currentTemplate.showQrCode && (
+              {(currentTemplate.showQrCode || currentTemplate.showSeal) && (
                 <div
                   id="canvas-item-seal"
                   onMouseDown={(e) => handleMouseDown(e, 'seal', currentTemplate.qrCodeX, currentTemplate.qrCodeY)}
@@ -2800,34 +3099,40 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                   
                   {/* Elegant Simulated Stamp/Seal rendering */}
                   {currentTemplate.showSeal && (
-                    <div className="pointer-events-none select-none">
+                    <div 
+                      style={{
+                        width: `${(currentTemplate.sealWidth || 40) * 0.125}cqw`,
+                        height: `${(currentTemplate.sealWidth || 40) * 0.125}cqw`,
+                      }}
+                      className="pointer-events-none select-none shrink-0"
+                    >
                       {currentTemplate.sealType === 'classic' && (
-                        <div className="w-10 h-10 rounded-full border-2 border-indigo-500/40 bg-indigo-500/5 text-indigo-500 flex items-center justify-center font-bold text-[10px] shadow-sm">
+                        <div className="w-full h-full rounded-full border-2 border-indigo-500/40 bg-indigo-500/5 text-indigo-500 flex items-center justify-center font-bold text-[1.2cqw] shadow-sm">
                           ★
                         </div>
                       )}
                       {currentTemplate.sealType === 'stellar' && (
-                        <div className="w-10 h-10 bg-slate-900 border-2 border-dashed border-cyan-400 text-cyan-400 rounded-full flex items-center justify-center font-bold text-xs select-none">
+                        <div className="w-full h-full bg-slate-900 border-2 border-dashed border-cyan-400 text-cyan-400 rounded-full flex items-center justify-center font-bold text-[1.2cqw] select-none">
                           ✧
                         </div>
                       )}
                       {currentTemplate.sealType === 'modern' && (
-                        <div className="w-10-h-10 bg-emerald-500 text-neutral-900 p-1 flex items-center justify-center text-[8px] font-bold border rounded outline-none w-10 h-10 select-none">
+                        <div className="w-full h-full bg-emerald-500 text-neutral-900 p-1 flex items-center justify-center text-[0.8cqw] font-bold border rounded w-full h-full select-none">
                           SEAL
                         </div>
                       )}
                       {currentTemplate.sealType === 'crimson_wax' && (
-                        <div className="w-11 h-11 bg-rose-700/80 border border-amber-500/30 text-amber-300 rounded-full flex items-center justify-center font-serif font-bold text-[10px] shadow-md select-none">
+                        <div className="w-full h-full bg-rose-700/80 border border-amber-500/30 text-amber-300 rounded-full flex items-center justify-center font-serif font-bold text-[0.9cqw] shadow-md select-none">
                           SEAL
                         </div>
                       )}
                       {currentTemplate.sealType === 'emerald_shield' && (
-                        <div className="w-10 h-11 bg-emerald-900 border-2 border-amber-400 text-amber-300 rounded-md flex items-center justify-center font-bold text-xs select-none shadow">
+                        <div className="w-full h-full bg-emerald-900 border-2 border-amber-400 text-amber-300 rounded-md flex items-center justify-center font-bold text-[1.2cqw] select-none shadow">
                           ⛨
                         </div>
                       )}
                       {currentTemplate.sealType === 'gold_medallion' && (
-                        <div className="w-[42px] h-[42px] bg-gradient-to-tr from-yellow-600 via-amber-400 to-yellow-600 border border-yellow-300 rounded-full flex items-center justify-center text-yellow-950 font-serif font-bold text-[10px] shadow-lg select-none">
+                        <div className="w-full h-full bg-gradient-to-tr from-yellow-600 via-amber-400 to-yellow-600 border border-yellow-300 rounded-full flex items-center justify-center text-yellow-950 font-serif font-bold text-[0.9cqw] shadow-lg select-none">
                           🏆
                         </div>
                       )}
@@ -2835,15 +3140,21 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                   )}
 
                   {/* Trust QR */}
-                  <div className="flex items-center gap-1 select-none pointer-events-none">
-                    <div className="w-8 h-8 bg-white p-0.5 rounded-sm border border-slate-200 shadow-sm flex items-center justify-center select-none">
+                  {currentTemplate.showQrCode && (
+                    <div 
+                      style={{
+                        width: `${(currentTemplate.qrCodeWidth || 32) * 0.125}cqw`,
+                        height: `${(currentTemplate.qrCodeWidth || 32) * 0.125}cqw`,
+                      }}
+                      className="bg-white p-0.5 rounded-sm border border-slate-200 shadow-sm flex items-center justify-center select-none shrink-0"
+                    >
                       <img 
                         src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://glint.io/%23preview&color=0f172a" 
                         alt="Verification QR"
                         className="w-full h-full object-contain"
                       />
                     </div>
-                  </div>
+                  )}
 
                   {/* Coordinate Tag */}
                   <div className="absolute -top-6 left-1/2 -translate-x-1/2 font-mono text-[8px] bg-indigo-600 text-white px-1 py-0.2 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none select-none shrink-0 whitespace-nowrap">

@@ -1,10 +1,25 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Eye, EyeOff, Lock, Mail, User, Building, ArrowLeft } from 'lucide-react';
+import { ShieldCheck, Eye, EyeOff, Lock, Mail, User, Building, ArrowLeft, AlertCircle, X } from 'lucide-react';
 
 interface AuthPageProps {
   onLoginSuccess: (token: string, user: any) => void;
   onBackToHome: () => void;
 }
+
+const capitalizeWords = (str: string) => {
+  return str.replace(/\b\w/g, char => char.toUpperCase());
+};
+
+const getErrorTitle = (msg: string) => {
+  const lowercaseMsg = msg.toLowerCase();
+  if (lowercaseMsg.includes('email or password') || lowercaseMsg.includes('credentials')) {
+    return 'Invalid Credentials';
+  }
+  if (lowercaseMsg.includes('already exists') || lowercaseMsg.includes('registered')) {
+    return 'Account Already Exists';
+  }
+  return 'Authentication Error';
+};
 
 export function AuthPage({ onLoginSuccess, onBackToHome }: AuthPageProps) {
   const [isLogin, setIsLogin] = useState(true);
@@ -75,7 +90,7 @@ export function AuthPage({ onLoginSuccess, onBackToHome }: AuthPageProps) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#F8F9FA] p-6 relative overflow-hidden font-sans">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-[#F8F9FA] p-4 sm:p-6 relative overflow-hidden font-sans">
       
       {/* Background ambient lighting effects */}
       <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-indigo-500/5 rounded-full blur-[100px] pointer-events-none" />
@@ -85,13 +100,13 @@ export function AuthPage({ onLoginSuccess, onBackToHome }: AuthPageProps) {
       <button
         type="button"
         onClick={onBackToHome}
-        className="absolute top-6 left-6 text-slate-600 hover:text-slate-900 flex items-center gap-2 text-xs font-semibold bg-white hover:bg-slate-50 px-3.5 py-2 rounded-lg border border-slate-200 transition-all shadow-sm cursor-pointer"
+        className="sm:absolute sm:top-6 sm:left-6 mb-4 sm:mb-0 text-slate-600 hover:text-slate-900 flex items-center gap-2 text-xs font-semibold bg-white hover:bg-slate-50 px-3.5 py-2 rounded-lg border border-slate-200 transition-all shadow-sm cursor-pointer relative z-20"
       >
         <ArrowLeft className="w-4 h-4" /> Back to Home
       </button>
 
       {/* Core Auth Panel Card */}
-      <div className="w-full max-w-md bg-white border border-slate-200 rounded-2xl p-8 shadow-xl relative z-10 space-y-6">
+      <div className="w-full max-w-md bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-xl relative z-10 space-y-6">
         
         {/* Brand Header */}
         <div className="flex flex-col items-center text-center space-y-2 select-none">
@@ -124,9 +139,24 @@ export function AuthPage({ onLoginSuccess, onBackToHome }: AuthPageProps) {
 
         {/* Display Alert Banner */}
         {error && (
-          <div className="bg-rose-50 border border-rose-100 text-rose-800 p-3.5 rounded-xl text-xs flex gap-2.5 items-start">
-            <span className="font-bold">⚠️</span>
-            <p className="leading-relaxed">{error}</p>
+          <div className="bg-rose-50/70 border border-rose-100 rounded-xl p-3.5 text-xs flex gap-3 items-start animate-fade-in relative z-10 shadow-sm backdrop-blur-sm">
+            <div className="bg-rose-100 rounded-lg p-1.5 text-rose-600 shrink-0">
+              <AlertCircle className="w-3.5 h-3.5" />
+            </div>
+            <div className="flex-1 space-y-0.5 pr-6">
+              <h4 className="font-display font-extrabold uppercase tracking-wider text-[10px] text-rose-950">
+                {getErrorTitle(error)}
+              </h4>
+              <p className="text-rose-850 leading-relaxed text-[11px] font-medium">{error}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              className="absolute top-3.5 right-3.5 text-rose-400 hover:text-rose-700 transition-colors rounded-lg p-0.5 hover:bg-rose-100/50"
+              title="Dismiss warning"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         )}
 
@@ -143,7 +173,7 @@ export function AuthPage({ onLoginSuccess, onBackToHome }: AuthPageProps) {
                     type="text"
                     required
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    onChange={(e) => setName(capitalizeWords(e.target.value))}
                     placeholder="Jane Doe"
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-11 pr-4 text-slate-800 text-xs placeholder-slate-400 focus:outline-none focus:border-slate-950 focus:bg-white transition-all"
                   />
@@ -159,7 +189,7 @@ export function AuthPage({ onLoginSuccess, onBackToHome }: AuthPageProps) {
                     type="text"
                     required
                     value={workspaceName}
-                    onChange={(e) => setWorkspaceName(e.target.value)}
+                    onChange={(e) => setWorkspaceName(capitalizeWords(e.target.value))}
                     placeholder="Columbia Academy"
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-11 pr-4 text-slate-800 text-xs placeholder-slate-400 focus:outline-none focus:border-slate-950 focus:bg-white transition-all"
                   />

@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Building, Award, ShieldAlert, LogOut, Search, Plus, Trash2, Edit2, 
-  RefreshCw, Check, AlertTriangle, X, ShieldCheck, Layout, ExternalLink
+  RefreshCw, Check, AlertTriangle, X, ShieldCheck, Layout, ExternalLink, Menu
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -14,6 +14,10 @@ interface AdminDashboardProps {
   user: any;
   onLogout: () => void;
 }
+
+const capitalizeWords = (str: string) => {
+  return str.replace(/\b\w/g, char => char.toUpperCase());
+};
 
 export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<'workspaces' | 'programs' | 'certificates'>('workspaces');
@@ -25,6 +29,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   // Modals state
   const [editingWorkspace, setEditingWorkspace] = useState<any | null>(null);
@@ -228,31 +233,39 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
   );
 
   return (
-    <div className="flex h-screen bg-[#F8F9FA] font-sans">
+    <div className="flex h-screen bg-[#F8F9FA] font-sans relative">
       
       {/* Sidebar Panel */}
-      <aside className="w-72 bg-white border-r border-[#E9ECEF] flex flex-col justify-between p-6 z-10 shrink-0">
+      {/* Translucent backdrop overlay for mobile view */}
+      {isMobileSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-900/40 z-40 md:hidden"
+          onClick={() => setIsMobileSidebarOpen(false)}
+        />
+      )}
+
+      <aside className={`fixed inset-y-0 left-0 w-72 bg-white border-r border-[#E9ECEF] flex flex-col justify-between p-6 z-50 transition-transform duration-300 transform ${
+        isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+      } md:translate-x-0 md:relative md:z-10`}>
         <div className="space-y-8">
           
           {/* Logo Header */}
-          <div className="flex items-center gap-3 select-none">
-            <div className="w-9 h-9 rounded-xl bg-slate-900 flex items-center justify-center shadow-md">
-              <svg className="w-5 h-5 text-white" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M23 16C23 19.866 19.866 23 16 23C12.134 23 9 19.866 9 16C9 12.134 12.134 9 16 9C18.6 9 20.9 10.4 22.1 12.5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M15 16H23" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M24 7C24 9.2 25.2 10 27 10C25.2 10 24 10.8 24 13C24 10.8 22.8 10 21 10C22.8 10 24 9.2 24 7Z" fill="#F59E0B" />
-              </svg>
-            </div>
+          <div className="flex items-center gap-2.5 select-none">
+            <svg className="w-8 h-8 shrink-0" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M23 16C23 19.866 19.866 23 16 23C12.134 23 9 19.866 9 16C9 12.134 12.134 9 16 9C18.6 9 20.9 10.4 22.1 12.5" stroke="#0F172A" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M15 16H23" stroke="#0F172A" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M24 7C24 9.2 25.2 10 27 10C25.2 10 24 10.8 24 13C24 10.8 22.8 10 21 10C22.8 10 24 9.2 24 7Z" fill="#F59E0B" />
+            </svg>
             <div>
-              <h2 className="font-serif text-lg font-bold italic tracking-wide text-slate-950 leading-none">Glint</h2>
-              <span className="text-[9px] uppercase font-mono tracking-widest text-[#9CA3AF] font-bold block mt-1">Super Admin Console</span>
+              <h2 className="font-display font-extrabold tracking-wider text-slate-950 text-sm uppercase">GLINT REGISTRY</h2>
+              <span className="text-[9px] uppercase font-mono tracking-widest text-[#9CA3AF] font-bold block mt-0.5">Super Admin Console</span>
             </div>
           </div>
 
           {/* Navigation Links */}
           <nav className="space-y-1.5 pt-4">
             <button
-              onClick={() => { setActiveTab('workspaces'); setSearchQuery(''); }}
+              onClick={() => { setActiveTab('workspaces'); setSearchQuery(''); setIsMobileSidebarOpen(false); }}
               className={`w-full flex items-center justify-between py-2.5 px-3.5 rounded-xl font-semibold text-xs transition-all ${activeTab === 'workspaces' ? 'bg-slate-950 text-white shadow-md' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
               id="tab-admin-workspaces"
             >
@@ -263,7 +276,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
             </button>
 
             <button
-              onClick={() => { setActiveTab('programs'); setSearchQuery(''); }}
+              onClick={() => { setActiveTab('programs'); setSearchQuery(''); setIsMobileSidebarOpen(false); }}
               className={`w-full flex items-center justify-between py-2.5 px-3.5 rounded-xl font-semibold text-xs transition-all ${activeTab === 'programs' ? 'bg-slate-950 text-white shadow-md' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
               id="tab-admin-programs"
             >
@@ -274,7 +287,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
             </button>
 
             <button
-              onClick={() => { setActiveTab('certificates'); setSearchQuery(''); }}
+              onClick={() => { setActiveTab('certificates'); setSearchQuery(''); setIsMobileSidebarOpen(false); }}
               className={`w-full flex items-center justify-between py-2.5 px-3.5 rounded-xl font-semibold text-xs transition-all ${activeTab === 'certificates' ? 'bg-slate-950 text-white shadow-md' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
               id="tab-admin-certificates"
             >
@@ -319,9 +332,17 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         
         {/* Dynamic header */}
-        <header className="h-16 bg-white border-b border-[#E9ECEF] flex items-center justify-between px-10 shrink-0 z-20">
-          <div>
-            <h1 className="text-sm font-bold text-slate-900 uppercase tracking-widest">
+        <header className="h-16 bg-white border-b border-[#E9ECEF] flex items-center justify-between px-4 md:px-10 shrink-0 z-20">
+          <div className="flex items-center gap-3">
+            {/* Hamburger menu button for mobile */}
+            <button
+              onClick={() => setIsMobileSidebarOpen(true)}
+              className="md:hidden text-slate-500 hover:text-slate-950 p-1.5 rounded-lg hover:bg-slate-50 transition-colors"
+              title="Open menu"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <h1 className="text-xs sm:text-sm font-bold text-slate-900 uppercase tracking-widest truncate max-w-[120px] sm:max-w-none">
               {activeTab === 'workspaces' && 'Organizations Directory'}
               {activeTab === 'programs' && 'Platform Certifications'}
               {activeTab === 'certificates' && 'Global Registry Ledger'}
@@ -368,24 +389,24 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                   <div className="grid grid-cols-4 gap-6">
                     <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-1">
                       <p className="text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">Total Workspaces</p>
-                      <h4 className="text-3xl font-serif italic text-slate-950">{workspaces.length}</h4>
+                      <h4 className="text-3xl font-display font-bold text-slate-950">{workspaces.length}</h4>
                     </div>
                     <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-1">
                       <p className="text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">Enterprise Tier</p>
-                      <h4 className="text-3xl font-serif italic text-slate-950">{workspaces.filter(w => w.plan === 'enterprise').length}</h4>
+                      <h4 className="text-3xl font-display font-bold text-slate-950">{workspaces.filter(w => w.plan === 'enterprise').length}</h4>
                     </div>
                     <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-1">
                       <p className="text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">Pro Tier</p>
-                      <h4 className="text-3xl font-serif italic text-slate-950">{workspaces.filter(w => w.plan === 'pro' || w.plan === 'premium').length}</h4>
+                      <h4 className="text-3xl font-display font-bold text-slate-950">{workspaces.filter(w => w.plan === 'pro' || w.plan === 'premium').length}</h4>
                     </div>
                     <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-1">
                       <p className="text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">Free Tier</p>
-                      <h4 className="text-3xl font-serif italic text-slate-950">{workspaces.filter(w => w.plan === 'free' || !w.plan).length}</h4>
+                      <h4 className="text-3xl font-display font-bold text-slate-950">{workspaces.filter(w => w.plan === 'free' || !w.plan).length}</h4>
                     </div>
                   </div>
 
                   {/* Workspaces Table */}
-                  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">
@@ -401,8 +422,8 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                         {filteredWorkspaces.map((ws) => (
                           <tr key={ws.id} className="hover:bg-slate-50/50 transition-colors">
                             <td className="py-3.5 px-6 font-mono text-[10px] text-slate-400">{ws.id}</td>
-                            <td className="py-3.5 px-6 font-semibold text-slate-900">{ws.name}</td>
-                            <td className="py-3.5 px-6 text-slate-600">{ws.brand_name || '—'}</td>
+                            <td className="py-3.5 px-6 font-semibold text-slate-900 capitalize">{ws.name}</td>
+                            <td className="py-3.5 px-6 text-slate-600 capitalize">{ws.brand_name || '—'}</td>
                             <td className="py-3.5 px-6">
                               <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${ws.plan === 'enterprise' ? 'bg-purple-50 text-purple-700 border border-purple-100' : ws.plan === 'pro' || ws.plan === 'premium' ? 'bg-blue-50 text-blue-700 border border-blue-100' : 'bg-slate-50 text-slate-600 border border-slate-100'}`}>
                                 {ws.plan || 'free'}
@@ -411,19 +432,21 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                             <td className="py-3.5 px-6 text-slate-500 font-mono text-[10px]">
                               {new Date(ws.created_time || ws.created_at).toLocaleDateString()}
                             </td>
-                            <td className="py-3.5 px-6 text-right space-x-2">
-                              <button
-                                onClick={() => startEditWorkspace(ws)}
-                                className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-all inline-flex items-center gap-1 text-[10px] font-bold"
-                              >
-                                <Edit2 className="w-3 h-3" /> Edit
-                              </button>
-                              <button
-                                onClick={() => handleDeleteWorkspace(ws.id, ws.name)}
-                                className="p-1.5 rounded-lg border border-red-100 text-red-500 hover:text-red-700 hover:bg-red-50 transition-all inline-flex items-center gap-1 text-[10px] font-bold"
-                              >
-                                <Trash2 className="w-3 h-3" /> Delete
-                              </button>
+                            <td className="py-3.5 px-6">
+                              <div className="flex flex-col sm:flex-row items-end sm:items-center justify-end gap-1 sm:gap-2">
+                                <button
+                                  onClick={() => startEditWorkspace(ws)}
+                                  className="py-1 px-1.5 sm:p-1.5 w-16 sm:w-20 justify-center rounded-lg border border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-all inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-bold"
+                                >
+                                  <Edit2 className="w-3 h-3" /> Edit
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteWorkspace(ws.id, ws.name)}
+                                  className="py-1 px-1.5 sm:p-1.5 w-16 sm:w-20 justify-center rounded-lg border border-red-100 text-red-500 hover:text-red-700 hover:bg-red-50 transition-all inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-bold"
+                                >
+                                  <Trash2 className="w-3 h-3" /> Delete
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -446,16 +469,16 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                   <div className="grid grid-cols-2 gap-6">
                     <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-1">
                       <p className="text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">Total Programs</p>
-                      <h4 className="text-3xl font-serif italic text-slate-950">{programs.length}</h4>
+                      <h4 className="text-3xl font-display font-bold text-slate-950">{programs.length}</h4>
                     </div>
                     <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-1">
                       <p className="text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">Active Templates Linked</p>
-                      <h4 className="text-3xl font-serif italic text-slate-950">{programs.filter(p => p.template_id).length}</h4>
+                      <h4 className="text-3xl font-display font-bold text-slate-950">{programs.filter(p => p.template_id).length}</h4>
                     </div>
                   </div>
 
                   {/* Programs Table */}
-                  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">
@@ -471,23 +494,25 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                         {filteredPrograms.map((p) => (
                           <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
                             <td className="py-3.5 px-6 font-mono text-[10px] text-slate-400">{p.id}</td>
-                            <td className="py-3.5 px-6 font-semibold text-slate-900">{p.name}</td>
-                            <td className="py-3.5 px-6 text-slate-600 font-medium">{p.workspace_name}</td>
+                            <td className="py-3.5 px-6 font-semibold text-slate-900 capitalize">{p.name}</td>
+                            <td className="py-3.5 px-6 text-slate-600 font-medium capitalize">{p.workspace_name}</td>
                             <td className="py-3.5 px-6 font-mono text-[10px] text-slate-400">{p.template_id || 'None'}</td>
                             <td className="py-3.5 px-6 text-slate-500 font-mono text-[10px]">{p.issue_date}</td>
-                            <td className="py-3.5 px-6 text-right space-x-2">
-                              <button
-                                onClick={() => startEditProgram(p)}
-                                className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-all inline-flex items-center gap-1 text-[10px] font-bold"
-                              >
-                                <Edit2 className="w-3 h-3" /> Edit
-                              </button>
-                              <button
-                                onClick={() => handleDeleteProgram(p.id, p.name)}
-                                className="p-1.5 rounded-lg border border-red-100 text-red-500 hover:text-red-700 hover:bg-red-50 transition-all inline-flex items-center gap-1 text-[10px] font-bold"
-                              >
-                                <Trash2 className="w-3 h-3" /> Delete
-                              </button>
+                            <td className="py-3.5 px-6">
+                              <div className="flex flex-col sm:flex-row items-end sm:items-center justify-end gap-1 sm:gap-2">
+                                <button
+                                  onClick={() => startEditProgram(p)}
+                                  className="py-1 px-1.5 sm:p-1.5 w-16 sm:w-20 justify-center rounded-lg border border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-all inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-bold"
+                                >
+                                  <Edit2 className="w-3 h-3" /> Edit
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteProgram(p.id, p.name)}
+                                  className="py-1 px-1.5 sm:p-1.5 w-16 sm:w-20 justify-center rounded-lg border border-red-100 text-red-500 hover:text-red-700 hover:bg-red-50 transition-all inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-bold"
+                                >
+                                  <Trash2 className="w-3 h-3" /> Delete
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -510,20 +535,20 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                   <div className="grid grid-cols-3 gap-6">
                     <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-1">
                       <p className="text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">Issued Ledger Count</p>
-                      <h4 className="text-3xl font-serif italic text-slate-950">{certificates.length}</h4>
+                      <h4 className="text-3xl font-display font-bold text-slate-950">{certificates.length}</h4>
                     </div>
                     <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-1">
                       <p className="text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">Valid Credentials</p>
-                      <h4 className="text-3xl font-serif italic text-emerald-600">{certificates.filter(c => c.status === 'valid').length}</h4>
+                      <h4 className="text-3xl font-display font-bold text-emerald-600">{certificates.filter(c => c.status === 'valid').length}</h4>
                     </div>
                     <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-1">
                       <p className="text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">Revoked Credentials</p>
-                      <h4 className="text-3xl font-serif italic text-rose-600">{certificates.filter(c => c.status === 'revoked').length}</h4>
+                      <h4 className="text-3xl font-display font-bold text-rose-600">{certificates.filter(c => c.status === 'revoked').length}</h4>
                     </div>
                   </div>
 
                   {/* Certificates Table */}
-                  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">
@@ -540,10 +565,10 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                           <tr key={c.id} className="hover:bg-slate-50/50 transition-colors">
                             <td className="py-3.5 px-6 font-mono text-[10px] text-slate-400">{c.id}</td>
                             <td className="py-3.5 px-6">
-                              <p className="font-semibold text-slate-900">{c.recipient_name}</p>
+                              <p className="font-semibold text-slate-900 capitalize">{c.recipient_name}</p>
                               <p className="text-[10px] font-mono text-slate-400 mt-0.5">{c.recipient_email}</p>
                             </td>
-                            <td className="py-3.5 px-6 text-slate-600 font-medium">{c.program_name}</td>
+                            <td className="py-3.5 px-6 text-slate-600 font-medium capitalize">{c.program_name}</td>
                             <td className="py-3.5 px-6 text-slate-600">{c.workspace_name}</td>
                             <td className="py-3.5 px-6">
                               <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider inline-flex items-center gap-1 ${c.status === 'valid' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-red-50 text-red-700 border border-red-100'}`}>
@@ -590,7 +615,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
         <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
           <div className="bg-white border border-slate-200 shadow-2xl rounded-2xl w-full max-w-md p-6 space-y-6">
             <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-              <h3 className="font-serif text-lg font-bold text-slate-900">Modify Workspace Configuration</h3>
+              <h3 className="font-display text-base font-bold text-slate-900">Modify Workspace Configuration</h3>
               <button onClick={() => setEditingWorkspace(null)} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-50 transition-all">
                 <X className="w-4 h-4" />
               </button>
@@ -603,7 +628,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                   type="text"
                   required
                   value={wsName}
-                  onChange={(e) => setWsName(e.target.value)}
+                  onChange={(e) => setWsName(capitalizeWords(e.target.value))}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3.5 text-slate-800 text-xs focus:outline-none focus:border-slate-400 focus:bg-white transition-all"
                 />
               </div>
@@ -614,7 +639,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                   type="text"
                   required
                   value={wsBrandName}
-                  onChange={(e) => setWsBrandName(e.target.value)}
+                  onChange={(e) => setWsBrandName(capitalizeWords(e.target.value))}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3.5 text-slate-800 text-xs focus:outline-none focus:border-slate-400 focus:bg-white transition-all"
                 />
               </div>
@@ -657,7 +682,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
         <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
           <div className="bg-white border border-slate-200 shadow-2xl rounded-2xl w-full max-w-md p-6 space-y-6">
             <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-              <h3 className="font-serif text-lg font-bold text-slate-900">Modify Certification Program</h3>
+              <h3 className="font-display text-base font-bold text-slate-900">Modify Certification Program</h3>
               <button onClick={() => setEditingProgram(null)} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-50 transition-all">
                 <X className="w-4 h-4" />
               </button>
@@ -670,7 +695,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                   type="text"
                   required
                   value={progName}
-                  onChange={(e) => setProgName(e.target.value)}
+                  onChange={(e) => setProgName(capitalizeWords(e.target.value))}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3.5 text-slate-800 text-xs focus:outline-none focus:border-slate-400 focus:bg-white transition-all"
                 />
               </div>
@@ -710,7 +735,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
         <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
           <div className="bg-white border border-slate-200 shadow-2xl rounded-2xl w-full max-w-md p-6 space-y-6">
             <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-              <h3 className="font-serif text-lg font-bold text-red-600 flex items-center gap-1.5"><ShieldAlert className="w-5 h-5" /> Revoke Certification</h3>
+              <h3 className="font-display text-base font-bold text-red-600 flex items-center gap-1.5"><ShieldAlert className="w-5 h-5" /> Revoke Certification</h3>
               <button onClick={() => setRevokingCert(null)} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-50 transition-all">
                 <X className="w-4 h-4" />
               </button>

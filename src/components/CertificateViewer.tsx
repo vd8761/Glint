@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Award, CheckCircle, ShieldAlert, BadgeAlert, Printer, Share2, Copy, Play, Database, Calendar, User, Building, Landmark, ChevronRight, RefreshCw, Hash, Sparkles, QrCode } from 'lucide-react';
+import { Award, CheckCircle, ShieldAlert, BadgeAlert, Printer, Share2, Copy, Play, Database, Calendar, User, Building, Landmark, ChevronRight, RefreshCw, Hash, Sparkles, QrCode, Download } from 'lucide-react';
 import { Certificate, CertificateTemplate, OrganizationBranding } from '../types';
 
 interface CertificateViewerProps {
@@ -23,6 +23,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
   const [auditProgress, setAuditProgress] = useState<'idle' | 'running' | 'success'>('idle');
   const [auditMessage, setAuditMessage] = useState('');
   const [copied, setCopied] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
 
   // Reference for the printable certificate area
   const printRef = useRef<HTMLDivElement>(null);
@@ -48,7 +49,14 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'view' })
-      });
+      })
+        .then(res => {
+          if (res.ok) return res.json();
+        })
+        .then(updated => {
+          if (updated) setCert(updated);
+        })
+        .catch(err => console.error('Failed to log view statistic', err));
 
       // Load related template logic to support customized certificate preview
       // If we don't find it on API, fallback on standard preset template
@@ -112,14 +120,89 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'download' })
-    });
+    })
+      .then(res => {
+        if (res.ok) return res.json();
+      })
+      .then(updated => {
+        if (updated) setCert(updated);
+      })
+      .catch(err => console.error('Failed to log download statistic', err));
     
     // Trigger standard browser print window targeting certificate area
     window.print();
   };
 
+  const executePdfDownload = async () => {
+    if (!cert || !printRef.current) return;
+    setIsDownloadingPdf(true);
+
+    // Log Download
+    fetch(`/api/certificates/${cert.id}/stats`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'download' })
+    })
+      .then(res => {
+        if (res.ok) return res.json();
+      })
+      .then(updated => {
+        if (updated) setCert(updated);
+      })
+      .catch(err => console.error('Failed to log download statistic', err));
+
+    try {
+      const html2pdfLib = (window as any).html2pdf;
+      if (!html2pdfLib) {
+        throw new Error('PDF conversion engine not loaded yet. Please wait a moment and try again.');
+      }
+
+      // Clone the node so we can manipulate it off-screen without altering the UI
+      const originalElement = printRef.current;
+      const element = originalElement.cloneNode(true) as HTMLElement;
+
+      // Force fixed dimensions on the cloned element so that container queries (cqw) 
+      // evaluate correctly at a high resolution.
+      element.style.width = '1120px';
+      element.style.height = '792px';
+      element.style.position = 'absolute';
+      element.style.left = '-9999px';
+      element.style.top = '-9999px';
+
+      document.body.appendChild(element);
+
+      const opt = {
+        margin:       0,
+        filename:     `Glint_Certificate_${cert.id}.pdf`,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { 
+          scale: 2, 
+          useCORS: true,
+          logging: false
+        },
+        jsPDF:        { 
+          unit: 'in', 
+          format: 'a4', 
+          orientation: activeTemplate.layout || 'landscape' 
+        }
+      };
+
+      // Generate the PDF
+      await html2pdfLib().set(opt).from(element).save();
+
+      // Clean up the DOM element
+      document.body.removeChild(element);
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || 'Failed to download certificate PDF');
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  };
+
   const copyUrl = () => {
-    const url = window.location.origin + '/#credential=' + certificateId;
+    const origin = window.location.origin.includes('localhost') ? 'https://glint-pi.vercel.app' : window.location.origin;
+    const url = origin + '/#credential=' + certificateId;
     navigator.clipboard.writeText(url);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -130,7 +213,14 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'share' })
-      });
+      })
+        .then(res => {
+          if (res.ok) return res.json();
+        })
+        .then(updated => {
+          if (updated) setCert(updated);
+        })
+        .catch(err => console.error('Failed to log share statistic', err));
     }
   };
 
@@ -151,7 +241,8 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
     
     const name = cert.programName;
     const orgName = branding?.brandName || 'Verified Certifications';
-    const certUrl = window.location.origin + '/#credential=' + cert.id;
+    const origin = window.location.origin.includes('localhost') ? 'https://glint-pi.vercel.app' : window.location.origin;
+    const certUrl = origin + '/#credential=' + cert.id;
     const certId = cert.id;
     
     const linkedInAddUrl = `https://www.linkedin.com/profile/add?startTask=CERTIFICATION_NAME&name=${encodeURIComponent(name)}&organizationName=${encodeURIComponent(orgName)}&issueYear=${issueYear}&issueMonth=${issueMonth}&certUrl=${encodeURIComponent(certUrl)}&certId=${encodeURIComponent(certId)}`;
@@ -164,12 +255,13 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'share' })
     })
-      .then(() => {
-        setCert(prev => prev ? { ...prev, shareCount: (prev.shareCount || 0) + 1 } : null);
+      .then(res => {
+        if (res.ok) return res.json();
       })
-      .catch(() => {
-        setCert(prev => prev ? { ...prev, shareCount: (prev.shareCount || 0) + 1 } : null);
-      });
+      .then(updated => {
+        if (updated) setCert(updated);
+      })
+      .catch(err => console.error('Failed to log share statistic', err));
   };
 
   // Safe fallback template if not present
@@ -269,9 +361,16 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
           </span>
           <button 
             onClick={executeDownloadStat}
-            className="bg-slate-950 hover:bg-slate-800 text-white text-xs px-4 py-2 rounded-full font-medium transition-all shadow-sm flex items-center gap-1.5"
+            className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs px-4 py-2 rounded-full font-medium transition-all shadow-sm flex items-center gap-1.5"
           >
             <Printer className="w-3.5 h-3.5" /> Print Vector Cert
+          </button>
+          <button 
+            onClick={executePdfDownload}
+            disabled={isDownloadingPdf}
+            className="bg-slate-950 hover:bg-slate-800 text-white text-xs px-4 py-2 rounded-full font-medium transition-all shadow-sm flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <Download className="w-3.5 h-3.5" /> {isDownloadingPdf ? 'Downloading...' : 'Download PDF'}
           </button>
         </div>
       </header>
@@ -462,7 +561,8 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                   borderWidth: `${activeTemplate.borderWidth}px`,
                   borderStyle: activeTemplate.borderStyle === 'double' ? 'double' : (activeTemplate.borderStyle === 'dashed' ? 'dashed' : (activeTemplate.borderStyle === 'none' ? 'none' : 'solid')),
                   borderRadius: `${activeTemplate.borderRadius || 0}px`,
-                  position: 'relative'
+                  position: 'relative',
+                  containerType: 'inline-size'
                 }}
                 className="aspect-[1.414/1] w-full rounded-lg relative transition-all duration-300 shadow-sm overflow-hidden p-6 lg:p-12 print:aspect-[1.414/1] printable-certificate"
               >
@@ -508,7 +608,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                     {activeTemplate.logoUrl ? (
                       <img 
                         src={activeTemplate.logoUrl} 
-                        style={{ width: `${activeTemplate.logoWidth || 70}px` }} 
+                        style={{ width: `${(activeTemplate.logoWidth || 70) * 0.125}cqw` }} 
                         className="max-h-32 object-contain"
                         alt="Logo"
                       />
@@ -516,7 +616,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                       const width = activeTemplate.logoWidth || 70;
                       const type = activeTemplate.logoIconType;
                       return (
-                        <div style={{ width: `${width}px` }} className="flex items-center justify-center">
+                        <div style={{ width: `${width * 0.125}cqw` }} className="flex items-center justify-center">
                           {type === 'tech' && (
                             <div className="w-full aspect-square bg-gradient-to-tr from-cyan-500 to-indigo-500 rounded-lg p-2 shadow-sm flex items-center justify-center text-white">
                               <Sparkles className="w-2/3 h-2/3" />
@@ -550,18 +650,44 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
 
                 {/* Absolute Canvas Custom Text Layers */}
                 {activeTemplate.textElements.map((el) => {
+                  if (el.imageUrl) {
+                    const leftPct = el.xPercent !== undefined ? el.xPercent : 50;
+                    const topPct = el.yPercent !== undefined ? el.yPercent : 50;
+                    return (
+                      <div
+                        key={el.id}
+                        style={{
+                          position: 'absolute',
+                          left: `${leftPct}%`,
+                          top: `${topPct}%`,
+                          transform: 'translate(-50%, -50%)',
+                          width: `${(el.width || 120) * 0.125}cqw`,
+                          zIndex: 20
+                        }}
+                        className="select-none z-20 pointer-events-none"
+                      >
+                        <img 
+                          src={el.imageUrl}
+                          style={{ width: '100%', maxHeight: '200px', objectFit: 'contain' }}
+                          className="pointer-events-none select-none mx-auto"
+                          alt="Custom Element"
+                        />
+                      </div>
+                    );
+                  }
+
                   let value = el.text;
                   if (el.text.includes('{{name}}')) {
-                    value = value.replace('{{name}}', cert.recipientName);
+                     value = value.replace('{{name}}', cert.recipientName);
                   }
                   if (el.text.includes('{{program}}')) {
-                    value = value.replace('{{program}}', cert.programName);
+                     value = value.replace('{{program}}', cert.programName);
                   }
                   if (el.text.includes('{{date}}')) {
-                    value = value.replace('{{date}}', cert.issueDate);
+                     value = value.replace('{{date}}', cert.issueDate);
                   }
                   if (el.text.includes('{{id}}')) {
-                    value = value.replace('{{id}}', cert.id);
+                     value = value.replace('{{id}}', cert.id);
                   }
 
                   // Dynamically map custom spreadsheet values
@@ -594,7 +720,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                         transform: 'translate(-50%, -50%)',
                         color: el.color,
                         textAlign: el.align || 'center',
-                        fontSize: `${el.fontSize * 0.9}px`
+                        fontSize: `${el.fontSize * 0.1125}cqw`
                       }}
                       className={`${fontClass} ${weightClass} leading-snug break-words max-w-xl z-20 print:text-xs`}
                     >
@@ -611,14 +737,14 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                       left: `${activeTemplate.signatureX}%`,
                       top: `${activeTemplate.signatureY}%`,
                       transform: 'translate(-50%, -50%)',
-                      width: `${activeTemplate.signatureWidth}px`,
+                      width: `${activeTemplate.signatureWidth * 0.125}cqw`,
                     }}
                     className="text-center select-none z-30"
                   >
                     {activeTemplate.signatureUrl ? (
                       <img 
                         src={activeTemplate.signatureUrl}
-                        style={{ width: `${activeTemplate.signatureWidth}px` }}
+                        style={{ width: `${activeTemplate.signatureWidth * 0.125}cqw` }}
                         className="pointer-events-none select-none object-contain mx-auto max-h-16"
                         alt="Signature"
                       />
@@ -645,14 +771,14 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                       left: `${activeTemplate.secondarySignatureX || 70}%`,
                       top: `${activeTemplate.secondarySignatureY || 78}%`,
                       transform: 'translate(-50%, -50%)',
-                      width: `${activeTemplate.secondarySignatureWidth || 100}px`,
+                      width: `${(activeTemplate.secondarySignatureWidth || 100) * 0.125}cqw`,
                     }}
                     className="text-center select-none z-30"
                   >
                     {activeTemplate.secondarySignatureUrl ? (
                       <img 
                         src={activeTemplate.secondarySignatureUrl}
-                        style={{ width: `${activeTemplate.secondarySignatureWidth || 100}px` }}
+                        style={{ width: `${(activeTemplate.secondarySignatureWidth || 100) * 0.125}cqw` }}
                         className="pointer-events-none select-none object-contain mx-auto max-h-16"
                         alt="Secondary Signature"
                       />
@@ -672,7 +798,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                 )}
 
                 {/* Absolute Stamp and Secure QR blocks combo */}
-                {activeTemplate.showQrCode && (
+                {(activeTemplate.showQrCode || activeTemplate.showSeal) && (
                   <div
                     style={{
                       position: 'absolute',
@@ -680,38 +806,56 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                       top: `${activeTemplate.qrCodeY}%`,
                       transform: 'translate(-50%, -50%)',
                     }}
-                    className="flex items-center gap-2 select-none z-30 pointer-events-none"
+                    className="flex items-center gap-2 select-none z-30"
                   >
                     {activeTemplate.showSeal && (
-                      <div className="inline-flex items-center justify-center w-10 h-10 rounded-full border border-amber-500/30">
+                      <div 
+                        style={{ 
+                          width: `${(activeTemplate.sealWidth || 40) * 0.125}cqw`, 
+                          height: `${(activeTemplate.sealWidth || 40) * 0.125}cqw` 
+                        }} 
+                        className="inline-flex items-center justify-center rounded-full border border-amber-500/30 shrink-0"
+                      >
                         {activeTemplate.sealType === 'classic' && (
-                          <div className="w-8 h-8 rounded-full border border-dashed border-amber-500 flex items-center justify-center text-amber-600 font-bold text-xs bg-amber-50/10">🏆</div>
+                          <div className="w-full h-full rounded-full border border-dashed border-amber-500 flex items-center justify-center text-amber-600 font-bold text-[1.2cqw] bg-amber-50/10">🏆</div>
                         )}
                         {activeTemplate.sealType === 'stellar' && (
-                          <div className="w-8 h-8 rounded-full bg-slate-900 border border-cyan-400 text-cyan-400 flex items-center justify-center font-bold text-xs">✧</div>
+                          <div className="w-full h-full rounded-full bg-slate-900 border border-cyan-400 text-cyan-400 flex items-center justify-center font-bold text-[1.2cqw]">✧</div>
                         )}
                         {activeTemplate.sealType === 'modern' && (
-                          <div className="w-8 h-8 rounded-full bg-indigo-500 text-white flex items-center justify-center text-[7px] font-bold">VERIFIED</div>
+                          <div className="w-full h-full rounded-full bg-indigo-500 text-white flex items-center justify-center text-[0.7cqw] font-bold">VERIFIED</div>
                         )}
                         {activeTemplate.sealType === 'crimson_wax' && (
-                          <div className="w-9 h-9 bg-rose-700 text-amber-300 rounded-full flex items-center justify-center font-serif font-bold text-[8px] border border-amber-500/20 shadow">SEAL</div>
+                          <div className="w-full h-full bg-rose-700 text-amber-300 rounded-full flex items-center justify-center font-serif font-bold text-[0.8cqw] border border-amber-500/20 shadow">SEAL</div>
                         )}
                         {activeTemplate.sealType === 'emerald_shield' && (
-                          <div className="w-8 h-9 bg-emerald-900 text-amber-300 rounded flex items-center justify-center font-bold text-xs shadow">⛨</div>
+                          <div className="w-full h-full bg-emerald-900 text-amber-300 rounded flex items-center justify-center font-bold text-[1.2cqw] shadow">⛨</div>
                         )}
                         {activeTemplate.sealType === 'gold_medallion' && (
-                          <div className="w-9 h-9 bg-gradient-to-tr from-yellow-600 via-amber-400 to-yellow-600 border border-yellow-300 rounded-full flex items-center justify-center text-yellow-950 font-serif font-bold text-[8px] shadow">🏅</div>
+                          <div className="w-full h-full bg-gradient-to-tr from-yellow-600 via-amber-400 to-yellow-600 border border-yellow-300 rounded-full flex items-center justify-center text-yellow-950 font-serif font-bold text-[0.8cqw] shadow">🏅</div>
                         )}
                       </div>
                     )}
 
-                    <div className="w-8 h-8 bg-white p-0.5 rounded-sm border border-slate-200 shadow-sm flex items-center justify-center">
-                      <img 
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(window.location.origin + '/#credential=' + cert.id)}&color=0f172a`}
-                        alt="Verification QR"
-                        className="w-full h-full object-contain"
-                      />
-                    </div>
+                    {activeTemplate.showQrCode && (
+                      <a
+                        href={`https://glint-pi.vercel.app/#credential=${cert.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ 
+                          width: `${(activeTemplate.qrCodeWidth || 32) * 0.125}cqw`, 
+                          height: `${(activeTemplate.qrCodeWidth || 32) * 0.125}cqw` 
+                        }}
+                        className="bg-white p-0.5 rounded-sm border border-slate-200 shadow-sm flex items-center justify-center hover:scale-110 transition-transform cursor-pointer shrink-0"
+                        title="Click to Verify"
+                      >
+                        <img 
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent('https://glint-pi.vercel.app/#credential=' + cert.id)}&color=0f172a`}
+                          alt="Verification QR"
+                          className="w-full h-full object-contain"
+                        />
+                      </a>
+                    )}
                   </div>
                 )}
 

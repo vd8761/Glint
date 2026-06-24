@@ -36,6 +36,8 @@ export interface TextElement {
   align: 'left' | 'center' | 'right';
   isPlaceholder?: boolean;
   width?: number; // Optional box width for wrapping/resizing
+  type?: 'text' | 'image';
+  imageUrl?: string;
 }
 
 export interface CertificateTemplate {
@@ -51,6 +53,8 @@ export interface CertificateTemplate {
   showQrCode: boolean;
   qrCodeX: number; // percentage alignment
   qrCodeY: number;
+  qrCodeWidth?: number;
+  sealWidth?: number;
   logoUrl?: string; // override/specific template logo
   logoX: number;
   logoY: number;
