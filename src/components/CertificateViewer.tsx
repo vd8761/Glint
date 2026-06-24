@@ -157,6 +157,15 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
         throw new Error('PDF conversion engine not loaded yet. Please wait a moment and try again.');
       }
 
+      // Create a hidden wrapper container to host the cloned element off-screen
+      const wrapper = document.createElement('div');
+      wrapper.style.position = 'absolute';
+      wrapper.style.left = '-9999px';
+      wrapper.style.top = '-9999px';
+      wrapper.style.width = '1120px';
+      wrapper.style.height = '792px';
+      wrapper.style.overflow = 'hidden';
+
       // Clone the node so we can manipulate it off-screen without altering the UI
       const originalElement = printRef.current;
       const element = originalElement.cloneNode(true) as HTMLElement;
@@ -165,12 +174,14 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
       // evaluate correctly at a high resolution.
       element.style.width = '1120px';
       element.style.height = '792px';
-      element.style.position = 'fixed';
+      element.style.position = 'relative';
       element.style.left = '0';
       element.style.top = '0';
-      element.style.zIndex = '-9999';
+      element.style.zIndex = '1';
 
-      document.body.appendChild(element);
+      // Append cloned element to the wrapper, and wrapper to the body
+      wrapper.appendChild(element);
+      document.body.appendChild(wrapper);
 
       const opt = {
         margin:       0,
@@ -179,9 +190,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
         html2canvas:  { 
           scale: 2, 
           useCORS: true,
-          logging: false,
-          scrollX: 0,
-          scrollY: 0
+          logging: false
         },
         jsPDF:        { 
           unit: 'in', 
@@ -193,8 +202,8 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
       // Generate the PDF
       await html2pdfLib().set(opt).from(element).save();
 
-      // Clean up the DOM element
-      document.body.removeChild(element);
+      // Clean up the DOM element and wrapper
+      document.body.removeChild(wrapper);
     } catch (err: any) {
       console.error(err);
       alert(err.message || 'Failed to download certificate PDF');
