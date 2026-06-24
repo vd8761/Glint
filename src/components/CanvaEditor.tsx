@@ -880,7 +880,32 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
       borderColor: design.borderColor,
       borderWidth: design.borderWidth,
       backgroundImageUrl: design.backgroundImageUrl,
-      textElements: design.textElements
+      textElements: design.textElements,
+      // Logo settings
+      ...(design.logoX !== undefined ? { logoX: design.logoX } : {}),
+      ...(design.logoY !== undefined ? { logoY: design.logoY } : {}),
+      ...(design.logoWidth !== undefined ? { logoWidth: design.logoWidth } : {}),
+      // Signature settings
+      ...(design.signatureX !== undefined ? { signatureX: design.signatureX } : {}),
+      ...(design.signatureY !== undefined ? { signatureY: design.signatureY } : {}),
+      ...(design.signatureWidth !== undefined ? { signatureWidth: design.signatureWidth } : {}),
+      ...(design.signatoryName !== undefined ? { signatoryName: design.signatoryName } : {}),
+      ...(design.signatoryTitle !== undefined ? { signatoryTitle: design.signatoryTitle } : {}),
+      // Secondary signatory settings
+      ...(design.showSecondarySignatory !== undefined ? { showSecondarySignatory: design.showSecondarySignatory } : {}),
+      ...(design.secondarySignatureX !== undefined ? { secondarySignatureX: design.secondarySignatureX } : {}),
+      ...(design.secondarySignatureY !== undefined ? { secondarySignatureY: design.secondarySignatureY } : {}),
+      ...(design.secondarySignatureWidth !== undefined ? { secondarySignatureWidth: design.secondarySignatureWidth } : {}),
+      ...(design.secondarySignatoryName !== undefined ? { secondarySignatoryName: design.secondarySignatoryName } : {}),
+      ...(design.secondarySignatoryTitle !== undefined ? { secondarySignatoryTitle: design.secondarySignatoryTitle } : {}),
+      // QR Code and Seal settings
+      ...(design.showQrCode !== undefined ? { showQrCode: design.showQrCode } : {}),
+      ...(design.qrCodeX !== undefined ? { qrCodeX: design.qrCodeX } : {}),
+      ...(design.qrCodeY !== undefined ? { qrCodeY: design.qrCodeY } : {}),
+      ...(design.qrCodeWidth !== undefined ? { qrCodeWidth: design.qrCodeWidth } : {}),
+      ...(design.showSeal !== undefined ? { showSeal: design.showSeal } : {}),
+      ...(design.sealType !== undefined ? { sealType: design.sealType } : {}),
+      ...(design.sealWidth !== undefined ? { sealWidth: design.sealWidth } : {})
     };
     setCurrentTemplate(updated);
     pushToHistory(updated);
@@ -1963,19 +1988,40 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                   <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
                     <QrCode className="w-4 h-4 text-indigo-650" /> Stamps & Seals
                   </h3>
-                  <p className="text-[10px] text-slate-500">Add secure verification, wax seals, or custom shields to bolster trust metrics.</p>
+                  <p className="text-[10px] text-slate-500">Configure trust verification elements, custom stamps, or dynamic QR codes.</p>
                 </div>
 
                 <div className="space-y-4 pt-2">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase block">Seal stamp rendering</label>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase block">Verification Display Mode</label>
                     <select
-                      value={currentTemplate.showSeal ? 'true' : 'false'}
-                      onChange={(e) => updateTemplateProperty('showSeal', e.target.value === 'true')}
+                      value={
+                        currentTemplate.showQrCode && currentTemplate.showSeal
+                          ? 'both'
+                          : currentTemplate.showQrCode
+                          ? 'qrcode'
+                          : currentTemplate.showSeal
+                          ? 'seal'
+                          : 'none'
+                      }
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === 'both') {
+                          updateTemplateProperties({ showQrCode: true, showSeal: true });
+                        } else if (val === 'qrcode') {
+                          updateTemplateProperties({ showQrCode: true, showSeal: false });
+                        } else if (val === 'seal') {
+                          updateTemplateProperties({ showQrCode: false, showSeal: true });
+                        } else {
+                          updateTemplateProperties({ showQrCode: false, showSeal: false });
+                        }
+                      }}
                       className="w-full bg-white border border-slate-200 p-2 rounded text-slate-900 focus:outline-none"
                     >
-                      <option value="true">Enable official trust badge</option>
-                      <option value="false">Disable / Hide trust badge</option>
+                      <option value="both">Both QR Code & Seal Badge</option>
+                      <option value="qrcode">QR Code Only</option>
+                      <option value="seal">Seal Badge Only</option>
+                      <option value="none">Disabled (Hide both)</option>
                     </select>
                   </div>
 
@@ -1997,11 +2043,45 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                     </div>
                   )}
 
+                  {currentTemplate.showQrCode && (
+                    <div className="space-y-1 pt-1">
+                      <div className="flex justify-between items-center">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase">QR Code Size</label>
+                        <span className="text-[10px] font-mono font-bold text-indigo-650">{currentTemplate.qrCodeWidth || 32}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="16"
+                        max="80"
+                        value={currentTemplate.qrCodeWidth || 32}
+                        onChange={(e) => updateTemplateProperty('qrCodeWidth', parseInt(e.target.value))}
+                        className="w-full accent-indigo-600"
+                      />
+                    </div>
+                  )}
+
+                  {currentTemplate.showSeal && (
+                    <div className="space-y-1 pt-1">
+                      <div className="flex justify-between items-center">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase">Seal Badge Size</label>
+                        <span className="text-[10px] font-mono font-bold text-indigo-650">{currentTemplate.sealWidth || 40}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="20"
+                        max="100"
+                        value={currentTemplate.sealWidth || 40}
+                        onChange={(e) => updateTemplateProperty('sealWidth', parseInt(e.target.value))}
+                        className="w-full accent-indigo-600"
+                      />
+                    </div>
+                  )}
+
                   <div className="space-y-1 border-t border-slate-200 pt-3">
                     <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Audit Ledger QR Code</span>
                     <label className="text-[10px] font-mono text-slate-500 flex items-center gap-1 leading-normal">
                       <Info className="w-3.5 h-3.5 text-indigo-650 shrink-0" />
-                      QR verification anchors to workspace domains automatically. Click on QR code in visual canvas to drag position.
+                      Click on the QR Code / Seal elements in the visual canvas to drag position.
                     </label>
                   </div>
                 </div>
@@ -2410,7 +2490,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                   )}
 
                   {/* Audit Seals */}
-                  {currentTemplate.showQrCode && (
+                  {(currentTemplate.showQrCode || currentTemplate.showSeal) && (
                     <div
                       onClick={() => setSelectedElId('seal')}
                       className={`flex justify-between items-center p-2 rounded-lg cursor-pointer border transition-colors ${selectedElId === 'seal' ? 'bg-indigo-50 border-indigo-500 text-indigo-955' : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'}`}
@@ -3003,7 +3083,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
               )}
 
               {/* DYNAMIC STAMP / QR CODE */}
-              {currentTemplate.showQrCode && (
+              {(currentTemplate.showQrCode || currentTemplate.showSeal) && (
                 <div
                   id="canvas-item-seal"
                   onMouseDown={(e) => handleMouseDown(e, 'seal', currentTemplate.qrCodeX, currentTemplate.qrCodeY)}
@@ -3019,34 +3099,40 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                   
                   {/* Elegant Simulated Stamp/Seal rendering */}
                   {currentTemplate.showSeal && (
-                    <div className="pointer-events-none select-none">
+                    <div 
+                      style={{
+                        width: `${(currentTemplate.sealWidth || 40) * 0.125}cqw`,
+                        height: `${(currentTemplate.sealWidth || 40) * 0.125}cqw`,
+                      }}
+                      className="pointer-events-none select-none shrink-0"
+                    >
                       {currentTemplate.sealType === 'classic' && (
-                        <div className="w-10 h-10 rounded-full border-2 border-indigo-500/40 bg-indigo-500/5 text-indigo-500 flex items-center justify-center font-bold text-[10px] shadow-sm">
+                        <div className="w-full h-full rounded-full border-2 border-indigo-500/40 bg-indigo-500/5 text-indigo-500 flex items-center justify-center font-bold text-[1.2cqw] shadow-sm">
                           ★
                         </div>
                       )}
                       {currentTemplate.sealType === 'stellar' && (
-                        <div className="w-10 h-10 bg-slate-900 border-2 border-dashed border-cyan-400 text-cyan-400 rounded-full flex items-center justify-center font-bold text-xs select-none">
+                        <div className="w-full h-full bg-slate-900 border-2 border-dashed border-cyan-400 text-cyan-400 rounded-full flex items-center justify-center font-bold text-[1.2cqw] select-none">
                           ✧
                         </div>
                       )}
                       {currentTemplate.sealType === 'modern' && (
-                        <div className="w-10-h-10 bg-emerald-500 text-neutral-900 p-1 flex items-center justify-center text-[8px] font-bold border rounded outline-none w-10 h-10 select-none">
+                        <div className="w-full h-full bg-emerald-500 text-neutral-900 p-1 flex items-center justify-center text-[0.8cqw] font-bold border rounded w-full h-full select-none">
                           SEAL
                         </div>
                       )}
                       {currentTemplate.sealType === 'crimson_wax' && (
-                        <div className="w-11 h-11 bg-rose-700/80 border border-amber-500/30 text-amber-300 rounded-full flex items-center justify-center font-serif font-bold text-[10px] shadow-md select-none">
+                        <div className="w-full h-full bg-rose-700/80 border border-amber-500/30 text-amber-300 rounded-full flex items-center justify-center font-serif font-bold text-[0.9cqw] shadow-md select-none">
                           SEAL
                         </div>
                       )}
                       {currentTemplate.sealType === 'emerald_shield' && (
-                        <div className="w-10 h-11 bg-emerald-900 border-2 border-amber-400 text-amber-300 rounded-md flex items-center justify-center font-bold text-xs select-none shadow">
+                        <div className="w-full h-full bg-emerald-900 border-2 border-amber-400 text-amber-300 rounded-md flex items-center justify-center font-bold text-[1.2cqw] select-none shadow">
                           ⛨
                         </div>
                       )}
                       {currentTemplate.sealType === 'gold_medallion' && (
-                        <div className="w-[42px] h-[42px] bg-gradient-to-tr from-yellow-600 via-amber-400 to-yellow-600 border border-yellow-300 rounded-full flex items-center justify-center text-yellow-950 font-serif font-bold text-[10px] shadow-lg select-none">
+                        <div className="w-full h-full bg-gradient-to-tr from-yellow-600 via-amber-400 to-yellow-600 border border-yellow-300 rounded-full flex items-center justify-center text-yellow-950 font-serif font-bold text-[0.9cqw] shadow-lg select-none">
                           🏆
                         </div>
                       )}
@@ -3054,15 +3140,21 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                   )}
 
                   {/* Trust QR */}
-                  <div className="flex items-center gap-1 select-none pointer-events-none">
-                    <div className="w-8 h-8 bg-white p-0.5 rounded-sm border border-slate-200 shadow-sm flex items-center justify-center select-none">
+                  {currentTemplate.showQrCode && (
+                    <div 
+                      style={{
+                        width: `${(currentTemplate.qrCodeWidth || 32) * 0.125}cqw`,
+                        height: `${(currentTemplate.qrCodeWidth || 32) * 0.125}cqw`,
+                      }}
+                      className="bg-white p-0.5 rounded-sm border border-slate-200 shadow-sm flex items-center justify-center select-none shrink-0"
+                    >
                       <img 
                         src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://glint.io/%23preview&color=0f172a" 
                         alt="Verification QR"
                         className="w-full h-full object-contain"
                       />
                     </div>
-                  </div>
+                  )}
 
                   {/* Coordinate Tag */}
                   <div className="absolute -top-6 left-1/2 -translate-x-1/2 font-mono text-[8px] bg-indigo-600 text-white px-1 py-0.2 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none select-none shrink-0 whitespace-nowrap">
