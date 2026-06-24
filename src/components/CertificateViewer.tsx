@@ -462,7 +462,8 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                   borderWidth: `${activeTemplate.borderWidth}px`,
                   borderStyle: activeTemplate.borderStyle === 'double' ? 'double' : (activeTemplate.borderStyle === 'dashed' ? 'dashed' : (activeTemplate.borderStyle === 'none' ? 'none' : 'solid')),
                   borderRadius: `${activeTemplate.borderRadius || 0}px`,
-                  position: 'relative'
+                  position: 'relative',
+                  containerType: 'inline-size'
                 }}
                 className="aspect-[1.414/1] w-full rounded-lg relative transition-all duration-300 shadow-sm overflow-hidden p-6 lg:p-12 print:aspect-[1.414/1] printable-certificate"
               >
@@ -508,7 +509,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                     {activeTemplate.logoUrl ? (
                       <img 
                         src={activeTemplate.logoUrl} 
-                        style={{ width: `${activeTemplate.logoWidth || 70}px` }} 
+                        style={{ width: `${(activeTemplate.logoWidth || 70) * 0.125}cqw` }} 
                         className="max-h-32 object-contain"
                         alt="Logo"
                       />
@@ -516,7 +517,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                       const width = activeTemplate.logoWidth || 70;
                       const type = activeTemplate.logoIconType;
                       return (
-                        <div style={{ width: `${width}px` }} className="flex items-center justify-center">
+                        <div style={{ width: `${width * 0.125}cqw` }} className="flex items-center justify-center">
                           {type === 'tech' && (
                             <div className="w-full aspect-square bg-gradient-to-tr from-cyan-500 to-indigo-500 rounded-lg p-2 shadow-sm flex items-center justify-center text-white">
                               <Sparkles className="w-2/3 h-2/3" />
@@ -550,18 +551,44 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
 
                 {/* Absolute Canvas Custom Text Layers */}
                 {activeTemplate.textElements.map((el) => {
+                  if (el.imageUrl) {
+                    const leftPct = el.xPercent !== undefined ? el.xPercent : 50;
+                    const topPct = el.yPercent !== undefined ? el.yPercent : 50;
+                    return (
+                      <div
+                        key={el.id}
+                        style={{
+                          position: 'absolute',
+                          left: `${leftPct}%`,
+                          top: `${topPct}%`,
+                          transform: 'translate(-50%, -50%)',
+                          width: `${(el.width || 120) * 0.125}cqw`,
+                          zIndex: 20
+                        }}
+                        className="select-none z-20 pointer-events-none"
+                      >
+                        <img 
+                          src={el.imageUrl}
+                          style={{ width: '100%', maxHeight: '200px', objectFit: 'contain' }}
+                          className="pointer-events-none select-none mx-auto"
+                          alt="Custom Element"
+                        />
+                      </div>
+                    );
+                  }
+
                   let value = el.text;
                   if (el.text.includes('{{name}}')) {
-                    value = value.replace('{{name}}', cert.recipientName);
+                     value = value.replace('{{name}}', cert.recipientName);
                   }
                   if (el.text.includes('{{program}}')) {
-                    value = value.replace('{{program}}', cert.programName);
+                     value = value.replace('{{program}}', cert.programName);
                   }
                   if (el.text.includes('{{date}}')) {
-                    value = value.replace('{{date}}', cert.issueDate);
+                     value = value.replace('{{date}}', cert.issueDate);
                   }
                   if (el.text.includes('{{id}}')) {
-                    value = value.replace('{{id}}', cert.id);
+                     value = value.replace('{{id}}', cert.id);
                   }
 
                   // Dynamically map custom spreadsheet values
@@ -594,7 +621,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                         transform: 'translate(-50%, -50%)',
                         color: el.color,
                         textAlign: el.align || 'center',
-                        fontSize: `${el.fontSize * 0.9}px`
+                        fontSize: `${el.fontSize * 0.1125}cqw`
                       }}
                       className={`${fontClass} ${weightClass} leading-snug break-words max-w-xl z-20 print:text-xs`}
                     >
@@ -611,14 +638,14 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                       left: `${activeTemplate.signatureX}%`,
                       top: `${activeTemplate.signatureY}%`,
                       transform: 'translate(-50%, -50%)',
-                      width: `${activeTemplate.signatureWidth}px`,
+                      width: `${activeTemplate.signatureWidth * 0.125}cqw`,
                     }}
                     className="text-center select-none z-30"
                   >
                     {activeTemplate.signatureUrl ? (
                       <img 
                         src={activeTemplate.signatureUrl}
-                        style={{ width: `${activeTemplate.signatureWidth}px` }}
+                        style={{ width: `${activeTemplate.signatureWidth * 0.125}cqw` }}
                         className="pointer-events-none select-none object-contain mx-auto max-h-16"
                         alt="Signature"
                       />
@@ -645,14 +672,14 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                       left: `${activeTemplate.secondarySignatureX || 70}%`,
                       top: `${activeTemplate.secondarySignatureY || 78}%`,
                       transform: 'translate(-50%, -50%)',
-                      width: `${activeTemplate.secondarySignatureWidth || 100}px`,
+                      width: `${(activeTemplate.secondarySignatureWidth || 100) * 0.125}cqw`,
                     }}
                     className="text-center select-none z-30"
                   >
                     {activeTemplate.secondarySignatureUrl ? (
                       <img 
                         src={activeTemplate.secondarySignatureUrl}
-                        style={{ width: `${activeTemplate.secondarySignatureWidth || 100}px` }}
+                        style={{ width: `${(activeTemplate.secondarySignatureWidth || 100) * 0.125}cqw` }}
                         className="pointer-events-none select-none object-contain mx-auto max-h-16"
                         alt="Secondary Signature"
                       />

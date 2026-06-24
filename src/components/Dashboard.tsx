@@ -8,13 +8,17 @@ import {
   BarChart3, Award, Users, Database, ShieldCheck, Settings, Globe, Mail, Landmark, 
   Trash2, Plus, ArrowUpRight, UploadCloud, RefreshCw, Layers, Calendar, User, Search,
   AlertTriangle, Check, Sliders, Play, CheckCircle2, ShieldAlert, Sparkles, BookOpen,
-  LogOut
+  LogOut, Menu, X
 } from 'lucide-react';
 import { 
   OrganizationWorkspace, CertificateProgram, CertificateTemplate, 
   Certificate, Recipient, WorkspaceAnalytics, TextElement, EmailLog
 } from '../types';
 import { CanvaEditor } from './CanvaEditor';
+
+const capitalizeWords = (str: string) => {
+  return str.replace(/\b\w/g, char => char.toUpperCase());
+};
 
 interface DashboardProps {
   currentWorkspaceId: string;
@@ -50,6 +54,7 @@ export function Dashboard({
   const changeTab = (tab: typeof activeTab) => {
     setActiveTab(tab);
     onTabChange(tab);
+    setIsMobileSidebarOpen(false);
   };
 
   // Backend States
@@ -98,8 +103,17 @@ export function Dashboard({
   const [revokingCertId, setRevokingCertId] = useState<string | null>(null);
   const [revocationReason, setRevocationReason] = useState('');
 
+  // Single Recipient Issuance states
+  const [showSingleIssueModal, setShowSingleIssueModal] = useState(false);
+  const [singleProgramId, setSingleProgramId] = useState('');
+  const [singleRecipientName, setSingleRecipientName] = useState('');
+  const [singleRecipientEmail, setSingleRecipientEmail] = useState('');
+  const [singleCustomFields, setSingleCustomFields] = useState<Record<string, string>>({});
+  const [singleIssueDate, setSingleIssueDate] = useState('');
+
   // Filtering states
   const [searchQuery, setSearchQuery] = useState('');
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   // 1. Initial Load & Dynamic Synchronization
   useEffect(() => {
@@ -208,7 +222,19 @@ export function Dashboard({
     e.preventDefault();
     if (!progName || !progTemplateId) return;
 
-    const parsedFields = fieldString.split(',').map(s => s.trim()).filter(s => s.length > 0);
+    // Filter out standard base fields (name, email, date, id, program) and duplicates
+    const baseFields = ['name', 'email', 'date', 'id', 'program'];
+    const uniqueFields: string[] = [];
+    fieldString.split(',').forEach(field => {
+      const trimmed = field.trim();
+      if (!trimmed) return;
+      
+      const lower = trimmed.toLowerCase();
+      if (baseFields.includes(lower)) return;
+      if (uniqueFields.some(f => f.toLowerCase() === lower)) return;
+      
+      uniqueFields.push(trimmed);
+    });
 
     try {
       const res = await fetch('/api/programs', {
@@ -224,7 +250,7 @@ export function Dashboard({
           templateId: progTemplateId,
           issueDate: progIssueDate,
           expiryDate: progExpiryDate || undefined,
-          recipientFields: parsedFields
+          recipientFields: uniqueFields
         })
       });
 
@@ -237,6 +263,62 @@ export function Dashboard({
       }
     } catch (err) {
       console.error('Failed to create program', err);
+    }
+  };
+
+  // 3b. Issue a Single Certificate (Single Issuer)
+  const handleIssueSingleCertificate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!singleProgramId || !singleRecipientName || !singleRecipientEmail) {
+      alert('Name and Email are required.');
+      return;
+    }
+
+    const matchedProg = programs.find(p => p.id === singleProgramId);
+    if (!matchedProg) return;
+
+    const issueDateVal = singleIssueDate || matchedProg.issueDate || new Date().toISOString().split('T')[0];
+
+    const recipient: Recipient = {
+      id: `rec-single-${Math.random().toString(36).substring(2, 7)}`,
+      name: capitalizeWords(singleRecipientName),
+      email: singleRecipientEmail.trim(),
+      customFields: {
+        ...singleCustomFields,
+        date: issueDateVal,
+        name: capitalizeWords(singleRecipientName),
+        email: singleRecipientEmail.trim(),
+        program: matchedProg.name
+      },
+      isValid: true,
+      status: 'pending'
+    };
+
+    try {
+      const res = await fetch(`/api/programs/${singleProgramId}/issue`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          ...authHeaders
+        },
+        body: JSON.stringify({ recipients: [recipient] })
+      });
+
+      if (res.ok) {
+        setShowSingleIssueModal(false);
+        setSingleRecipientName('');
+        setSingleRecipientEmail('');
+        setSingleCustomFields({});
+        changeTab('issued');
+        await triggerDataRefresh();
+        alert('Certificate issued and registered successfully!');
+      } else {
+        const errData = await res.json();
+        alert(`Failed to issue certificate: ${errData.error || 'Unknown error'}`);
+      }
+    } catch (err) {
+      console.error('Single issuance failed', err);
+      alert('An error occurred during issuance.');
     }
   };
 
@@ -407,7 +489,7 @@ export function Dashboard({
       }
 
       const email = rowElements[emailColIdx];
-      const name = rowElements[nameColIdx];
+      const name = capitalizeWords(rowElements[nameColIdx]);
       const rowErrors: string[] = [];
 
       // Validate simple inputs
@@ -574,10 +656,20 @@ export function Dashboard({
   });
 
   return (
-    <div className="flex h-screen w-screen bg-[#F8F9FA] overflow-hidden font-sans">
+    <div className="flex h-screen w-screen bg-[#F8F9FA] overflow-hidden font-sans relative">
       
       {/* Sidebar Control Deck */}
-      <aside className="w-64 bg-white border-r border-[#E9ECEF] flex flex-col justify-between py-8 px-6 shrink-0 z-30">
+      {/* Translucent backdrop overlay for mobile view */}
+      {isMobileSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-900/40 z-40 md:hidden"
+          onClick={() => setIsMobileSidebarOpen(false)}
+        />
+      )}
+      
+      <aside className={`fixed inset-y-0 left-0 w-64 bg-white border-r border-[#E9ECEF] flex flex-col justify-between py-8 px-6 shrink-0 z-50 transition-transform duration-300 transform ${
+        isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+      } md:translate-x-0 md:relative md:z-30`}>
         <div className="space-y-8 overflow-y-auto">
           {/* Logo Brand Header */}
           <div className="flex items-center justify-between">
@@ -589,7 +681,7 @@ export function Dashboard({
                 {/* Elegant golden glint spark on the shoulder of G */}
                 <path d="M24 7C24 9.2 25.2 10 27 10C25.2 10 24 10.8 24 13C24 10.8 22.8 10 21 10C22.8 10 24 9.2 24 7Z" fill="#F59E0B" />
               </svg>
-              <span className="font-display font-bold tracking-tight text-slate-900 text-sm">GLINT</span>
+              <span className="font-display font-extrabold tracking-wider text-slate-950 text-sm uppercase">GLINT REGISTRY</span>
             </div>
             
             {/* Refresh state spinner */}
@@ -612,7 +704,7 @@ export function Dashboard({
                 className="w-full bg-slate-100 hover:bg-slate-200/80 text-xs font-semibold text-slate-900 py-2.5 px-3 rounded-lg border-none focus:ring-1 focus:ring-slate-950 focus:outline-none transition-colors appearance-none cursor-pointer"
               >
                 {workspaces.map(ws => (
-                  <option key={ws.id} value={ws.id}>{ws.name}</option>
+                  <option key={ws.id} value={ws.id}>{capitalizeWords(ws.name)}</option>
                 ))}
               </select>
               <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500 text-[10px]">
@@ -739,9 +831,17 @@ export function Dashboard({
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#F8F9FA]">
         
         {/* Dynamic header */}
-        <header className="h-16 bg-white border-b border-[#E9ECEF] flex items-center justify-between px-10 shrink-0 z-20">
-          <div className="flex items-center gap-4">
-            <h1 className="text-sm font-semibold text-slate-900 uppercase tracking-wider">
+        <header className="h-16 bg-white border-b border-[#E9ECEF] flex items-center justify-between px-4 md:px-10 shrink-0 z-20">
+          <div className="flex items-center gap-3">
+            {/* Hamburger menu button for mobile */}
+            <button
+              onClick={() => setIsMobileSidebarOpen(true)}
+              className="md:hidden text-slate-500 hover:text-slate-950 p-1.5 rounded-lg hover:bg-slate-50 transition-colors"
+              title="Open menu"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <h1 className="text-xs sm:text-sm font-semibold text-slate-900 uppercase tracking-wider truncate max-w-[120px] sm:max-w-none">
               {activeTab === 'overview' && 'Overview Deck'}
               {activeTab === 'programs' && 'Certification Programs'}
               {activeTab === 'templates' && 'Layout Templates & Editor'}
@@ -749,6 +849,7 @@ export function Dashboard({
               {activeTab === 'issued' && 'Issued Certificate Registry'}
               {activeTab === 'branding' && 'White-label Custom Branding'}
               {activeTab === 'settings' && 'Workspace Limits & SLA'}
+              {activeTab === 'emails' && 'Email Logs'}
             </h1>
             <span className="hidden sm:inline-block px-2.5 py-0.5 bg-green-50 text-green-700 text-[10px] font-bold uppercase tracking-wider rounded border border-green-150 font-mono">
               ★ {currentWorkspace?.plan.toUpperCase()} WORKSPACE
@@ -776,7 +877,7 @@ export function Dashboard({
         </header>
 
         {/* Inner Content Area */}
-        <div className="flex-1 p-8 overflow-y-auto min-w-0">
+        <div className={`flex-1 min-w-0 ${editingTemplate ? 'p-0 overflow-hidden' : 'p-8 overflow-y-auto'}`}>
           
           {loading ? (
             <div className="h-full flex flex-col items-center justify-center text-slate-500">
@@ -799,18 +900,18 @@ export function Dashboard({
                     </div>
                     
                     {/* Big Stats Row */}
-                    <div className="lg:col-span-6 grid grid-cols-3 gap-6">
+                    <div className="lg:col-span-6 grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
                       <div className="border-l border-slate-200 pl-4 space-y-1">
                         <p className="text-[10px] text-slate-400 uppercase tracking-widest font-semibold">Total Issued</p>
-                        <p className="font-serif text-3xl font-bold text-slate-950 leading-none">{analytics?.issuedCount || 0}</p>
+                        <p className="font-display text-3xl font-bold text-slate-950 leading-none">{analytics?.issuedCount || 0}</p>
                       </div>
                       <div className="border-l border-slate-200 pl-4 space-y-1">
                         <p className="text-[10px] text-slate-400 uppercase tracking-widest font-semibold">Checks Match</p>
-                        <p className="font-serif text-3xl font-bold text-slate-950 leading-none">{analytics?.verificationCount || 0}</p>
+                        <p className="font-display text-3xl font-bold text-slate-950 leading-none">{analytics?.verificationCount || 0}</p>
                       </div>
                       <div className="border-l border-slate-200 pl-4 space-y-1">
                         <p className="text-[10px] text-slate-400 uppercase tracking-widest font-semibold">Engagement</p>
-                        <p className="font-serif text-3xl font-bold text-slate-950 leading-none">A+</p>
+                        <p className="font-display text-3xl font-bold text-slate-950 leading-none">A+</p>
                       </div>
                     </div>
                   </div>
@@ -820,7 +921,7 @@ export function Dashboard({
                     <div className="bg-white border border-[#E9ECEF] rounded-xl p-5 space-y-3 card-shadow">
                       <p className="text-[9px] uppercase tracking-widest text-[#9CA3AF] font-bold">ACTIVE PROGRAMS</p>
                       <div className="flex justify-between items-end">
-                        <p className="font-display font-medium text-slate-950 text-2xl">{programs.filter(p => p.status === 'active').length}</p>
+                        <p className="font-display font-bold text-slate-950 text-3xl">{programs.filter(p => p.status === 'active').length}</p>
                         <span className="text-[10px] text-slate-400 font-mono">Programs total: {programs.length}</span>
                       </div>
                     </div>
@@ -828,7 +929,7 @@ export function Dashboard({
                     <div className="bg-white border border-[#E9ECEF] rounded-xl p-5 space-y-3 card-shadow">
                       <p className="text-[9px] uppercase tracking-widest text-[#9CA3AF] font-bold">LEDGER VIEW RATE</p>
                       <div className="flex justify-between items-end">
-                        <p className="font-display font-medium text-slate-950 text-2xl">{analytics?.viewCount || 0}</p>
+                        <p className="font-display font-bold text-slate-950 text-3xl">{analytics?.viewCount || 0}</p>
                         <span className="text-[10px] text-emerald-600 font-bold font-mono">High Quality Activity</span>
                       </div>
                     </div>
@@ -836,7 +937,7 @@ export function Dashboard({
                     <div className="bg-white border border-[#E9ECEF] rounded-xl p-5 space-y-3 card-shadow">
                       <p className="text-[9px] uppercase tracking-widest text-[#9CA3AF] font-bold">DIGITAL DOWNLOADS</p>
                       <div className="flex justify-between items-end">
-                        <p className="font-display font-medium text-slate-950 text-2xl">{analytics?.downloadCount || 0}</p>
+                        <p className="font-display font-bold text-slate-950 text-3xl">{analytics?.downloadCount || 0}</p>
                         <span className="text-[10px] text-slate-400 font-mono">100% PDF Verified</span>
                       </div>
                     </div>
@@ -844,7 +945,7 @@ export function Dashboard({
                     <div className="bg-white border border-[#E9ECEF] rounded-xl p-5 space-y-3 card-shadow">
                       <p className="text-[9px] uppercase tracking-widest text-[#9CA3AF] font-bold">SOCIAL RESHARES</p>
                       <div className="flex justify-between items-end">
-                        <p className="font-display font-medium text-slate-950 text-2xl">{analytics?.shareCount || 0}</p>
+                        <p className="font-display font-bold text-slate-950 text-3xl">{analytics?.shareCount || 0}</p>
                         <span className="text-[10px] text-slate-400 font-mono">LinkedIn matched</span>
                       </div>
                     </div>
@@ -931,7 +1032,7 @@ export function Dashboard({
                       {certificates.slice(-5).map((cert, idx) => (
                         <div key={idx} className="py-3.5 flex justify-between items-center text-xs">
                           <div className="space-y-0.5 max-w-sm">
-                            <p className="font-semibold text-slate-900">{cert.recipientName}</p>
+                            <p className="font-semibold text-slate-900 capitalize">{cert.recipientName}</p>
                             <p className="text-[10px] text-slate-400 truncate">{cert.recipientEmail} • Verified ID {cert.id}</p>
                           </div>
                           <div className="text-right space-y-1">
@@ -960,7 +1061,7 @@ export function Dashboard({
                 <div className="space-y-8 animate-fade-in">
                   
                   {/* Title Bar */}
-                  <div className="flex justify-between items-center border-b border-slate-200 pb-4">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-200 pb-4">
                     <div>
                       <h2 className="font-serif text-4xl italic text-slate-950">Credential Program Registers</h2>
                       <p className="text-slate-500 text-sm">Organize cohort tracks, events, or academic courses.</p>
@@ -996,7 +1097,7 @@ export function Dashboard({
                             required
                             placeholder="e.g., Executive MBA: Data Architecture"
                             value={progName}
-                            onChange={(e) => setProgName(e.target.value)}
+                            onChange={(e) => setProgName(capitalizeWords(e.target.value))}
                             className="w-full bg-slate-50 text-xs py-2 px-3 rounded border border-slate-200 focus:outline-none focus:border-slate-900"
                           />
                         </div>
@@ -1083,7 +1184,7 @@ export function Dashboard({
                   )}
 
                   {/* Program Table */}
-                  <div className="bg-white border border-[#E9ECEF] rounded-2xl overflow-hidden card-shadow">
+                  <div className="bg-white border border-[#E9ECEF] rounded-2xl overflow-hidden card-shadow overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead className="bg-[#F8F9FA] border-b border-[#E9ECEF] text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                         <tr>
@@ -1102,7 +1203,7 @@ export function Dashboard({
                           return (
                             <tr key={prog.id} className="hover:bg-slate-50/40">
                               <td className="px-8 py-5 space-y-1.5">
-                                <p className="font-bold text-slate-950 text-sm leading-tight">{prog.name}</p>
+                                <p className="font-bold text-slate-950 text-sm leading-tight capitalize">{prog.name}</p>
                                 <p className="text-[10px] text-slate-400 leading-normal max-w-sm">{prog.description}</p>
                                 <p className="text-[9px] font-mono text-slate-400">UUID: {prog.id} • Created Date: {new Date(prog.createdTime).toLocaleDateString()}</p>
                               </td>
@@ -1111,7 +1212,7 @@ export function Dashboard({
                               </td>
                               <td className="px-6 py-5 space-y-1.5">
                                 <div className="flex flex-wrap gap-1">
-                                  {['name', 'email', 'date', ...prog.recipientFields].map((field, idx) => (
+                                  {['name', 'email', 'date', ...prog.recipientFields.filter(f => !['name', 'email', 'date', 'id', 'program'].includes(f.toLowerCase()))].map((field, idx) => (
                                     <span key={idx} className="bg-slate-150 text-[9px] hover:bg-slate-200 transition-colors font-mono font-bold text-slate-800 px-1.5 py-0.5 rounded uppercase border">
                                       {field}
                                     </span>
@@ -1161,368 +1262,20 @@ export function Dashboard({
 
               {/* TAB 3: LAYOUT TEMPLATES */}
               {activeTab === 'templates' && (
-                <div className="space-y-8 animate-fade-in">
-                  
-                  {/* Visually stunning active design builder */}
-                  {editingTemplate ? (
-                    <CanvaEditor 
-                      template={editingTemplate} 
-                      onSave={handleSaveCanvaTemplate} 
-                      onCancel={() => setEditingTemplate(null)} 
-                      brandName={currentWorkspace?.branding?.brandName || currentWorkspace?.name} 
-                      primaryColor={currentWorkspace?.branding?.primaryColor || '#000000'}
-                      token={token}
-                    />
-                  ) : false ? (
+                editingTemplate ? (
+                  <CanvaEditor 
+                    template={editingTemplate} 
+                    onSave={handleSaveCanvaTemplate} 
+                    onCancel={() => setEditingTemplate(null)} 
+                    brandName={currentWorkspace?.branding?.brandName || currentWorkspace?.name} 
+                    primaryColor={currentWorkspace?.branding?.primaryColor || '#000000'}
+                    token={token}
+                    programs={programs}
+                  />
+                ) : (
+                  <div className="space-y-8 animate-fade-in">
                     <div className="space-y-6">
-                      <div className="flex justify-between items-center pb-3 border-b border-slate-200">
-                        <div>
-                          <p onClick={() => setEditingTemplate(null)} className="text-[10px] font-bold text-slate-400 hover:text-slate-900 cursor-pointer uppercase tracking-widest">← Back to gallery</p>
-                          <h3 className="font-serif text-3xl italic text-slate-950 mt-1">Live Vector Engine: {editingTemplate.name}</h3>
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => setEditingTemplate(null)}
-                            className="bg-slate-100 text-slate-800 text-xs px-4 py-2 rounded-lg font-bold"
-                          >
-                            Discard
-                          </button>
-                          <button
-                            onClick={handleSaveTemplateChanges}
-                            className="bg-slate-950 text-white text-xs px-4 py-2 rounded-lg font-bold hover:bg-slate-800"
-                          >
-                            Lock Changes & Save
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Visual Editor Layout columns split */}
-                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                        
-                        {/* Editor Controls left strip */}
-                        <div className="lg:col-span-4 bg-white border border-[#E9ECEF] rounded-2xl p-6 card-shadow space-y-6">
-                          
-                          <div className="space-y-4">
-                            <h4 className="text-xs font-bold text-slate-950 uppercase tracking-widest flex items-center gap-1 bg-slate-50 p-2 rounded">
-                              <Sliders className="w-3.5 h-3.5 text-slate-950" /> Layout & Frame Geometry
-                            </h4>
-
-                            <div className="grid grid-cols-2 gap-4">
-                              <div className="space-y-1">
-                                <label className="text-[10px] font-bold uppercase text-slate-450">Orientation</label>
-                                <select 
-                                  value={editingTemplate.layout}
-                                  onChange={(e) => handleUpdateTemplateProperty('layout', e.target.value)}
-                                  className="w-full bg-slate-50 text-xs p-1.5 rounded border border-slate-200 focus:outline-none"
-                                >
-                                  <option value="landscape">Landscape (Optimum)</option>
-                                  <option value="portrait">Portrait</option>
-                                </select>
-                              </div>
-
-                              <div className="space-y-1">
-                                <label className="text-[10px] font-bold uppercase text-slate-450">Background Color</label>
-                                <input 
-                                  type="color"
-                                  value={editingTemplate.backgroundColor}
-                                  onChange={(e) => handleUpdateTemplateProperty('backgroundColor', e.target.value)}
-                                  className="w-full h-8 bg-slate-50 p-1 rounded border border-slate-200 focus:outline-none cursor-pointer"
-                                />
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4">
-                              <div className="space-y-1">
-                                <label className="text-[10px] font-bold uppercase text-slate-450">Border color</label>
-                                <input 
-                                  type="color"
-                                  value={editingTemplate.borderColor}
-                                  onChange={(e) => handleUpdateTemplateProperty('borderColor', e.target.value)}
-                                  className="w-full h-8 bg-slate-50 p-1 rounded border border-slate-200 focus:outline-none cursor-pointer"
-                                />
-                              </div>
-
-                              <div className="space-y-1">
-                                <label className="text-[10px] font-bold uppercase text-slate-450">Border Width (px)</label>
-                                <input 
-                                  type="number"
-                                  min="0"
-                                  max="20"
-                                  value={editingTemplate.borderWidth}
-                                  onChange={(e) => handleUpdateTemplateProperty('borderWidth', parseInt(e.target.value) || 0)}
-                                  className="w-full bg-slate-50 text-xs p-1.5 rounded border border-slate-200 focus:outline-none"
-                                />
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="space-y-4">
-                            <h4 className="text-xs font-bold text-slate-950 uppercase tracking-widest flex items-center gap-1 bg-slate-50 p-2 rounded">
-                              <Sliders className="w-3.5 h-3.5 text-slate-950" /> Stamps & Authority Signatory
-                            </h4>
-
-                            <div className="space-y-1">
-                              <label className="text-[10px] font-bold uppercase text-slate-450">Signatory Full Name</label>
-                              <input 
-                                type="text"
-                                value={editingTemplate.signatoryName || ''}
-                                onChange={(e) => handleUpdateTemplateProperty('signatoryName', e.target.value)}
-                                className="w-full bg-slate-50 text-xs p-2 rounded border border-slate-200 focus:outline-none"
-                              />
-                            </div>
-
-                            <div className="space-y-1">
-                              <label className="text-[10px] font-bold uppercase text-slate-450">Signatory Title</label>
-                              <input 
-                                type="text"
-                                value={editingTemplate.signatoryTitle || ''}
-                                onChange={(e) => handleUpdateTemplateProperty('signatoryTitle', e.target.value)}
-                                className="w-full bg-slate-50 text-xs p-2 rounded border border-slate-200 focus:outline-none"
-                              />
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4">
-                              <div className="space-y-1">
-                                <label className="text-[10px] font-bold uppercase text-slate-450">Official Seal Stamp</label>
-                                <select 
-                                  value={editingTemplate.showSeal ? 'true' : 'false'}
-                                  onChange={(e) => handleUpdateTemplateProperty('showSeal', e.target.value === 'true')}
-                                  className="w-full bg-slate-50 text-xs p-1.5 rounded border border-slate-200 focus:outline-none"
-                                >
-                                  <option value="true">Show Seal badge</option>
-                                  <option value="false">Hide Seal</option>
-                                </select>
-                              </div>
-
-                              <div className="space-y-1">
-                                <label className="text-[10px] font-bold uppercase text-slate-450">Seal Type</label>
-                                <select 
-                                  value={editingTemplate.sealType}
-                                  onChange={(e) => handleUpdateTemplateProperty('sealType', e.target.value)}
-                                  className="w-full bg-slate-50 text-xs p-1.5 rounded border border-[#E9ECEF] focus:outline-none"
-                                >
-                                  <option value="classic">Classic Seal</option>
-                                  <option value="stellar">Stellar Emblem</option>
-                                  <option value="modern">Modern Stamp</option>
-                                </select>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="space-y-4">
-                            <h4 className="text-xs font-bold text-slate-950 uppercase tracking-widest flex items-center gap-1 bg-slate-50 p-2 rounded">
-                              <Sliders className="w-3.5 h-3.5 text-slate-950" /> Variable Text Alignment
-                            </h4>
-
-                            <div className="space-y-2">
-                              <label className="text-[10px] font-bold uppercase text-slate-450">Active Element Block Selector</label>
-                              <select 
-                                value={selectedTextElId || ''}
-                                onChange={(e) => setSelectedTextElId(e.target.value)}
-                                className="w-full bg-slate-50 text-xs p-2 rounded border border-[#E9ECEF] focus:outline-none"
-                              >
-                                {editingTemplate.textElements.map(el => (
-                                  <option key={el.id} value={el.id}>{el.text.substring(0, 30)}...</option>
-                                ))}
-                              </select>
-                            </div>
-
-                            {/* Text block element styling parameters override */}
-                            {selectedTextElId && (() => {
-                              const activeEl = editingTemplate.textElements.find(el => el.id === selectedTextElId);
-                              if (!activeEl) return null;
-                              return (
-                                <div className="space-y-4 pt-2 border-t border-slate-150">
-                                  <div className="space-y-1">
-                                    <label className="text-[10px] font-bold uppercase text-slate-450">Block Text Template</label>
-                                    <input 
-                                      type="text"
-                                      value={activeEl.text}
-                                      onChange={(e) => handleUpdateTextElementProperty('text', e.target.value)}
-                                      className="w-full bg-slate-50 text-xs p-2 rounded border border-[#E9ECEF] focus:outline-none"
-                                    />
-                                    <p className="text-[9px] text-[#9CA3AF]">Use placeholders: <code className="bg-slate-100 text-slate-700 font-mono">{"{{name}}"}</code>, <code className="bg-slate-100 text-slate-700 font-mono">{"{{program}}"}</code></p>
-                                  </div>
-
-                                  <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-1">
-                                      <label className="text-[10px] font-bold uppercase text-slate-450">Font Selection</label>
-                                      <select 
-                                        value={activeEl.fontFamily}
-                                        onChange={(e) => handleUpdateTextElementProperty('fontFamily', e.target.value)}
-                                        className="w-full bg-slate-50 text-xs p-1.5 rounded border border-[#E9ECEF] focus:outline-none"
-                                      >
-                                        <option value="Inter">Inter (General)</option>
-                                        <option value="Space Grotesk">Space Grotesk</option>
-                                        <option value="Playfair Display">Playfair Serif</option>
-                                        <option value="JetBrains Mono">JetBrains Mono</option>
-                                      </select>
-                                    </div>
-
-                                    <div className="space-y-1">
-                                      <label className="text-[10px] font-bold uppercase text-slate-450">Font Size (pt)</label>
-                                      <input 
-                                        type="number"
-                                        min="6"
-                                        max="64"
-                                        value={activeEl.fontSize}
-                                        onChange={(e) => handleUpdateTextElementProperty('fontSize', parseInt(e.target.value) || 12)}
-                                        className="w-full bg-slate-50 text-xs p-1.5 rounded border border-slate-200 focus:outline-none"
-                                      />
-                                    </div>
-                                  </div>
-
-                                  <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-1">
-                                      <label className="text-[10px] font-bold uppercase text-slate-450">Color value</label>
-                                      <input 
-                                        type="color"
-                                        value={activeEl.color}
-                                        onChange={(e) => handleUpdateTextElementProperty('color', e.target.value)}
-                                        className="w-full h-8 bg-slate-50 p-1 rounded border border-slate-200 focus:outline-none cursor-pointer"
-                                      />
-                                    </div>
-
-                                    <div className="space-y-1">
-                                      <label className="text-[10px] font-bold uppercase text-slate-450">Y-Offset (% top)</label>
-                                      <input 
-                                        type="range"
-                                        min="0"
-                                        max="100"
-                                        value={activeEl.yPercent}
-                                        onChange={(e) => handleUpdateTextElementProperty('yPercent', parseInt(e.target.value) || 0)}
-                                        className="w-full focus:outline-none cursor-pointer"
-                                      />
-                                      <div className="flex justify-between text-[8px] font-mono text-slate-400">
-                                        <span>0% (Top)</span>
-                                        <span className="font-bold">{activeEl.yPercent}%</span>
-                                        <span>100%</span>
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })()}
-                          </div>
-
-                        </div>
-
-                        {/* Editor dynamic interactive render sandbox */}
-                        <div className="lg:col-span-8 space-y-4">
-                          <p className="text-[10px] uppercase font-bold text-[#9CA3AF]">Interactive Vector Canvas render sandbox</p>
-                          
-                          <div className="bg-white border border-[#E9ECEF] rounded-2xl p-6 lg:p-12 shadow-inner">
-                            <div 
-                              style={{
-                                backgroundColor: editingTemplate.backgroundColor,
-                                borderColor: editingTemplate.borderColor,
-                                borderWidth: `${editingTemplate.borderWidth}px`
-                              }}
-                              className={`aspect-[1.414/1] w-full rounded-lg relative transition-all duration-300 border-double overflow-hidden p-6 flex flex-col justify-between`}
-                            >
-                              {/* Background watermark icon */}
-                              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 opacity-[0.03] border border-slate-950 rounded-full flex items-center justify-center">
-                                <Landmark className="w-16 h-16" />
-                              </div>
-
-                              {/* Corner elements simulated */}
-                              <div className="flex justify-between items-start text-left z-10 font-mono text-[7px] text-slate-400">
-                                <div>
-                                  <p className="font-bold text-slate-900 text-[8px] uppercase tracking-wider">{currentWorkspace?.branding.brandName}</p>
-                                  <p>LEDGER AUTHORITY SECURE</p>
-                                </div>
-                                <div>
-                                  <p>ID: CERT-2026-XSPEC</p>
-                                  <p className="font-bold text-emerald-600">VALID_METADATA_BOUND</p>
-                                </div>
-                              </div>
-
-                              {/* Text elements positioning wrapper */}
-                              <div className="flex-1 flex flex-col justify-center items-center py-2 relative z-10 space-y-1.5">
-                                {editingTemplate.textElements.map(el => {
-                                  // Preview strings replaces
-                                  let value = el.text;
-                                  if (el.text.includes('{{name}}')) value = value.replace('{{name}}', 'Jordan Vance (Preview)');
-                                  if (el.text.includes('{{program}}')) value = value.replace('{{program}}', 'A-Class System Infrastructure');
-                                  if (el.text.includes('{{id}}')) value = value.replace('{{id}}', 'CERT-2026-XSPEC');
-                                  if (el.text.includes('{{date}}')) value = value.replace('{{date}}', '2026-06-17');
-
-                                  // Font styling categories map
-                                  let fontClass = 'font-sans';
-                                  if (el.fontFamily === 'Space Grotesk') fontClass = 'font-display';
-                                  if (el.fontFamily === 'Playfair Display') fontClass = 'font-serif italic';
-                                  if (el.fontFamily === 'JetBrains Mono') fontClass = 'font-mono text-[9px] uppercase tracking-widest';
-
-                                  let weightClass = 'font-normal';
-                                  if (el.fontWeight === 'medium') weightClass = 'font-medium';
-                                  if (el.fontWeight === 'bold') weightClass = 'font-bold';
-
-                                  const isSelected = el.id === selectedTextElId;
-
-                                  return (
-                                    <div 
-                                      key={el.id}
-                                      onClick={() => setSelectedTextElId(el.id)}
-                                      style={{ 
-                                        color: el.color,
-                                        fontSize: `${el.fontSize * 0.8}px`,
-                                      }}
-                                      className={`${fontClass} ${weightClass} cursor-pointer leading-snug break-words max-w-lg text-center select-none transition-all ${isSelected ? 'outline border-dashed outline-2 outline-indigo-500 outline-offset-2 rounded px-1' : ''}`}
-                                    >
-                                      {value}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-
-                              {/* Bottom stamp rows */}
-                              <div className="flex justify-between items-end border-t border-slate-100/80 pt-2 z-10 uppercase font-mono text-[7px] text-slate-400">
-                                <div className="text-left font-mono">
-                                  <p className="text-[6px] text-slate-400 uppercase tracking-widest">Verification Status Code</p>
-                                  <p className="text-[7px] font-bold text-slate-800 break-all">sha256:0edf88cf...</p>
-                                </div>
-
-                                <div className="text-center font-sans">
-                                  {editingTemplate.showSeal && (
-                                    <div className="mb-1 inline-flex items-center justify-center w-8 h-8 rounded-full border border-amber-500/30 bg-amber-50/10 text-amber-600">
-                                      ★
-                                    </div>
-                                  )}
-
-                                  <div className="text-center">
-                                    <div className="font-serif italic text-slate-700 text-[10px]">
-                                      {editingTemplate.signatoryName || 'thomas kurian'}
-                                    </div>
-                                    <p className="text-[6px] font-bold uppercase tracking-widest text-[#9CA3AF]">
-                                      {editingTemplate.signatoryTitle || 'CEO, Authority'}
-                                    </p>
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center gap-1">
-                                  <p className="text-right text-[6px]">SCAN TO TRUST <br /> <strong className="text-slate-850">LEDGER MATCH</strong></p>
-                                  <div className="w-8 h-8 bg-slate-950 rounded p-1 text-white flex items-center justify-center font-mono text-[4px] leading-none">
-                                    [QR]
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                          
-                          <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl text-xs text-slate-300 flex items-start gap-2">
-                            <Sparkles className="w-5 h-5 text-[#B4C6FC] shrink-0" />
-                            <div>
-                              <strong className="text-white block mb-0.5">Vector Variable Positioning:</strong> Click on any line of template text on the canvas to select it in the block editor, and change alignment elements instantly.
-                            </div>
-                          </div>
-
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    // Gallery Page
-                    <div className="space-y-8 animate-fade-in">
-                      <div className="flex justify-between items-center border-b border-slate-200 pb-3">
+                      <div className="flex justify-between items-center pb-4 border-b border-slate-200">
                         <div>
                           <h2 className="font-serif text-3xl italic text-slate-950">Layout Template Blueprints</h2>
                           <p className="text-slate-500 text-sm">Choose and configure highly scalable CSS certificate canvases.</p>
@@ -1576,9 +1329,8 @@ export function Dashboard({
                         ))}
                       </div>
                     </div>
-                  )}
-
-                </div>
+                  </div>
+                )
               )}
 
               {/* TAB 4: BULK CSV RECIPIENT IMPORT */}
@@ -1616,7 +1368,7 @@ export function Dashboard({
                             <div className="p-3 bg-slate-50 border rounded-lg text-xs space-y-1">
                               <p className="font-bold text-slate-900 uppercase tracking-wide text-[10px]">Expected spreadsheet headers:</p>
                               <p className="font-mono text-[10px] text-slate-550 break-all pb-1 uppercase font-bold">
-                                Email, Name, {matchedProg.recipientFields.join(', ')}
+                                Email, Name, {matchedProg.recipientFields.filter(f => !['name', 'email', 'date', 'id', 'program'].includes(f.toLowerCase())).join(', ')}
                               </p>
                               <p className="text-[10px] text-slate-400">Match these headers exactly inside your paste area below to map dynamic scores or classes.</p>
                             </div>
@@ -1634,7 +1386,7 @@ export function Dashboard({
                               type="button"
                               onClick={() => {
                                 const matchedProg = programs.find(p => p.id === selectedProgramId);
-                                const fieldsString = matchedProg ? matchedProg.recipientFields.join(',') : 'Score,Cohort';
+                                const fieldsString = matchedProg ? matchedProg.recipientFields.filter(f => !['name', 'email', 'date', 'id', 'program'].includes(f.toLowerCase())).join(',') : 'Score,Cohort';
                                 const sampleRows = `Email,Name,${fieldsString}\nalex.rivera@trustops-mail.com,Alex Rivera,92%,C-Alpha\njordan.vance@trustops-mail.com,Jordan Vance,96%,C-Alpha\nkeiko.tanaka@trustops-mail.com,Keiko Tanaka,100%,C-Beta`;
                                 setRawCsvInput(sampleRows);
                               }}
@@ -1701,7 +1453,7 @@ export function Dashboard({
                       </div>
 
                       {/* Validated Recipients Table */}
-                      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden card-shadow">
+                      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden card-shadow overflow-x-auto">
                         <table className="w-full text-left border-collapse text-xs">
                           <thead className="bg-[#F8F9FA] border-b border-slate-200 font-bold uppercase text-slate-400 text-[10px] tracking-wider">
                             <tr>
@@ -1714,7 +1466,7 @@ export function Dashboard({
                           <tbody className="divide-y divide-slate-100 text-slate-600">
                             {validatedRecipients.map((rec, idx) => (
                               <tr key={idx} className={rec.isValid ? 'hover:bg-slate-55' : 'bg-rose-50/40'}>
-                                <td className="px-8 py-4 font-semibold text-slate-900">{rec.name || 'N/A'}</td>
+                                <td className="px-8 py-4 font-semibold text-slate-900 capitalize">{rec.name || 'N/A'}</td>
                                 <td className="px-6 py-4 font-mono text-[11px] text-slate-500">{rec.email}</td>
                                 <td className="px-6 py-4">
                                   <div className="flex flex-wrap gap-1">
@@ -1821,15 +1573,35 @@ export function Dashboard({
                       <p className="text-slate-550 text-xs text-[#9CA3AF]">Query live certificate credentials, audit logs, or issue suspension flags.</p>
                     </div>
 
-                    <div className="flex items-center gap-3 bg-white p-2 rounded-xl border border-[#E9ECEF] shadow-sm max-w-xs w-full shrink-0">
-                      <Search className="text-slate-455 w-4 h-4 ml-1.5 shrink-0" />
-                      <input 
-                        type="text" 
-                        placeholder="Search student, ID, or course..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="bg-transparent border-none focus:outline-none text-xs w-full text-slate-800 placeholder-slate-400"
-                      />
+                    <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto shrink-0 justify-end">
+                      <button
+                        onClick={() => {
+                          if (programs.length === 0) {
+                            alert('Configure at least one certification program first.');
+                            return;
+                          }
+                          setSingleProgramId(programs[0].id);
+                          setSingleRecipientName('');
+                          setSingleRecipientEmail('');
+                          setSingleCustomFields({});
+                          setSingleIssueDate(new Date().toISOString().split('T')[0]);
+                          setShowSingleIssueModal(true);
+                        }}
+                        className="bg-slate-950 text-white text-[11px] px-4.5 py-2.5 rounded-full font-bold shadow-sm hover:bg-slate-800 transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> Issue Single Certificate
+                      </button>
+
+                      <div className="flex items-center gap-3 bg-white p-2 rounded-xl border border-[#E9ECEF] shadow-sm max-w-xs w-full shrink-0">
+                        <Search className="text-slate-455 w-4 h-4 ml-1.5 shrink-0" />
+                        <input 
+                          type="text" 
+                          placeholder="Search student, ID, or course..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          className="bg-transparent border-none focus:outline-none text-xs w-full text-slate-800 placeholder-slate-400"
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -1874,7 +1646,7 @@ export function Dashboard({
                   )}
 
                   {/* Issued Database Table */}
-                  <div className="bg-white border border-[#E9ECEF] rounded-2xl overflow-hidden card-shadow">
+                  <div className="bg-white border border-[#E9ECEF] rounded-2xl overflow-hidden card-shadow overflow-x-auto">
                     <table className="w-full text-left border-collapse text-xs">
                       <thead className="bg-[#F8F9FA] border-b border-[#E9ECEF] text-[10px] uppercase font-bold text-slate-400 tracking-wider">
                         <tr>
@@ -1894,7 +1666,7 @@ export function Dashboard({
                               <p className="text-[10px] text-slate-400 font-mono italic shrink-0 truncate max-w-[120px]">{c.securityHash.substring(0, 18)}...</p>
                             </td>
                             <td className="px-6 py-5">
-                              <p className="font-bold text-slate-950 text-sm leading-tight">{c.recipientName}</p>
+                              <p className="font-bold text-slate-950 text-sm leading-tight capitalize">{c.recipientName}</p>
                               <p className="text-[10px] text-[#9CA3AF] mt-0.5">{c.recipientEmail}</p>
                             </td>
                             <td className="px-6 py-5 space-y-1">
@@ -1974,7 +1746,7 @@ export function Dashboard({
                         <input
                           type="text"
                           value={currentWorkspace?.branding.brandName}
-                          onChange={(e) => handleUpdateBrandingConfig({ brandName: e.target.value })}
+                          onChange={(e) => handleUpdateBrandingConfig({ brandName: capitalizeWords(e.target.value) })}
                           className="w-full bg-slate-50 text-xs py-2 px-3 rounded border border-slate-200 focus:outline-none"
                         />
                       </div>
@@ -2035,7 +1807,7 @@ export function Dashboard({
                         <input
                           type="text"
                           value={currentWorkspace?.branding.senderName}
-                          onChange={(e) => handleUpdateBrandingConfig({ senderName: e.target.value })}
+                          onChange={(e) => handleUpdateBrandingConfig({ senderName: capitalizeWords(e.target.value) })}
                           className="w-full bg-slate-50 text-xs py-2 px-3 rounded border border-slate-200 focus:outline-none"
                         />
                       </div>
@@ -2056,7 +1828,7 @@ export function Dashboard({
                       <input
                         type="text"
                         value={currentWorkspace?.branding.footerText || ''}
-                        onChange={(e) => handleUpdateBrandingConfig({ footerText: e.target.value })}
+                        onChange={(e) => handleUpdateBrandingConfig({ footerText: capitalizeWords(e.target.value) })}
                         className="w-full bg-slate-50 text-xs py-2 px-3 rounded border border-slate-200 focus:outline-none"
                       />
                     </div>
@@ -2184,7 +1956,7 @@ export function Dashboard({
                                   {new Date(log.sentTime).toLocaleString()}
                                 </td>
                                 <td className="px-6 py-4">
-                                  <div className="font-semibold text-slate-900">{log.recipientName}</div>
+                                  <div className="font-semibold text-slate-900 capitalize">{log.recipientName}</div>
                                   <div className="text-[10px] text-slate-400 font-mono">{log.recipientEmail}</div>
                                 </td>
                                 <td className="px-6 py-4 font-medium max-w-xs truncate">
@@ -2341,7 +2113,7 @@ export function Dashboard({
                   required
                   placeholder="e.g. Columbia University Global"
                   value={newWsName}
-                  onChange={(e) => setNewWsName(e.target.value)}
+                  onChange={(e) => setNewWsName(capitalizeWords(e.target.value))}
                   className="w-full bg-slate-50 text-xs py-2 px-3 rounded border focus:outline-none"
                 />
               </div>
@@ -2353,7 +2125,7 @@ export function Dashboard({
                   required
                   placeholder="e.g. Columbia Credentials Authority"
                   value={newWsBrandName}
-                  onChange={(e) => setNewWsBrandName(e.target.value)}
+                  onChange={(e) => setNewWsBrandName(capitalizeWords(e.target.value))}
                   className="w-full bg-slate-50 text-xs py-2 px-3 rounded border focus:outline-none"
                 />
               </div>
@@ -2392,6 +2164,129 @@ export function Dashboard({
                   className="bg-slate-950 text-white text-xs px-5 py-2.5 rounded-lg font-bold hover:bg-slate-800"
                 >
                   Onboard Workspace
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Single Recipient Issuance Overlay */}
+      {showSingleIssueModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[99] flex items-center justify-center p-4">
+          <div className="bg-white border text-left border-[#E9ECEF] rounded-2xl p-6 md:p-8 card-shadow space-y-6 max-w-xl w-full max-h-[90vh] overflow-y-auto animate-scale-up">
+            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
+              <h3 className="text-sm font-bold text-slate-950 uppercase tracking-widest flex items-center gap-1.5 font-sans">
+                <Plus className="w-4 h-4 text-indigo-650" /> Issue Single Certificate
+              </h3>
+              <button 
+                type="button"
+                onClick={() => setShowSingleIssueModal(false)}
+                className="text-slate-400 hover:text-slate-900 transition-colors cursor-pointer"
+                title="Close modal"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleIssueSingleCertificate} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Select Certification Program</label>
+                <select
+                  value={singleProgramId}
+                  onChange={(e) => {
+                    setSingleProgramId(e.target.value);
+                    setSingleCustomFields({});
+                  }}
+                  className="w-full bg-slate-50 text-xs py-2.5 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-slate-900 cursor-pointer"
+                >
+                  {programs.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Recipient Full Name</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Alex Rivera"
+                    value={singleRecipientName}
+                    onChange={(e) => setSingleRecipientName(capitalizeWords(e.target.value))}
+                    className="w-full bg-slate-50 text-xs py-2.5 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-slate-900"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Recipient Email Address</label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="e.g. alex@example.com"
+                    value={singleRecipientEmail}
+                    onChange={(e) => setSingleRecipientEmail(e.target.value)}
+                    className="w-full bg-slate-50 text-xs py-2.5 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Issue Date</label>
+                <input
+                  type="date"
+                  required
+                  value={singleIssueDate}
+                  onChange={(e) => setSingleIssueDate(e.target.value)}
+                  className="w-full bg-slate-50 text-xs py-2.5 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-slate-900"
+                />
+              </div>
+
+              {/* Dynamic custom fields */}
+              {(() => {
+                const selectedProg = programs.find(p => p.id === singleProgramId);
+                if (!selectedProg) return null;
+                const filteredFields = selectedProg.recipientFields.filter(f => !['name', 'email', 'date', 'id', 'program'].includes(f.toLowerCase()));
+                if (filteredFields.length === 0) return null;
+                return (
+                  <div className="space-y-3 border-t border-slate-100 pt-4">
+                    <h4 className="text-[10px] uppercase font-bold text-slate-450 tracking-wider">Program Custom Variables</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {filteredFields.map(field => (
+                        <div key={field} className="space-y-1">
+                          <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">{field}</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder={`Enter ${field}`}
+                            value={singleCustomFields[field] || ''}
+                            onChange={(e) => setSingleCustomFields({
+                              ...singleCustomFields,
+                              [field]: e.target.value
+                            })}
+                            className="w-full bg-slate-50 text-xs py-2.5 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-slate-900"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div className="flex gap-3 justify-end pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowSingleIssueModal(false)}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs px-4 py-2.5 rounded-lg font-bold transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="bg-slate-950 hover:bg-slate-800 text-white text-xs px-5 py-2.5 rounded-lg font-bold shadow-sm transition-colors cursor-pointer"
+                >
+                  Issue Certificate
                 </button>
               </div>
             </form>

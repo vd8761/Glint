@@ -889,6 +889,21 @@ app.post('/api/programs', authenticateToken, async (req, res) => {
     return res.status(400).json({ error: 'workspaceId, name, and templateId are required' });
   }
 
+  // Filter out standard base fields (name, email, date, id, program) and duplicates
+  const baseFields = ['name', 'email', 'date', 'id', 'program'];
+  const sanitizedRecipientFields = Array.isArray(recipientFields)
+    ? recipientFields
+        .map((f: any) => String(f).trim())
+        .filter((f: string) => f.length > 0)
+        .reduce((acc: string[], f: string) => {
+          const lower = f.toLowerCase();
+          if (!baseFields.includes(lower) && !acc.some(exist => exist.toLowerCase() === lower)) {
+            acc.push(f);
+          }
+          return acc;
+        }, [])
+    : [];
+
   const newProgram: CertificateProgram = {
     id: `prg-${Math.random().toString(36).substring(2, 9)}`,
     workspaceId,
@@ -899,7 +914,7 @@ app.post('/api/programs', authenticateToken, async (req, res) => {
     expiryDate: expiryDate || undefined,
     status: 'draft',
     createdTime: new Date().toISOString(),
-    recipientFields: recipientFields || []
+    recipientFields: sanitizedRecipientFields
   };
 
   try {
@@ -927,13 +942,27 @@ app.put('/api/programs/:id', authenticateToken, async (req, res) => {
     const issueDate = req.body.issueDate || (current.issue_date ? current.issue_date.toISOString().split('T')[0] : '');
     const expiryDate = req.body.expiryDate !== undefined ? req.body.expiryDate : (current.expiry_date ? current.expiry_date.toISOString().split('T')[0] : undefined);
     const status = req.body.status || current.status;
-    const recipientFields = req.body.recipientFields || current.recipient_fields;
+    
+    const rawRecipientFields = req.body.recipientFields || current.recipient_fields;
+    const baseFields = ['name', 'email', 'date', 'id', 'program'];
+    const sanitizedRecipientFields = Array.isArray(rawRecipientFields)
+      ? rawRecipientFields
+          .map((f: any) => String(f).trim())
+          .filter((f: string) => f.length > 0)
+          .reduce((acc: string[], f: string) => {
+            const lower = f.toLowerCase();
+            if (!baseFields.includes(lower) && !acc.some(exist => exist.toLowerCase() === lower)) {
+              acc.push(f);
+            }
+            return acc;
+          }, [])
+      : [];
 
     await pool.query(
       `UPDATE programs 
        SET name = $1, description = $2, template_id = $3, issue_date = $4, expiry_date = $5, status = $6, recipient_fields = $7
        WHERE id = $8`,
-      [name, description, templateId, issueDate, expiryDate || null, status, JSON.stringify(recipientFields), req.params.id]
+      [name, description, templateId, issueDate, expiryDate || null, status, JSON.stringify(sanitizedRecipientFields), req.params.id]
     );
 
     res.json({
@@ -946,7 +975,7 @@ app.put('/api/programs/:id', authenticateToken, async (req, res) => {
       expiryDate,
       status,
       createdTime: current.created_time,
-      recipientFields
+      recipientFields: sanitizedRecipientFields
     });
   } catch (err: any) {
     logger.error('Error updating program', err);
@@ -1742,15 +1771,18 @@ app.get('/api/analytics', async (req, res) => {
   }
 });
 
-// Helper for Gemini API retry on 503
-async function generateGeminiContentWithRetry(ai: any, params: any, retries = 3, delay = 1000): Promise<any> {
+// Helper for Gemini API retry on temporary errors (503, 429, etc.)
+async function generateGeminiContentWithRetry(ai: any, params: any, retries = 3, delay = 1500): Promise<any> {
   for (let i = 0; i < retries; i++) {
     try {
       return await ai.models.generateContent(params);
     } catch (err: any) {
-      if (err.message && err.message.includes('503') && i < retries - 1) {
-        logger.warn(`[Gemini API] 503 Overloaded, retrying (Attempt ${i + 1}/${retries})`, { delay });
-        await new Promise(resolve => setTimeout(resolve, delay));
+      const errMsg = err.message || '';
+      const isTemporary = errMsg.includes('503') || errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('quota') || errMsg.includes('rate limit');
+      if (isTemporary && i < retries - 1) {
+        const currentDelay = delay * Math.pow(2, i); // Exponential backoff
+        logger.warn(`[Gemini API] Temporary error, retrying in ${currentDelay}ms (Attempt ${i + 1}/${retries})`, { error: errMsg });
+        await new Promise(resolve => setTimeout(resolve, currentDelay));
         continue;
       }
       throw err;
@@ -1859,7 +1891,11 @@ Follow these strict design guidelines:
     }
 
     const design = JSON.parse(response.text);
-    const base64Svg = Buffer.from(design.svg).toString('base64');
+    let svgString = design.svg || '';
+    if (svgString.includes('```')) {
+      svgString = svgString.replace(/```[a-z]*\n?/gi, '').replace(/```/g, '').trim();
+    }
+    const base64Svg = Buffer.from(svgString).toString('base64');
     const backgroundImageUrl = `data:image/svg+xml;base64,${base64Svg}`;
 
     res.json({

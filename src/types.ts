@@ -36,6 +36,8 @@ export interface TextElement {
   align: 'left' | 'center' | 'right';
   isPlaceholder?: boolean;
   width?: number; // Optional box width for wrapping/resizing
+  type?: 'text' | 'image';
+  imageUrl?: string;
 }
 
 export interface CertificateTemplate {

@@ -170,7 +170,7 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
             <path d="M15 16H23" stroke="#0F172A" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
             <path d="M24 7C24 9.2 25.2 10 27 10C25.2 10 24 10.8 24 13C24 10.8 22.8 10 21 10C22.8 10 24 9.2 24 7Z" fill="#F59E0B" />
           </svg>
-          <span className="font-display font-bold tracking-tight text-slate-950 text-base">GLINT</span>
+          <span className="font-display font-extrabold tracking-wider text-slate-950 text-base uppercase">GLINT REGISTRY</span>
         </div>
 
         <div className="flex items-center gap-3">
@@ -900,7 +900,7 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
               <path d="M15 16H23" stroke="#FFFFFF" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
               <path d="M24 7C24 9.2 25.2 10 27 10C25.2 10 24 10.8 24 13C24 10.8 22.8 10 21 10C22.8 10 24 9.2 24 7Z" fill="#F59E0B" />
             </svg>
-            <span className="font-display font-bold tracking-tight text-white">GLINT</span>
+            <span className="font-display font-extrabold tracking-wider text-white uppercase text-xs">GLINT REGISTRY</span>
           </div>
           <div className="flex gap-8">
             <a href="#" className="hover:text-white transition-colors duration-200">Security Architecture</a>
