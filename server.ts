@@ -129,7 +129,19 @@ const sendVerificationEmail = async (params: {
     if (wsResult.rows.length > 0) {
       const row = wsResult.rows[0];
       if (row.sender_name) fromName = row.sender_name;
-      if (row.sender_email) fromEmail = row.sender_email;
+      if (row.sender_email) {
+        // Enforce SMTP_FROM domain verification to prevent Resend / SES from rejecting the mail
+        const allowedSender = process.env.SMTP_FROM || 'no-reply@originbi.com';
+        const allowedDomain = allowedSender.split('@')[1];
+        const currentDomain = row.sender_email.split('@')[1];
+        if (allowedDomain && currentDomain && allowedDomain.toLowerCase() !== currentDomain.toLowerCase()) {
+          const localPart = row.sender_email.split('@')[0];
+          fromEmail = `${localPart}@${allowedDomain}`;
+          logger.info(`Rewrote sender_email from ${row.sender_email} to ${fromEmail} to match verified SMTP domain ${allowedDomain}`);
+        } else {
+          fromEmail = row.sender_email;
+        }
+      }
       if (row.primary_color) primaryColor = row.primary_color;
       if (row.brand_name) brandName = row.brand_name;
       if (row.logo_url) logoUrl = row.logo_url;
