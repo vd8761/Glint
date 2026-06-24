@@ -244,10 +244,10 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
   }
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA] text-slate-800 font-sans pb-20">
+    <div className="min-h-screen bg-[#F8F9FA] text-slate-800 font-sans pb-20 print:pb-0 print:bg-white">
       
       {/* Search Header banner */}
-      <header className="bg-white border-b border-[#E9ECEF] h-16 px-6 lg:px-16 flex items-center justify-between sticky top-0 z-40">
+      <header className="bg-white border-b border-[#E9ECEF] h-16 px-6 lg:px-16 flex items-center justify-between sticky top-0 z-40 print:hidden">
         <div className="flex items-center gap-3">
           <button 
             type="button" 
@@ -277,10 +277,10 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
       </header>
 
       {/* Main layout container (Grid) */}
-      <div className="max-w-7xl mx-auto px-6 lg:px-16 pt-10 grid grid-cols-1 lg:grid-cols-12 gap-10">
+      <div className="max-w-7xl mx-auto px-6 lg:px-16 pt-10 grid grid-cols-1 lg:grid-cols-12 gap-10 print:block print:p-0 print:m-0 print:max-w-none">
         
         {/* Left Side: Proof verification details & high trust signals */}
-        <div className="lg:col-span-4 space-y-8">
+        <div className="lg:col-span-4 space-y-8 print:hidden">
           
           {/* Main Verification status badge */}
           <div className="bg-white border border-[#E9ECEF] rounded-2xl p-6 space-y-6 card-shadow">
@@ -442,11 +442,11 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
         </div>
 
         {/* Right Side: Render of the High Fidelity Styled Certificate Preview, and complete Audit trail */}
-        <div className="lg:col-span-8 space-y-8 print:p-0">
+        <div className="lg:col-span-8 space-y-8 print:p-0 print:m-0 print:space-y-0">
           
           {/* Elegant preview canvas container styled like a real print certificate */}
-          <div className="space-y-3">
-            <p className="text-[10px] uppercase tracking-widest text-[#9CA3AF] font-bold">Authorized Proof Credential (HQ Resolution)</p>
+          <div className="space-y-3 print:space-y-0">
+            <p className="text-[10px] uppercase tracking-widest text-[#9CA3AF] font-bold print:hidden">Authorized Proof Credential (HQ Resolution)</p>
             
             <div className="bg-white border border-[#E9ECEF] rounded-2xl p-4 md:p-10 shadow-2xl overflow-hidden print:p-0 print:border-none print:shadow-none printable-certificate-outer">
               <div 
@@ -720,7 +720,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
           </div>
 
           {/* Secure Audit Trail chronological list displaying all verification attempts */}
-          <div className="bg-white border border-[#E9ECEF] rounded-2xl p-6 space-y-6 card-shadow">
+          <div className="bg-white border border-[#E9ECEF] rounded-2xl p-6 space-y-6 card-shadow print:hidden">
             <div className="flex justify-between items-center pb-3 border-b border-slate-100">
               <h4 className="text-xs font-bold text-slate-950 uppercase tracking-widest flex items-center gap-1.5Style">
                 <Database className="w-4 h-4 text-slate-900" />

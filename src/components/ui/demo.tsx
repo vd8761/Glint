@@ -41,7 +41,11 @@ export function HeroScrollDemo() {
             </div>
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span> Connected to Neon Cloud
+                <span className="w-1.5 h-1.5 bg-emerald-600 rounded-full animate-pulse" />
+                Live Preview
+              </span>
+              <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded border border-slate-100">
+                Demo Mode
               </span>
             </div>
           </div>
@@ -75,7 +79,7 @@ export function HeroScrollDemo() {
               <div className="bg-indigo-600/5 border border-indigo-100 p-3 rounded-lg text-[10px] text-slate-500 flex items-start gap-2">
                 <Sparkles className="w-3.5 h-3.5 text-indigo-600 shrink-0 mt-0.5" />
                 <span>
-                  <strong className="text-indigo-900 block font-bold">Gemini Design Assistant:</strong>
+                  <strong className="text-indigo-900 block font-bold">AI Design Assistant:</strong>
                   Try prompting AI to create borders, fonts, or color themes instantly.
                 </span>
               </div>

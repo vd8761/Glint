@@ -11,6 +11,7 @@ import pg from 'pg';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { GoogleGenAI, Type } from '@google/genai';
+import nodemailer from 'nodemailer';
 import {
   OrganizationWorkspace,
   CertificateTemplate,
@@ -68,6 +69,284 @@ const safeRollback = async (client: any) => {
     }
   }
 };
+
+// Reusable SMTP Mail Transporter via Nodemailer
+const smtpConfigured = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+let mailTransporter: any = null;
+
+if (smtpConfigured) {
+  const secure = process.env.SMTP_PORT === '465';
+  mailTransporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT || '587', 10),
+    secure: secure,
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS
+    },
+    tls: {
+      rejectUnauthorized: false
+    }
+  });
+  logger.info('SMTP Mail Transporter successfully initialized.');
+} else {
+  logger.warn('SMTP settings missing in env variables. Emails will be logged (simulated) but not delivered.');
+}
+
+/**
+ * Helper to send verification email via AWS SES SMTP or log it locally if not configured.
+ */
+const sendVerificationEmail = async (params: {
+  recipientEmail: string;
+  recipientName: string;
+  subject: string;
+  body: string;
+  workspaceId: string;
+  programName?: string;
+  certId?: string;
+  verificationUrl?: string;
+}) => {
+  const { recipientEmail, recipientName, subject, body, workspaceId } = params;
+
+  if (!smtpConfigured || !mailTransporter) {
+    logger.info(`[SMTP Simulator] Simulated email logged for ${recipientEmail}. Subject: "${subject}"`);
+    return { success: true, simulated: true };
+  }
+
+  try {
+    let fromName = process.env.SMTP_FROM_NAME || 'Glint';
+    let fromEmail = process.env.SMTP_FROM || 'no-reply@originbi.com';
+    let primaryColor = '#0f172a'; // default dark slate
+    let brandName = 'Glint';
+    let logoUrl = '';
+    let footerText = '';
+
+    const wsResult = await pool.query(
+      'SELECT name, brand_name, primary_color, logo_url, sender_name, sender_email, footer_text FROM workspaces WHERE id = $1',
+      [workspaceId]
+    );
+
+    if (wsResult.rows.length > 0) {
+      const row = wsResult.rows[0];
+      if (row.sender_name) fromName = row.sender_name;
+      if (row.sender_email) fromEmail = row.sender_email;
+      if (row.primary_color) primaryColor = row.primary_color;
+      if (row.brand_name) brandName = row.brand_name;
+      if (row.logo_url) logoUrl = row.logo_url;
+      if (row.footer_text) footerText = row.footer_text;
+    }
+
+    // Dynamic HTML template definition
+    let htmlContent = '';
+    
+    if (params.programName && params.certId && params.verificationUrl) {
+      const logoHtml = logoUrl 
+        ? `<img src="${logoUrl}" alt="${brandName}" class="logo">`
+        : `<div class="logo-placeholder">${brandName}</div>`;
+
+      const footerTextHtml = footerText 
+        ? footerText 
+        : `This email is a secure, automated message sent by ${brandName} Certification Registry Services.`;
+
+      htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your Digital Credential is Ready</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #f8fafc;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrapper {
+      width: 100%;
+      background-color: #f8fafc;
+      padding: 40px 20px;
+      box-sizing: border-box;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background-color: #ffffff;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.025);
+      border: 1px solid #e2e8f0;
+    }
+    .header {
+      padding: 32px 32px 24px 32px;
+      text-align: center;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .logo {
+      max-height: 48px;
+      margin-bottom: 16px;
+    }
+    .logo-placeholder {
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      color: #0f172a;
+      text-transform: uppercase;
+    }
+    .content {
+      padding: 32px;
+    }
+    h1 {
+      font-size: 22px;
+      font-weight: 700;
+      color: #0f172a;
+      margin-top: 0;
+      margin-bottom: 16px;
+      line-height: 1.3;
+    }
+    p {
+      font-size: 15px;
+      line-height: 1.6;
+      color: #475569;
+      margin-top: 0;
+      margin-bottom: 24px;
+    }
+    .credential-box {
+      background-color: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 28px;
+    }
+    .credential-row {
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+    .credential-row:last-child {
+      margin-bottom: 0;
+    }
+    .credential-label {
+      float: left;
+      font-size: 12px;
+      font-weight: 600;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .credential-value {
+      float: right;
+      font-size: 14px;
+      font-weight: 600;
+      color: #334155;
+    }
+    .credential-value.code {
+      font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, Courier, monospace;
+      color: #0f172a;
+    }
+    .btn-container {
+      text-align: center;
+      margin: 32px 0;
+    }
+    .btn {
+      display: inline-block;
+      padding: 14px 28px;
+      background-color: ${primaryColor};
+      color: #ffffff !important;
+      font-size: 15px;
+      font-weight: 700;
+      text-decoration: none;
+      border-radius: 8px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+    .footer {
+      background-color: #f8fafc;
+      padding: 24px 32px;
+      text-align: center;
+      border-top: 1px solid #f1f5f9;
+    }
+    .footer-text {
+      font-size: 12px;
+      color: #94a3b8;
+      line-height: 1.5;
+      margin: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="container">
+      <div class="header">
+        ${logoHtml}
+      </div>
+      <div class="content">
+        <h1>Congratulations, ${recipientName}!</h1>
+        <p>Your official verifiable credential for completing <strong>"${params.programName}"</strong> has been successfully issued and registered on our secure registry.</p>
+        
+        <div class="credential-box">
+          <div class="credential-row">
+            <span class="credential-label">Recipient</span>
+            <span class="credential-value">${recipientName}</span>
+          </div>
+          <div style="clear: both; height: 10px;"></div>
+          <div class="credential-row">
+            <span class="credential-label">Program</span>
+            <span class="credential-value">${params.programName}</span>
+          </div>
+          <div style="clear: both; height: 10px;"></div>
+          <div class="credential-row">
+            <span class="credential-label">Credential ID</span>
+            <span class="credential-value code">${params.certId}</span>
+          </div>
+          <div style="clear: both;"></div>
+        </div>
+
+        <div class="btn-container">
+          <a href="${params.verificationUrl}" class="btn" target="_blank" style="color: #ffffff;">View Your Certificate</a>
+        </div>
+
+        <p style="font-size: 13px; color: #64748b; margin-bottom: 0; text-align: center;">
+          You can instantly view, download, print, or share your digital certificate directly to LinkedIn.
+        </p>
+      </div>
+      <div class="footer">
+        <p class="footer-text">
+          ${footerTextHtml}
+        </p>
+        <p class="footer-text" style="margin-top: 6px; font-size: 10px;">
+          Powered by Glint Digital Trust Registry
+        </p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+      `;
+    } else {
+      htmlContent = body.replace(/\n/g, '<br/>');
+    }
+
+    const mailOptions: any = {
+      from: `"${fromName}" <${fromEmail}>`,
+      to: recipientEmail,
+      subject: subject,
+      text: body,
+      html: htmlContent
+    };
+
+    if (process.env.SMTP_CC) {
+      mailOptions.cc = process.env.SMTP_CC;
+    }
+
+    const info = await mailTransporter.sendMail(mailOptions);
+    logger.info(`Email successfully sent to ${recipientEmail} (MsgID: ${info.messageId})`);
+    return { success: true, messageId: info.messageId };
+  } catch (err: any) {
+    logger.error(`Failed to send email to ${recipientEmail}`, err);
+    return { success: false, error: err.message || err };
+  }
+};
+
 
 
 const JWT_SECRET = process.env.JWT_SECRET || 'glint-super-secure-token-vault-key-2026';
@@ -929,6 +1208,19 @@ app.post('/api/programs/:id/issue', authenticateToken, async (req, res) => {
     const issuedCounterBase = parseInt(certsCountResult.rows[0].count, 10) + 5000;
 
     const generatedCertificates: Certificate[] = [];
+    const emailLogsToSend: {
+      recipientEmail: string;
+      recipientName: string;
+      subject: string;
+      body: string;
+      workspaceId: string;
+      programName?: string;
+      certId?: string;
+      verificationUrl?: string;
+    }[] = [];
+
+    // Dynamically build the base app URL (prioritizing APP_URL env variable, falling back to request host)
+    const appUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
 
     for (let idx = 0; idx < recipients.length; idx++) {
       const rec = recipients[idx];
@@ -981,7 +1273,7 @@ app.post('/api/programs/:id/issue', authenticateToken, async (req, res) => {
       );
 
       const emailLogId = `eml-${Math.random().toString(36).substring(2, 9)}`;
-      const emailLogBody = `Hello ${rec.name},\n\nCongratulations! Your official credential for completing "${program.name}" has been issued and registered on the secure public registry.\n\nCertificate ID: ${certId}\nVerification Link: http://localhost:3000/#credential=${certId}\n\nYou can view, download, print, or share your verifiable digital certificate directly to LinkedIn.\n\nWarm regards,\n${brandName} Team`;
+      const emailLogBody = `Hello ${rec.name},\n\nCongratulations! Your official credential for completing "${program.name}" has been issued and registered on the secure public registry.\n\nCertificate ID: ${certId}\nVerification Link: ${appUrl}/#credential=${certId}\n\nYou can view, download, print, or share your verifiable digital certificate directly to LinkedIn.\n\nWarm regards,\n${brandName} Team`;
 
       await client.query(
         `INSERT INTO email_logs (id, workspace_id, recipient_email, recipient_name, subject, body, certificate_id, sent_time)
@@ -993,11 +1285,31 @@ app.post('/api/programs/:id/issue', authenticateToken, async (req, res) => {
         ]
       );
 
+      emailLogsToSend.push({
+        recipientEmail: rec.email,
+        recipientName: rec.name,
+        subject: `Your official credential for ${program.name} is ready!`,
+        body: emailLogBody,
+        workspaceId: program.workspace_id,
+        programName: program.name,
+        certId: certId,
+        verificationUrl: `${appUrl}/#credential=${certId}`
+      });
+
       generatedCertificates.push(newCert);
     }
 
     await client.query('COMMIT');
     
+    // Dispatch real emails before returning response to prevent serverless (Vercel) execution freeze
+    for (const logToSend of emailLogsToSend) {
+      try {
+        await sendVerificationEmail(logToSend);
+      } catch (mailErr) {
+        logger.error(`Email dispatch failed for ${logToSend.recipientEmail}`, mailErr);
+      }
+    }
+
     res.json({
       message: `Successfully issued ${generatedCertificates.length} credentials!`,
       certificates: generatedCertificates
