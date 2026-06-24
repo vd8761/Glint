@@ -165,9 +165,10 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
       // evaluate correctly at a high resolution.
       element.style.width = '1120px';
       element.style.height = '792px';
-      element.style.position = 'absolute';
-      element.style.left = '-9999px';
-      element.style.top = '-9999px';
+      element.style.position = 'fixed';
+      element.style.left = '0';
+      element.style.top = '0';
+      element.style.zIndex = '-9999';
 
       document.body.appendChild(element);
 
@@ -178,7 +179,9 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
         html2canvas:  { 
           scale: 2, 
           useCORS: true,
-          logging: false
+          logging: false,
+          scrollX: 0,
+          scrollY: 0
         },
         jsPDF:        { 
           unit: 'in', 
