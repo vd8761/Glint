@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   BarChart3, Award, Users, Database, ShieldCheck, Settings, Globe, Mail, Landmark, 
-  Trash2, Plus, ArrowUpRight, UploadCloud, RefreshCw, Layers, Calendar, User, Search,
+  Trash2, Plus, ArrowUpRight, Upload, RefreshCw, Layers, Calendar, User, Search,
   AlertTriangle, Check, Sliders, Play, CheckCircle2, ShieldAlert, Sparkles, BookOpen,
   LogOut, Menu, X
 } from 'lucide-react';
@@ -432,6 +432,57 @@ export function Dashboard({
       console.error('Failed creating template template', err);
     }
   };
+  
+  const handleUploadCertificateDesign = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 3.5 * 1024 * 1024) {
+      alert("Image is too large. Please select an image smaller than 3.5MB for fast loading.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const base64Data = event.target?.result as string;
+      try {
+        const res = await fetch('/api/templates', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            ...authHeaders
+          },
+          body: JSON.stringify({
+            workspaceId: currentWorkspaceId,
+            name: `Uploaded - ${file.name.split('.')[0]}`,
+            layout: 'landscape',
+            backgroundColor: '#FFFFFF',
+            borderColor: '#0a0a0a',
+            borderWidth: 0,
+            showSeal: false,
+            sealType: 'classic',
+            signatoryName: 'Jane Doe',
+            signatoryTitle: 'Chancellor, Education Unit',
+            backgroundImageUrl: base64Data,
+            textElements: [
+              { id: 'et1', text: 'CERTIFICATE OF MASTERY', fontSize: 24, fontFamily: 'Space Grotesk', fontWeight: 'bold', color: '#0F172A', xPercent: 50, yPercent: 25, align: 'center' },
+              { id: 'et2', text: 'Granted proud recipient', fontSize: 11, fontFamily: 'Inter', fontWeight: 'normal', color: '#64748B', xPercent: 50, yPercent: 36, align: 'center' },
+              { id: 'et3', text: '{{name}}', fontSize: 34, fontFamily: 'Playfair Display', fontWeight: 'bold', color: currentWorkspace?.branding.accentColor || '#1a73e8', xPercent: 50, yPercent: 48, align: 'center', isPlaceholder: true },
+              { id: 'et4', text: 'for dedicated program participation in', fontSize: 11, fontFamily: 'Inter', fontWeight: 'normal', color: '#64748B', xPercent: 50, yPercent: 58, align: 'center' },
+              { id: 'et5', text: '{{program}}', fontSize: 18, fontFamily: 'Space Grotesk', fontWeight: 'bold', color: '#0F172A', xPercent: 50, yPercent: 66, align: 'center', isPlaceholder: true }
+            ]
+          })
+        });
+        if (res.ok) {
+          await triggerDataRefresh();
+        }
+      } catch (err) {
+        console.error('Failed creating template from uploaded design', err);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
 
   const handleDeleteTemplate = async (id: string) => {
     if (!confirm('Are you absolutely sure you want to remove this template? This cannot be undone.')) return;
@@ -455,72 +506,136 @@ export function Dashboard({
     if (!program) return;
 
     setImportErrors([]);
-    const lines = rawCsvInput.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     
-    if (lines.length < 2) {
-      setImportErrors(['CSV input is missing headers or row elements. Write at least a column header line and one row.']);
-      return;
-    }
-
-    // Capture header columns
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-    
-    // Find basic identifiers
-    const emailColIdx = headers.findIndex(h => h.includes('email') || h.includes('mail'));
-    const nameColIdx = headers.findIndex(h => h.includes('name') || h.includes('recipient') || h.includes('full'));
-
-    if (emailColIdx === -1 || nameColIdx === -1) {
-      setImportErrors(['CSV headers must include "email" and "name" identifier columns for reliable credential routing.']);
-      return;
-    }
-
-    // Match rest of custom template fields defined in Program
-    const customFieldIndices: Record<string, number> = {};
-    program.recipientFields.forEach(field => {
-      const idx = headers.findIndex(h => h === field.toLowerCase() || h.includes(field.toLowerCase()));
-      if (idx !== -1) {
-        customFieldIndices[field] = idx;
-      }
-    });
+    // Normalize newlines and split by lines
+    const rawLines = rawCsvInput.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    if (rawLines.length === 0) return;
 
     const validated: Recipient[] = [];
     const errorsList: string[] = [];
 
-    // Parse each record row
-    for (let i = 1; i < lines.length; i++) {
-      const rowElements = lines[i].split(',').map(r => r.trim());
-      if (rowElements.length < Math.max(emailColIdx, nameColIdx) + 1) {
-        errorsList.push(`Row ${i + 1}: Incomplete content columns mapping.`);
-        continue;
-      }
+    // Check if the first line contains headers (e.g. contains name or email keywords)
+    const firstLine = rawLines[0];
+    const firstLineParts = firstLine.split(',').map(p => p.trim().toLowerCase());
+    const hasEmailHeader = firstLineParts.some(p => p.includes('email') || p.includes('mail'));
+    const hasNameHeader = firstLineParts.some(p => p.includes('name') || p.includes('recipient') || p.includes('full'));
 
-      const email = rowElements[emailColIdx];
-      const name = capitalizeWords(rowElements[nameColIdx]);
-      const rowErrors: string[] = [];
-
-      // Validate simple inputs
-      if (!name) rowErrors.push('Missing recipient full name.');
-      if (!email || !email.includes('@')) rowErrors.push('Invalid or missing email address.');
-
-      // Check for structural duplicates
-      const isDuplicate = validated.some(v => v.email.toLowerCase() === email.toLowerCase());
-      if (isDuplicate) rowErrors.push('Duplicate recipient email encountered in list.');
-
-      // Match variables
-      const customFields: Record<string, string> = {};
+    if (hasEmailHeader && hasNameHeader) {
+      // STANDARD CSV WITH HEADERS
+      const headers = firstLine.split(',').map(h => h.trim().toLowerCase());
+      const emailColIdx = headers.findIndex(h => h.includes('email') || h.includes('mail'));
+      const nameColIdx = headers.findIndex(h => h.includes('name') || h.includes('recipient') || h.includes('full'));
+      
+      const customFieldIndices: Record<string, number> = {};
       program.recipientFields.forEach(field => {
-        const flagIdx = customFieldIndices[field];
-        customFields[field] = flagIdx !== undefined && rowElements[flagIdx] ? rowElements[flagIdx] : 'N/A';
+        const idx = headers.findIndex(h => h === field.toLowerCase() || h.includes(field.toLowerCase()));
+        if (idx !== -1) {
+          customFieldIndices[field] = idx;
+        }
       });
 
-      validated.push({
-        id: `rec-${i}`,
-        email,
-        name,
-        customFields,
-        isValid: rowErrors.length === 0,
-        errors: rowErrors,
-        status: 'pending'
+      for (let i = 1; i < rawLines.length; i++) {
+        const rowElements = rawLines[i].split(',').map(r => r.trim());
+        if (rowElements.length < Math.max(emailColIdx, nameColIdx) + 1) {
+          errorsList.push(`Row ${i + 1}: Incomplete content columns mapping.`);
+          continue;
+        }
+
+        const email = rowElements[emailColIdx];
+        const name = capitalizeWords(rowElements[nameColIdx]);
+        const rowErrors: string[] = [];
+
+        if (!name) rowErrors.push('Missing recipient full name.');
+        if (!email || !email.includes('@')) rowErrors.push('Invalid or missing email address.');
+
+        const isDuplicate = validated.some(v => v.email.toLowerCase() === email.toLowerCase());
+        if (isDuplicate) rowErrors.push('Duplicate recipient email encountered in list.');
+
+        const customFields: Record<string, string> = {};
+        program.recipientFields.forEach(field => {
+          const flagIdx = customFieldIndices[field];
+          customFields[field] = flagIdx !== undefined && rowElements[flagIdx] ? rowElements[flagIdx] : 'N/A';
+        });
+
+        validated.push({
+          id: `rec-${i}`,
+          email,
+          name,
+          customFields,
+          isValid: rowErrors.length === 0,
+          errors: rowErrors,
+          status: 'pending'
+        });
+      }
+    } else {
+      // HEADERLESS INPUT (raw emails, comma-separated list, or newline-separated list)
+      const items: string[] = [];
+      
+      rawLines.forEach((line) => {
+        const parts = line.split(',').map(p => p.trim()).filter(p => p.length > 0);
+        // If line is comma-separated emails
+        if (parts.length > 1 && parts.every(p => p.includes('@') && !p.includes(' '))) {
+          items.push(...parts);
+        } else {
+          items.push(line);
+        }
+      });
+
+      items.forEach((item, idx) => {
+        let email = '';
+        let name = '';
+        const rowErrors: string[] = [];
+
+        // Check for Name <email@example.com> format
+        const angleMatch = item.match(/^([^<]+)<([^>]+)>$/);
+        if (angleMatch) {
+          name = capitalizeWords(angleMatch[1].trim());
+          email = angleMatch[2].trim();
+        } else if (item.includes(',')) {
+          // Check for Name, email or email, Name
+          const parts = item.split(',').map(p => p.trim());
+          const emailIdx = parts.findIndex(p => p.includes('@') && !p.includes(' '));
+          if (emailIdx !== -1) {
+            email = parts[emailIdx];
+            const nameParts = parts.filter((_, i) => i !== emailIdx);
+            name = capitalizeWords(nameParts.join(' '));
+          } else {
+            email = parts[0];
+            name = capitalizeWords(parts.slice(1).join(' '));
+          }
+        } else {
+          // Just email or just name
+          if (item.includes('@')) {
+            email = item;
+            const localPart = item.split('@')[0];
+            name = capitalizeWords(localPart.replace(/[\._-]/g, ' '));
+          } else {
+            email = item;
+            name = 'Recipient';
+          }
+        }
+
+        if (!name) name = 'Recipient';
+        if (!email || !email.includes('@')) rowErrors.push('Invalid or missing email address.');
+
+        const isDuplicate = validated.some(v => v.email.toLowerCase() === email.toLowerCase());
+        if (isDuplicate) rowErrors.push('Duplicate recipient email encountered in list.');
+
+        // Default all dynamic fields to 'N/A'
+        const customFields: Record<string, string> = {};
+        program.recipientFields.forEach(field => {
+          customFields[field] = 'N/A';
+        });
+
+        validated.push({
+          id: `rec-${idx + 1}`,
+          email,
+          name,
+          customFields,
+          isValid: rowErrors.length === 0,
+          errors: rowErrors,
+          status: 'pending'
+        });
       });
     }
 
@@ -555,9 +670,13 @@ export function Dashboard({
         setImportStep('success');
         setRawCsvInput('');
         await triggerDataRefresh();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        alert(`Issuance failed: ${errData.error || 'The server encountered an error processing the certificate registry.'}`);
       }
     } catch (err) {
       console.error('Issuance failed', err);
+      alert('An unexpected network error occurred while dispatching certificates.');
     }
   };
 
@@ -774,7 +893,7 @@ export function Dashboard({
               className={`w-full flex items-center py-2 px-3 rounded-lg font-medium text-xs transition-all ${activeTab === 'recipients' ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
             >
               <span className="flex items-center gap-2.5">
-                <UploadCloud className="w-4 h-4" /> Bulk CSV Issuance
+                <Upload className="w-4 h-4" /> Bulk CSV Issuance
               </span>
             </button>
 
@@ -1322,12 +1441,27 @@ export function Dashboard({
                           <h2 className="font-serif text-3xl italic text-slate-950">Layout Template Blueprints</h2>
                           <p className="text-slate-500 text-sm">Choose and configure highly scalable CSS certificate canvases.</p>
                         </div>
-                        <button
-                          onClick={handleAddNewTemplate}
-                          className="bg-slate-950 text-white text-xs px-5 py-2.5 rounded-full font-bold shadow-sm hover:bg-slate-800"
-                        >
-                          + Seed Professional Blueprint
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => document.getElementById('dashboard-design-upload')?.click()}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-5 py-2.5 rounded-full font-bold shadow-sm flex items-center gap-1.5 transition-colors"
+                          >
+                            <Upload className="w-4 h-4" /> Upload Certificate Design
+                          </button>
+                          <input 
+                            type="file"
+                            id="dashboard-design-upload"
+                            accept="image/*"
+                            onChange={handleUploadCertificateDesign}
+                            className="hidden"
+                          />
+                          <button
+                            onClick={handleAddNewTemplate}
+                            className="bg-slate-950 text-white text-xs px-5 py-2.5 rounded-full font-bold shadow-sm hover:bg-slate-800"
+                          >
+                            + Seed Professional Blueprint
+                          </button>
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">

@@ -129,7 +129,19 @@ const sendVerificationEmail = async (params: {
     if (wsResult.rows.length > 0) {
       const row = wsResult.rows[0];
       if (row.sender_name) fromName = row.sender_name;
-      if (row.sender_email) fromEmail = row.sender_email;
+      if (row.sender_email) {
+        // Enforce SMTP_FROM domain verification to prevent Resend / SES from rejecting the mail
+        const allowedSender = process.env.SMTP_FROM || 'no-reply@originbi.com';
+        const allowedDomain = allowedSender.split('@')[1];
+        const currentDomain = row.sender_email.split('@')[1];
+        if (allowedDomain && currentDomain && allowedDomain.toLowerCase() !== currentDomain.toLowerCase()) {
+          const localPart = row.sender_email.split('@')[0];
+          fromEmail = `${localPart}@${allowedDomain}`;
+          logger.info(`Rewrote sender_email from ${row.sender_email} to ${fromEmail} to match verified SMTP domain ${allowedDomain}`);
+        } else {
+          fromEmail = row.sender_email;
+        }
+      }
       if (row.primary_color) primaryColor = row.primary_color;
       if (row.brand_name) brandName = row.brand_name;
       if (row.logo_url) logoUrl = row.logo_url;
@@ -1033,7 +1045,8 @@ app.get('/api/templates', async (req, res) => {
       secondarySignatureX: row.secondary_signature_x ? Number(row.secondary_signature_x) : undefined,
       secondarySignatureY: row.secondary_signature_y ? Number(row.secondary_signature_y) : undefined,
       secondarySignatureWidth: row.secondary_signature_width ? Number(row.secondary_signature_width) : undefined,
-      backgroundImageUrl: row.background_image_url || undefined
+      backgroundImageUrl: row.background_image_url || undefined,
+      qrCodeCustomUrl: row.qr_code_custom_url || undefined
     }));
     res.json(templates);
   } catch (err: any) {
@@ -1080,15 +1093,15 @@ app.post('/api/templates', authenticateToken, async (req, res) => {
          signature_url, secondary_signature_url, signature_x, signature_y, signature_width, signatory_name, signatory_title, 
          text_elements, border_radius, border_style, background_gradient, decor_flourish, logo_icon_type, signature_style, 
          show_secondary_signatory, secondary_signatory_name, secondary_signatory_title, secondary_signature_x, secondary_signature_y, secondary_signature_width, background_image_url,
-         qr_code_width, seal_width
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39)`,
+         qr_code_width, seal_width, qr_code_custom_url
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40)`,
       [
         t.id, t.workspaceId, t.name, t.layout, t.backgroundColor, t.borderColor, t.borderWidth,
         t.showSeal, t.sealType, t.showQrCode, t.qrCodeX, t.qrCodeY, t.logoUrl || null, t.logoX, t.logoY, t.logoWidth,
         t.signatureUrl || null, t.secondarySignatureUrl || null, t.signatureX, t.signatureY, t.signatureWidth, t.signatoryName || null, t.signatoryTitle || null,
         JSON.stringify(t.textElements), t.borderRadius || 0, t.borderStyle || 'solid', t.backgroundGradient || null, t.decorFlourish || 'none', t.logoIconType || null, t.signatureStyle || null,
         t.showSecondarySignatory || false, t.secondarySignatoryName || null, t.secondarySignatoryTitle || null, t.secondarySignatureX || null, t.secondarySignatureY || null, t.secondarySignatureWidth || null, t.backgroundImageUrl || null,
-        t.qrCodeWidth || 32, t.sealWidth || 40
+        t.qrCodeWidth || 32, t.sealWidth || 40, t.qrCodeCustomUrl || null
       ]
     );
     res.json(t);
@@ -1145,7 +1158,8 @@ app.put('/api/templates/:id', authenticateToken, async (req, res) => {
       secondarySignatureX: current.secondary_signature_x !== null ? Number(current.secondary_signature_x) : undefined,
       secondarySignatureY: current.secondary_signature_y !== null ? Number(current.secondary_signature_y) : undefined,
       secondarySignatureWidth: current.secondary_signature_width !== null ? Number(current.secondary_signature_width) : undefined,
-      backgroundImageUrl: current.background_image_url || undefined
+      backgroundImageUrl: current.background_image_url || undefined,
+      qrCodeCustomUrl: current.qr_code_custom_url || undefined
     };
 
     // Merge camelCase request body properties over current properties
@@ -1158,8 +1172,8 @@ app.put('/api/templates/:id', authenticateToken, async (req, res) => {
          signature_url = $15, secondary_signature_url = $16, signature_x = $17, signature_y = $18, signature_width = $19, signatory_name = $20, signatory_title = $21, 
          text_elements = $22, border_radius = $23, border_style = $24, background_gradient = $25, decor_flourish = $26, logo_icon_type = $27, signature_style = $28, 
          show_secondary_signatory = $29, secondary_signatory_name = $30, secondary_signatory_title = $31, secondary_signature_x = $32, secondary_signature_y = $33, secondary_signature_width = $34, background_image_url = $35,
-         qr_code_width = $36, seal_width = $37
-       WHERE id = $38`,
+         qr_code_width = $36, seal_width = $37, qr_code_custom_url = $38
+       WHERE id = $39`,
       [
         t.name, t.layout, t.backgroundColor, t.borderColor, t.borderWidth,
         t.showSeal, t.sealType, t.showQrCode, t.qrCodeX, t.qrCodeY, t.logoUrl || null, t.logoX, t.logoY, t.logoWidth,
@@ -1167,7 +1181,7 @@ app.put('/api/templates/:id', authenticateToken, async (req, res) => {
         typeof t.textElements === 'string' ? t.textElements : JSON.stringify(t.textElements || []),
         t.borderRadius || 0, t.borderStyle || 'solid', t.backgroundGradient || null, t.decorFlourish || 'none', t.logoIconType || null, t.signatureStyle || null,
         t.showSecondarySignatory || false, t.secondarySignatoryName || null, t.secondarySignatoryTitle || null, t.secondarySignatureX || null, t.secondarySignatureY || null, t.secondarySignatureWidth || null, t.backgroundImageUrl || null,
-        t.qrCodeWidth || 32, t.sealWidth || 40,
+        t.qrCodeWidth || 32, t.sealWidth || 40, t.qrCodeCustomUrl || null,
         req.params.id
       ]
     );
@@ -1211,7 +1225,8 @@ app.put('/api/templates/:id', authenticateToken, async (req, res) => {
       secondarySignatureX: t.secondarySignatureX,
       secondarySignatureY: t.secondarySignatureY,
       secondarySignatureWidth: t.secondarySignatureWidth,
-      backgroundImageUrl: t.backgroundImageUrl
+      backgroundImageUrl: t.backgroundImageUrl,
+      qrCodeCustomUrl: t.qrCodeCustomUrl
     });
   } catch (err: any) {
     logger.error('Error updating template', err);
