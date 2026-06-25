@@ -88,38 +88,41 @@ export function HeroScrollDemo() {
             {/* Main Canvas Workspace */}
             <div className="col-span-12 md:col-span-8 border-2 border-dashed border-slate-200 rounded-xl p-3 md:p-4 flex items-center justify-center bg-slate-50/20 relative overflow-hidden group">
               {/* Simulated Certificate rendering */}
-              <div className="w-full md:w-[90%] aspect-[1.414/1] bg-white border-[6px] border-indigo-600/80 rounded shadow-md p-4 flex flex-col justify-between transition-all duration-300 group-hover:scale-[1.02]">
+              <div 
+                style={{ containerType: 'inline-size' }}
+                className="w-full md:w-[90%] aspect-[1.414/1] bg-white border-[0.6cqw] border-indigo-600/80 rounded shadow-md p-[4cqw] flex flex-col justify-between transition-all duration-300 group-hover:scale-[1.02]"
+              >
                 <div className="flex justify-between items-start">
                   <div>
-                    <h4 className="text-[8px] font-bold text-indigo-600 tracking-wider">OFFICIAL ACADEMIC CREDENTIAL</h4>
-                    <p className="text-[6px] text-slate-400">VERIFIED LEDGER: CERT-2026-NEON</p>
+                    <h4 className="text-[2cqw] font-bold text-indigo-600 tracking-wider">OFFICIAL ACADEMIC CREDENTIAL</h4>
+                    <p className="text-[1.5cqw] text-slate-400">VERIFIED LEDGER: CERT-2026-NEON</p>
                   </div>
-                  <div className="w-10 h-4 border border-slate-200 bg-slate-50 rounded flex items-center justify-center text-[5px] font-bold">
+                  <div className="w-[10cqw] h-[4cqw] border border-slate-200 bg-slate-50 rounded flex items-center justify-center text-[1.25cqw] font-bold">
                     ★ GLINT
                   </div>
                 </div>
 
-                <div className="text-center space-y-1.5">
-                  <h5 className="text-[9px] font-bold tracking-widest text-slate-800">CERTIFICATE OF COMPLETION</h5>
-                  <p className="text-[12px] font-serif italic font-bold text-slate-900 border-b border-dashed border-slate-300 w-32 mx-auto pb-0.5">
+                <div className="text-center space-y-[0.3cqw]">
+                  <h5 className="text-[2.2cqw] font-bold tracking-widest text-slate-800">CERTIFICATE OF COMPLETION</h5>
+                  <p className="text-[3cqw] font-serif italic font-bold text-slate-900 border-b border-dashed border-slate-300 w-[40cqw] mx-auto pb-[0.2cqw]">
                     Jane Doe
                   </p>
-                  <p className="text-[5.5px] text-slate-400 max-w-xs mx-auto">
+                  <p className="text-[1.4cqw] text-slate-400 max-w-[80cqw] mx-auto">
                     for the successful completion of the intensive cloud infrastructure training program.
                   </p>
                 </div>
 
-                <div className="flex justify-between items-end border-t border-slate-100 pt-1.5">
+                <div className="flex justify-between items-end border-t border-slate-100 pt-[1.5cqw]">
                   <div>
-                    <p className="text-[5px] text-slate-400 uppercase">DATE</p>
-                    <p className="text-[6px] font-bold text-slate-700">2026-06-23</p>
+                    <p className="text-[1.25cqw] text-slate-400 uppercase">DATE</p>
+                    <p className="text-[1.5cqw] font-bold text-slate-700">2026-06-23</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-[5.5px] font-bold text-slate-700">Thomas Kurian</p>
-                    <p className="text-[4px] text-slate-400">Authority Signatory</p>
+                    <p className="text-[1.4cqw] font-bold text-slate-700">Thomas Kurian</p>
+                    <p className="text-[1cqw] text-slate-400">Authority Signatory</p>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-5 h-5 bg-white border border-slate-200 rounded flex items-center justify-center p-0.5">
+                  <div className="flex items-center gap-[0.2cqw]">
+                    <div className="w-[6cqw] h-[6cqw] bg-white border border-slate-200 rounded flex items-center justify-center p-[0.1cqw]">
                       <img 
                         src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://credentials.os/%23preview&color=0f172a" 
                         alt="Demo QR"
