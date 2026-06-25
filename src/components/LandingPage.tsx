@@ -87,11 +87,36 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
 
     timeoutRefs.current.push(setTimeout(() => {
       setScanState('success');
+      // Deterministic data generation based on code
+      const sum = code.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+      const names = ["Dr. Elias Vance", "Sarah Connor", "John Smith", "Ada Lovelace", "Alan Turing"];
+      const programs = [
+        "Advanced API & Platform Ledger System", 
+        "Cybersecurity Fundamentals", 
+        "Cloud Architecture Mastery", 
+        "Data Science & AI", 
+        "Full-Stack Engineering"
+      ];
+      
+      let recipientName = names[sum % names.length];
+      let programName = programs[sum % programs.length];
+      const year = 2024 + (sum % 3);
+      const month = String((sum % 12) + 1).padStart(2, '0');
+      const day = String((sum % 28) + 1).padStart(2, '0');
+      let issueDate = `${year}-${month}-${day}`;
+
+      // Specific overrides for known demo IDs
+      if (code === "CERT-2026-5040" || code === "CERT-2026-1014") {
+         recipientName = "Dr. Elias Vance";
+         programName = "Advanced API & Platform Ledger System";
+         issueDate = "2026-06-17";
+      }
+
       setScannedCert({
-        id: code.includes('CERT') ? code : 'CERT-2026-1014',
-        recipient: "Dr. Elias Vance",
-        program: "Advanced API & Platform Ledger System",
-        date: "2026-06-17",
+        id: code.includes('CERT') ? code : `CERT-${year}-${sum}`,
+        recipient: recipientName,
+        program: programName,
+        date: issueDate,
         status: "VALID"
       });
     }, 2500));
@@ -541,17 +566,19 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
                 <div className="text-center space-y-1">
                   <h5 className="text-[7.5px] font-bold tracking-widest text-slate-700">CERTIFICATE OF ACHIEVEMENT</h5>
                   <p className="text-[10px] font-serif italic font-bold text-slate-900 border-b border-dashed border-slate-200 w-24 mx-auto pb-0.5">
-                    Dr. Elias Vance
+                    {scannedCert ? scannedCert.recipient : "Dr. Elias Vance"}
                   </p>
                   <p className="text-[5px] text-slate-400 max-w-[200px] mx-auto">
-                    for demonstrating complete mastery of advanced cryptographic database indexing architectures.
+                    for demonstrating complete mastery of {scannedCert ? scannedCert.program : "advanced cryptographic database indexing architectures"}.
                   </p>
                 </div>
 
                 <div className="flex justify-between items-end pt-1 border-t border-slate-100">
                   <div>
                     <p className="text-[4px] text-slate-400 uppercase">ISSUED</p>
-                    <p className="text-[5px] font-bold text-slate-600">2026-06-17</p>
+                    <p className="text-[5px] font-bold text-slate-600 mb-1">{scannedCert ? scannedCert.date : "2026-06-17"}</p>
+                    <p className="text-[4px] text-slate-400 uppercase">CERTIFICATE ID</p>
+                    <p className="text-[5px] font-bold text-slate-600">{scannedCert ? scannedCert.id : "CERT-2026-1014"}</p>
                   </div>
                   <div className="text-center">
                     <p className="text-[5px] font-bold text-slate-700">Thomas Kurian</p>
