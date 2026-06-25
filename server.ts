@@ -1484,6 +1484,7 @@ app.post('/api/certificates/:id/stats', async (req, res) => {
       issueDate: cert.issue_date ? cert.issue_date.toISOString().split('T')[0] : '',
       expiryDate: cert.expiry_date ? cert.expiry_date.toISOString().split('T')[0] : undefined,
       status: cert.status,
+      revocationReason: cert.revocation_reason || undefined,
       securityHash: cert.security_hash,
       viewCount,
       downloadCount,
