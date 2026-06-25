@@ -1437,40 +1437,6 @@ app.get('/api/certificates/:id', async (req, res) => {
   }
 });
 
-// Debug SMTP configuration in production
-app.get('/api/debug/smtp', async (req, res) => {
-  try {
-    const result = await sendVerificationEmail({
-      recipientEmail: 'jayakrishna0023@gmail.com',
-      recipientName: 'SMTP Diagnostic Test',
-      subject: 'Glint SMTP Diagnostic Test',
-      body: 'This is a test email sent from the Glint debug route to verify SMTP configuration.',
-      workspaceId: 'ws-g10s3hd',
-      programName: 'SMTP Diagnostics',
-      certId: 'DIAG-101',
-      verificationUrl: 'https://glint-pi.vercel.app'
-    });
-    
-    res.json({
-      smtpConfigured,
-      host: process.env.SMTP_HOST,
-      port: process.env.SMTP_PORT,
-      user: process.env.SMTP_USER,
-      from: process.env.SMTP_FROM,
-      fromName: process.env.SMTP_FROM_NAME,
-      emailResult: result
-    });
-  } catch (err: any) {
-    res.status(500).json({
-      smtpConfigured,
-      host: process.env.SMTP_HOST,
-      port: process.env.SMTP_PORT,
-      user: process.env.SMTP_USER,
-      error: err.message || err
-    });
-  }
-});
-
 // Record metrics like downloading, viewing, sharing
 app.post('/api/certificates/:id/stats', async (req, res) => {
   const { action } = req.body;
