@@ -79,11 +79,11 @@ const smtpConfigured = !!(
 let mailTransporter: any = null;
 
 if (smtpConfigured) {
-  const host = process.env.SMTP_HOST || 'smtp.resend.com';
-  const port = parseInt(process.env.SMTP_PORT || (process.env.RESEND_API_KEY ? '465' : '587'), 10);
-  const secure = process.env.SMTP_PORT ? process.env.SMTP_PORT === '465' : true;
-  const user = process.env.SMTP_USER || 'resend';
-  const pass = process.env.SMTP_PASS || process.env.RESEND_API_KEY;
+  const host = process.env.RESEND_API_KEY ? 'smtp.resend.com' : (process.env.SMTP_HOST || 'smtp.resend.com');
+  const port = parseInt(process.env.RESEND_API_KEY ? '465' : (process.env.SMTP_PORT || '587'), 10);
+  const secure = process.env.RESEND_API_KEY ? true : (process.env.SMTP_PORT === '465');
+  const user = process.env.RESEND_API_KEY ? 'resend' : (process.env.SMTP_USER || 'resend');
+  const pass = process.env.RESEND_API_KEY || process.env.SMTP_PASS;
 
   mailTransporter = nodemailer.createTransport({
     host: host,
