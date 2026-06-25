@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Undo2, Redo2, Sliders, Plus, Trash2, Save, ArrowLeft, Sparkles, 
-  Layers, Type, QrCode, Award, Check, Grid, Image, Info,
+  Layers, Type, QrCode, Award, Check, Grid, Image, Info, User,
   MousePointerClick, AlignLeft, AlignCenter, AlignRight, Bold, HelpCircle, Eye, EyeOff, Upload
 } from 'lucide-react';
 import { CertificateTemplate, TextElement } from '../types';
@@ -1399,8 +1399,11 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-w-0">
         
         {/* Sidebar Nav Category Rail (Canva Style) */}
-        <div className="w-full h-16 md:w-16 md:h-full bg-slate-50 border-b md:border-b-0 md:border-r border-slate-200 flex flex-row md:flex-col items-center justify-between px-4 md:px-0 py-2 md:py-6 shrink-0 z-10">
-          <div className="flex flex-row md:flex-col gap-1 md:gap-4 md:space-y-4 w-full justify-between md:justify-start overflow-x-auto md:overflow-x-visible">
+        <div className="w-full h-16 md:w-16 md:h-full bg-slate-50 border-b md:border-b-0 md:border-r border-slate-200 flex flex-row md:flex-col items-center justify-between px-4 md:px-0 py-2 md:py-4 shrink-0 z-10 overflow-hidden">
+          <div 
+            className="flex flex-row md:flex-col gap-1 md:gap-1.5 md:space-y-1.5 w-full justify-between md:justify-start overflow-x-auto md:overflow-x-hidden md:overflow-y-auto md:flex-1 md:py-2"
+            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+          >
             {[
               { id: 'templates', icon: Award, label: 'Design presets' },
               { id: 'ai', icon: Sparkles, label: 'AI Design Agent' },
@@ -1409,7 +1412,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
               { id: 'backdrop', icon: Image, label: 'Backgrounds' },
               { id: 'borders', icon: Sliders, label: 'Borders' },
               { id: 'seals', icon: QrCode, label: 'Stamps' },
-              { id: 'sign', icon: Award, label: 'Signatories' },
+              { id: 'sign', icon: User, label: 'Signatories' },
               { id: 'layers', icon: Layers, label: 'Layers List' },
             ].map(tab => {
               const Icon = tab.icon;
@@ -1418,7 +1421,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                 <button
                   key={tab.id}
                   onClick={() => setActiveSideTab(tab.id as any)}
-                  className={`flex-1 md:w-full flex flex-col items-center justify-center p-2.5 transition-all outline-none border-t-2 md:border-t-0 md:border-l-2 relative ${
+                  className={`flex-1 md:w-full flex flex-col items-center justify-center py-2 px-1 md:py-3 transition-all outline-none border-t-2 md:border-t-0 md:border-l-2 relative ${
                     isActive ? 'border-indigo-650 text-indigo-650 bg-white font-bold' : 'border-transparent text-slate-400 hover:text-slate-800'
                   }`}
                   title={tab.label}
@@ -1430,7 +1433,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
             })}
           </div>
           
-          <div className="text-center hidden md:block">
+          <div className="text-center hidden md:block md:mt-2">
             <HelpCircle className="w-4 h-4 text-slate-400 hover:text-slate-600 cursor-pointer mx-auto" />
           </div>
         </div>
