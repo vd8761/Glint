@@ -1008,7 +1008,7 @@ export function Dashboard({
           </div>
 
           <div className="flex items-center gap-4 text-xs">
-            <span className="text-slate-400 font-mono text-[10px]">Domain Bound: <strong className="text-slate-850 font-bold">{currentWorkspace?.branding?.customDomain || 'Standard Ledger'}</strong></span>
+            <span className="hidden md:inline-block text-slate-400 font-mono text-[10px]">Domain Bound: <strong className="text-slate-850 font-bold">{currentWorkspace?.branding?.customDomain || 'Standard Ledger'}</strong></span>
             {activeTab !== 'recipients' && (
               <button 
                 onClick={() => {
@@ -1019,7 +1019,7 @@ export function Dashboard({
                     toast.error('Please configure at least one certification program first.');
                   }
                 }}
-                className="bg-slate-950 text-white text-[11px] px-4 py-2 rounded-full font-semibold shadow-sm hover:bg-indigo-600 transition-all"
+                className="bg-slate-950 text-white text-[10px] sm:text-[11px] px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-full font-semibold shadow-sm hover:bg-indigo-600 transition-all whitespace-nowrap"
               >
                 + Bulk Issuer Pipeline
               </button>
@@ -1028,7 +1028,7 @@ export function Dashboard({
         </header>
 
         {/* Inner Content Area */}
-        <div className={`flex-1 min-w-0 ${editingTemplate ? 'p-0 overflow-hidden' : 'p-8 overflow-y-auto'}`}>
+        <div className={`flex-1 min-w-0 ${editingTemplate ? 'p-0 overflow-hidden' : 'p-4 sm:p-6 md:p-8 overflow-y-auto'}`}>
           
           {loading ? (
             <div className="h-full flex flex-col items-center justify-center text-slate-500">
@@ -1463,15 +1463,15 @@ export function Dashboard({
                 ) : (
                   <div className="space-y-8 animate-fade-in">
                     <div className="space-y-6">
-                      <div className="flex justify-between items-center pb-4 border-b border-slate-200">
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200">
                         <div>
                           <h2 className="font-serif text-3xl italic text-slate-950">Layout Template Blueprints</h2>
                           <p className="text-slate-500 text-sm">Choose and configure highly scalable CSS certificate canvases.</p>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-2">
                           <button
                             onClick={() => document.getElementById('dashboard-design-upload')?.click()}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-5 py-2.5 rounded-full font-bold shadow-sm flex items-center gap-1.5 transition-colors"
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-5 py-2.5 rounded-full font-bold shadow-sm flex items-center gap-1.5 transition-colors whitespace-nowrap"
                           >
                             <Upload className="w-4 h-4" /> Upload Certificate Design
                           </button>
@@ -1484,7 +1484,7 @@ export function Dashboard({
                           />
                           <button
                             onClick={handleAddNewTemplate}
-                            className="bg-slate-950 text-white text-xs px-5 py-2.5 rounded-full font-bold shadow-sm hover:bg-slate-800"
+                            className="bg-slate-950 text-white text-xs px-5 py-2.5 rounded-full font-bold shadow-sm hover:bg-slate-800 whitespace-nowrap"
                           >
                             + Seed Professional Blueprint
                           </button>

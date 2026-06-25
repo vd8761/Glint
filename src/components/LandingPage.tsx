@@ -167,32 +167,32 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
       />
 
       {/* Premium Sticky Navigation with Glossy Glassmorphism Effect */}
-      <header className={`sticky top-0 z-50 flex items-center justify-between px-6 lg:px-16 transition-all duration-500 ${
+      <header className={`sticky top-0 z-50 flex items-center justify-between px-4 sm:px-6 lg:px-16 transition-all duration-500 ${
         scrollY > 20 
           ? "h-14 bg-white/75 backdrop-blur-2xl border-b border-white/50 shadow-[0_10px_35px_rgba(0,0,0,0.03)] glossy-glow" 
           : "h-16 bg-white/45 backdrop-blur-xl border-b border-white/20 shadow-none"
       }`}>
-        <div className="flex items-center gap-2.5">
-          <svg className="w-8 h-8 shrink-0 hover:scale-105 transition-transform duration-300" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <div className="flex items-center gap-2">
+          <svg className="w-6 h-6 sm:w-8 sm:h-8 shrink-0 hover:scale-105 transition-transform duration-300" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M23 16C23 19.866 19.866 23 16 23C12.134 23 9 19.866 9 16C9 12.134 12.134 9 16 9C18.6 9 20.9 10.4 22.1 12.5" stroke="#0F172A" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
             <path d="M15 16H23" stroke="#0F172A" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
             <path d="M24 7C24 9.2 25.2 10 27 10C25.2 10 24 10.8 24 13C24 10.8 22.8 10 21 10C22.8 10 24 9.2 24 7Z" fill="#F59E0B" />
           </svg>
-          <span className="font-display font-extrabold tracking-wider text-slate-950 text-base uppercase">GLINT REGISTRY</span>
+          <span className="font-display font-extrabold tracking-wider text-slate-950 text-xs sm:text-sm md:text-base uppercase">GLINT REGISTRY</span>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-3">
           <button 
             onClick={() => onSelectWorkspace('ws-google-infra')}
-            className="text-xs font-semibold text-slate-700 hover:text-slate-950 px-3.5 py-2 transition-all border border-[#E9ECEF]/85 hover:bg-white rounded-lg shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
+            className="text-[10px] sm:text-xs font-semibold text-slate-700 hover:text-slate-950 px-2.5 sm:px-3.5 py-1.5 sm:py-2 transition-all border border-[#E9ECEF]/85 hover:bg-white rounded-lg shadow-[0_1px_2px_rgba(0,0,0,0.02)] whitespace-nowrap"
           >
             Sign In
           </button>
           <button 
             onClick={onStartFree}
-            className="bg-slate-950 text-white text-xs px-5 py-2.5 rounded-full font-semibold shadow-[0_4px_12px_rgba(0,0,0,0.05)] hover:bg-indigo-650 hover:shadow-indigo-100 transition-all duration-300 flex items-center gap-1 group"
+            className="bg-slate-950 text-white text-[10px] sm:text-xs px-3 sm:px-5 py-2 sm:py-2.5 rounded-full font-semibold shadow-[0_4px_12px_rgba(0,0,0,0.05)] hover:bg-indigo-650 hover:shadow-indigo-100 transition-all duration-300 flex items-center gap-1 group whitespace-nowrap"
           >
-            Start Free <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+            Start Free <ArrowRight className="w-3 sm:w-3.5 h-3 sm:h-3.5 group-hover:translate-x-1 transition-transform" />
           </button>
         </div>
       </header>
@@ -336,64 +336,66 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
             <div 
               style={{
                 backgroundColor: previewLayout === 'google' ? '#ffffff' : '#F8FAFC',
-                borderWidth: previewLayout === 'google' ? '6px' : '8px',
-                borderColor: previewLayout === 'google' ? '#1a73e8' : '#0F172A'
+                borderWidth: previewLayout === 'google' ? '0.6cqw' : '0.8cqw',
+                borderColor: previewLayout === 'google' ? '#1a73e8' : '#0F172A',
+                containerType: 'inline-size'
               }}
-              className="aspect-[1.414/1] rounded-lg p-5 relative flex flex-col justify-between transition-all duration-500 border-double overflow-hidden shadow-inner"
+              className="aspect-[1.414/1] rounded-lg p-[4cqw] relative flex flex-col justify-between transition-all duration-500 border-double overflow-hidden shadow-inner"
             >
               {/* Top Banner Branding */}
               <div className="flex justify-between items-start">
                 <div>
-                  <p style={{ color: previewLayout === 'google' ? '#1a73e8' : '#ec4899' }} className="font-mono text-[9px] uppercase tracking-widest font-bold">
+                  <p style={{ color: previewLayout === 'google' ? '#1a73e8' : '#ec4899' }} className="font-mono text-[1.8cqw] uppercase tracking-widest font-bold">
                     {previewLayout === 'google' ? 'Google Cloud Credentials' : 'Stellar Tech Academy'}
                   </p>
-                  <p className="text-[7px] text-[#9CA3AF] tracking-tight">VERIFIED ID: CERT-2026-XPREV</p>
+                  <p className="text-[1.4cqw] text-[#9CA3AF] tracking-tight">VERIFIED ID: CERT-2026-XPREV</p>
                 </div>
-                <div className="w-14 h-6 border bg-white/60 p-1 rounded flex items-center justify-center text-[7px] font-bold border-slate-200 uppercase truncate">
+                <div className="w-[11cqw] h-[4.8cqw] border bg-white/60 p-[0.2cqw] rounded flex items-center justify-center text-[1.4cqw] font-bold border-slate-200 uppercase truncate">
                   {previewLayout === 'google' ? '★ GOOGLE' : 'STELLAR'}
                 </div>
               </div>
 
               {/* Title Center */}
-              <div className="text-center space-y-1.5 py-1">
-                <p style={{ color: previewLayout === 'google' ? '#1B365D' : '#0F172A' }} className="font-display font-bold text-xs uppercase tracking-widest">
+              <div className="text-center space-y-[0.3cqw] py-[0.2cqw]">
+                <p style={{ color: previewLayout === 'google' ? '#1B365D' : '#0F172A' }} className="font-display font-bold text-[2.2cqw] uppercase tracking-widest">
                   {previewLayout === 'google' ? 'CERTIFICATE OF ACHIEVEMENT' : 'CREDENTIAL OF RECOGNITION'}
                 </p>
-                <p className="text-[7px] text-[#64748B] italic max-w-xs mx-auto">
+                <p className="text-[1.4cqw] text-[#64748B] italic max-w-[80cqw] mx-auto">
                   Acknowledging the successful validation and mastery of industrial design and infrastructure services.
                 </p>
                 
                 {/* Dynamic Input in-frame */}
-                <div className="relative inline-block mt-3 px-2">
+                <div className="relative inline-block mt-[1.5cqw] px-[1cqw]">
                   <input
                     type="text"
                     value={previewName}
                     onClick={(e) => e.stopPropagation()}
                     onChange={(e) => setPreviewName(e.target.value)}
-                    className="serif text-center text-lg md:text-xl font-bold text-[#0F172A] border-b border-dashed border-slate-300 focus:border-slate-800 bg-transparent py-0.5 focus:outline-none min-w-[200px]"
+                    style={{ fontSize: '3.5cqw', width: '40cqw' }}
+                    className="serif text-center font-bold text-[#0F172A] border-b border-dashed border-slate-300 focus:border-slate-800 bg-transparent py-[0.1cqw] focus:outline-none min-w-[120px]"
                     placeholder="Recipient Name"
                   />
-                  <div className="text-[6px] text-slate-400 mt-0.5 uppercase tracking-widest font-mono">Click above to type your own name</div>
+                  <div className="text-[1.2cqw] text-slate-400 mt-[0.2cqw] uppercase tracking-widest font-mono">Click above to type your own name</div>
                 </div>
 
-                <p className="text-[7px] text-[#64748B] px-1 pt-1">
+                <p className="text-[1.4cqw] text-[#64748B] px-[0.5cqw] pt-[0.2cqw]">
                   for expert architectural integration of the <span className="font-medium text-slate-900">Advanced API & Platform Ledger System</span>
                 </p>
               </div>
 
               {/* Bottom Row Footer */}
-              <div className="flex justify-between items-end pt-2 border-t border-slate-100">
+              <div className="flex justify-between items-end pt-[1cqw] border-t border-slate-100">
                 <div className="text-left">
-                  <p className="font-mono text-[7px] text-slate-400 uppercase">ISSUED ON</p>
-                  <p className="font-mono text-[8px] font-bold text-slate-700">2026-06-17</p>
+                  <p className="font-mono text-[1.4cqw] text-slate-400 uppercase">ISSUED ON</p>
+                  <p className="font-mono text-[1.6cqw] font-bold text-slate-700">2026-06-17</p>
                 </div>
                 <div className="text-center">
-                  <div className="h-6 w-14 border-b border-slate-900 mx-auto"></div>
-                  <p className="font-sans text-[6px] font-bold text-slate-700 mt-1">Thomas Kurian</p>
-                  <p className="font-sans text-[5px] text-slate-400">Chief Authority Officer</p>
+                  <div className="h-[4.8cqw] w-[11cqw] border-b border-slate-900 mx-auto"></div>
+                  <p className="font-sans text-[1.2cqw] font-bold text-slate-700 mt-[0.2cqw]">Thomas Kurian</p>
+                  <p className="font-sans text-[1cqw] text-slate-400">Chief Authority Officer</p>
                 </div>
-                <div className="text-right flex items-center gap-1">
-                  <div className="w-6 h-6 bg-white p-0.5 rounded-sm border border-slate-200 shadow-sm flex items-center justify-center">
+                <div className="text-right flex items-center gap-[0.2cqw]">
+                  <div className="w-[4.8cqw] h-[4.8cqw] bg-white p-[0.1cqw] rounded-sm border border-slate-200 shadow-sm flex items-center justify-center">
                     <img 
                       src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://credentials.os/%23preview&color=0f172a" 
                       alt="Verification QR"
