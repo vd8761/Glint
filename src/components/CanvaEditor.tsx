@@ -120,6 +120,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
   } | null>(null);
 
   const canvasRef = useRef<HTMLDivElement>(null);
+  const sampleUploadRef = useRef<HTMLInputElement>(null);
 
   // Undo / Redo stack tracker pushes
   const pushToHistory = (newTemplateState: CertificateTemplate) => {
@@ -1270,7 +1271,15 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
             <Save className="w-3.5 h-3.5" /> Save Canva Slate
           </button>
         </div>
-      </div>      {/* Split core workspace content */}
+      </div>
+      <input
+          type="file"
+          accept="image/png, image/jpeg"
+          ref={sampleUploadRef}
+          style={{ display: 'none' }}
+          onChange={handleSampleImageUpload}
+        />
+        {/* Split core workspace content */}
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-w-0">
         
         {/* Sidebar Nav Category Rail (Canva Style) */}

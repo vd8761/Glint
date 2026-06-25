@@ -886,7 +886,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
           </div>
 
           {/* Secure Audit Trail chronological list displaying all verification attempts */}
-          <div className="bg-white border border-[#E9ECEF] rounded-2xl p-6 space-y-6 card-shadow print:hidden">
+          <div className="bg-white border border-[#E9ECEF] rounded-2xl p-6 space-y-6 card-shadow print:hidden overflow-hidden">
             <div className="flex justify-between items-center pb-3 border-b border-slate-100">
               <h4 className="text-xs font-bold text-slate-950 uppercase tracking-widest flex items-center gap-1.5Style">
                 <Database className="w-4 h-4 text-slate-900" />
@@ -895,7 +895,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
               <span className="text-[10px] font-mono text-slate-400 font-semibold uppercase">SECURE CHRONO-REGISTER</span>
             </div>
 
-            <div className="relative border-l border-slate-200 ml-3 pl-6 space-y-6">
+            <div className="relative border-l border-slate-200 ml-3 pl-6 space-y-6 overflow-hidden">
               {cert.auditTrail && cert.auditTrail.map((log, idx) => (
                 <div key={idx} className="relative">
                   {/* Event indicator dot */}
@@ -920,7 +920,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                       </span>
                       <span className="text-[10px] text-slate-400">by {log.performedBy}</span>
                     </div>
-                    <p className="text-xs text-slate-700 whitespace-pre-wrap break-all sm:break-words leading-relaxed">
+                    <p className="text-xs text-slate-700 break-all leading-relaxed overflow-hidden w-full">
                       {log.details}
                     </p>
                   </div>
