@@ -153,6 +153,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
       .catch(err => console.error('Failed to log download statistic', err));
 
     try {
+      await document.fonts.ready;
       const html2pdfLib = (window as any).html2pdf;
       if (!html2pdfLib) {
         throw new Error('PDF conversion engine not loaded yet. Please wait a moment and try again.');
@@ -757,7 +758,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                         fontStyle: el.fontStyle || 'normal',
                         fontWeight: el.fontWeight === 'bold' ? 700 : (el.fontWeight === 'medium' ? 500 : 400),
                         textDecoration: el.textDecoration || 'none',
-                        letterSpacing: el.letterSpacing ? `${el.letterSpacing}px` : undefined,
+                        letterSpacing: el.letterSpacing ? `${el.letterSpacing}px` : '0.05px',
                         lineHeight: el.lineHeight || 'normal',
                         opacity: el.opacity !== undefined ? el.opacity : undefined,
                         textTransform: el.textTransform || 'none'
@@ -791,15 +792,26 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                     ) : (
                       <div 
                         style={{ 
-                          fontFamily: activeTemplate.signatureStyle === 'bold_brush' ? 'sans-serif' : (activeTemplate.signatureStyle === 'executive' ? '"JetBrains Mono", monospace' : '"Playfair Display", serif'),
-                          fontStyle: 'italic'
+                          fontFamily: activeTemplate.signatoryFontFamily || (activeTemplate.signatureStyle === 'bold_brush' ? 'sans-serif' : (activeTemplate.signatureStyle === 'executive' ? '"JetBrains Mono", monospace' : '"Playfair Display", serif')),
+                          fontStyle: 'italic',
+                          fontSize: activeTemplate.signatoryFontSize ? `${activeTemplate.signatoryFontSize * 0.09}cqw` : undefined,
+                          letterSpacing: '0.05px'
                         }}
-                        className="text-center text-xs border-b border-slate-300 pb-0.5 text-slate-800"
+                        className="text-center border-b border-slate-300 pb-0.5 text-slate-800"
                       >
                         {activeTemplate.signatoryName}
                       </div>
                     )}
-                    <p className="text-[7px] font-bold uppercase tracking-widest text-[#64748B] mt-1 leading-tight">{activeTemplate.signatoryTitle || 'CEO, Authority'}</p>
+                    <p 
+                      style={{
+                        fontFamily: activeTemplate.signatoryFontFamily || 'Inter',
+                        fontSize: activeTemplate.signatoryFontSize ? `${(activeTemplate.signatoryFontSize * 0.4) * 0.09}cqw` : undefined,
+                        letterSpacing: '0.05px'
+                      }}
+                      className="font-bold uppercase tracking-widest text-[#64748B] mt-1 leading-tight text-[7px]"
+                    >
+                      {activeTemplate.signatoryTitle || 'CEO, Authority'}
+                    </p>
                   </div>
                 )}
 
@@ -825,15 +837,26 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                     ) : (
                       <div 
                         style={{ 
-                          fontFamily: activeTemplate.signatureStyle === 'bold_brush' ? 'sans-serif' : (activeTemplate.signatureStyle === 'executive' ? '"JetBrains Mono", monospace' : '"Playfair Display", serif'),
-                          fontStyle: 'italic'
+                          fontFamily: activeTemplate.secondarySignatoryFontFamily || (activeTemplate.signatureStyle === 'bold_brush' ? 'sans-serif' : (activeTemplate.signatureStyle === 'executive' ? '"JetBrains Mono", monospace' : '"Playfair Display", serif')),
+                          fontStyle: 'italic',
+                          fontSize: activeTemplate.secondarySignatoryFontSize ? `${activeTemplate.secondarySignatoryFontSize * 0.09}cqw` : undefined,
+                          letterSpacing: '0.05px'
                         }}
-                        className="text-center text-xs border-b border-slate-300 pb-0.5 text-slate-800"
+                        className="text-center border-b border-slate-300 pb-0.5 text-slate-800"
                       >
                         {activeTemplate.secondarySignatoryName || 'Dr. Clara Masters'}
                       </div>
                     )}
-                    <p className="text-[7px] font-bold uppercase tracking-widest text-[#64748B] mt-1 leading-tight">{activeTemplate.secondarySignatoryTitle || 'Admissions Registrar'}</p>
+                    <p 
+                      style={{
+                        fontFamily: activeTemplate.secondarySignatoryFontFamily || 'Inter',
+                        fontSize: activeTemplate.secondarySignatoryFontSize ? `${(activeTemplate.secondarySignatoryFontSize * 0.4) * 0.09}cqw` : undefined,
+                        letterSpacing: '0.05px'
+                      }}
+                      className="font-bold uppercase tracking-widest text-[#64748B] mt-1 leading-tight text-[7px]"
+                    >
+                      {activeTemplate.secondarySignatoryTitle || 'Admissions Registrar'}
+                    </p>
                   </div>
                 )}
 
