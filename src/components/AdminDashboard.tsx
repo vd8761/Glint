@@ -359,7 +359,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                 placeholder={`Search ${activeTab}...`}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="bg-slate-50 border border-slate-200 rounded-xl py-1.5 pl-9 pr-4 text-xs focus:outline-none focus:border-slate-400 focus:bg-white w-64 transition-all placeholder:text-slate-400 text-slate-800"
+                className="bg-slate-50 border border-slate-200 rounded-xl py-1.5 pl-9 pr-4 text-xs focus:outline-none focus:border-slate-400 focus:bg-white w-28 sm:w-48 md:w-64 transition-all placeholder:text-slate-400 text-slate-800"
                 id="admin-search-input"
               />
             </div>
@@ -374,7 +374,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
         </header>
 
         {/* Scrollable Data Content Area */}
-        <div className="flex-1 overflow-y-auto p-10 space-y-8 bg-[#F8F9FA]">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-10 space-y-8 bg-[#F8F9FA]">
           {loading ? (
             <div className="h-64 flex flex-col items-center justify-center gap-3">
               <span className="w-6 h-6 border-2 border-slate-950/20 border-t-slate-950 rounded-full animate-spin"></span>
@@ -387,7 +387,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                 <div className="space-y-6">
                   
                   {/* Summary Metric Cards */}
-                  <div className="grid grid-cols-4 gap-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                     <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-1">
                       <p className="text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">Total Workspaces</p>
                       <h4 className="text-3xl font-display font-bold text-slate-950">{workspaces.length}</h4>
@@ -467,7 +467,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                 <div className="space-y-6">
                   
                   {/* Summary Metric Cards */}
-                  <div className="grid grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-1">
                       <p className="text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">Total Programs</p>
                       <h4 className="text-3xl font-display font-bold text-slate-950">{programs.length}</h4>
@@ -533,7 +533,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                 <div className="space-y-6">
                   
                   {/* Summary Metric Cards */}
-                  <div className="grid grid-cols-3 gap-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                     <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-1">
                       <p className="text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">Issued Ledger Count</p>
                       <h4 className="text-3xl font-display font-bold text-slate-950">{certificates.length}</h4>
