@@ -1,3 +1,4 @@
+import { toast } from 'sonner';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -100,7 +101,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
         await loadData();
       } else {
         const err = await res.json();
-        alert(err.error || 'Failed to update workspace');
+        toast.error(err.error || 'Failed to update workspace');
       }
     } catch (err) {
       console.error(err);
@@ -117,7 +118,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
       if (res.ok) {
         await loadData();
       } else {
-        alert('Failed to delete workspace');
+        toast.error('Failed to delete workspace');
       }
     } catch (err) {
       console.error(err);
@@ -145,7 +146,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
         setEditingProgram(null);
         await loadData();
       } else {
-        alert('Failed to update program');
+        toast.error('Failed to update program');
       }
     } catch (err) {
       console.error(err);
@@ -162,7 +163,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
       if (res.ok) {
         await loadData();
       } else {
-        alert('Failed to delete program');
+        toast.error('Failed to delete program');
       }
     } catch (err) {
       console.error(err);
@@ -189,7 +190,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
         setRevokingCert(null);
         await loadData();
       } else {
-        alert('Failed to revoke certificate');
+        toast.error('Failed to revoke certificate');
       }
     } catch (err) {
       console.error(err);
@@ -206,7 +207,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
       if (res.ok) {
         await loadData();
       } else {
-        alert('Failed to restore certificate');
+        toast.error('Failed to restore certificate');
       }
     } catch (err) {
       console.error(err);

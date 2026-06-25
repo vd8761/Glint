@@ -1,3 +1,4 @@
+import { toast } from 'sonner';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -206,7 +207,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
       document.body.removeChild(wrapper);
     } catch (err: any) {
       console.error(err);
-      alert(err.message || 'Failed to download certificate PDF');
+      toast.error(err.message || 'Failed to download certificate PDF');
     } finally {
       setIsDownloadingPdf(false);
     }

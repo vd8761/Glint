@@ -11,6 +11,11 @@ export default defineConfig(() => {
         '@': path.resolve(__dirname, '.'),
       },
     },
+    test: {
+      environment: 'jsdom',
+      globals: true,
+      setupFiles: ['./src/setupTests.ts']
+    },
     server: {
       // HMR is disabled via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during edits.
