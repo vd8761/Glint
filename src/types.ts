@@ -34,7 +34,7 @@ export interface TextElement {
   textDecoration?: 'none' | 'underline';
   letterSpacing?: number; // Letter spacing in pixels
   lineHeight?: number; // Line height multiplier
-  opacity?: number; // Transparency multiplier (0 to 1)
+  opacity?: number; // Transparency multiplier (0 to 1);
   textTransform?: 'none' | 'uppercase' | 'lowercase' | 'capitalize';
   color: string;
   xPercent: number; // Percent positioning from left (0 to 100)
@@ -42,9 +42,10 @@ export interface TextElement {
   align: 'left' | 'center' | 'right' | 'justify';
   isPlaceholder?: boolean;
   width?: number; // Optional box width for wrapping/resizing
-  height?: number; // Optional box height for shapes/redaction patches
+  height?: number; // Optional height for shapes/redaction patches
   type?: 'text' | 'image' | 'redaction';
   imageUrl?: string;
+
 }
 
 export interface CertificateTemplate {

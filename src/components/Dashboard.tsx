@@ -1,3 +1,4 @@
+import { toast } from 'sonner';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -130,6 +131,11 @@ export function Dashboard({
   const loadWorkspaces = async () => {
     try {
       const res = await fetch('/api/workspaces', { headers: authHeaders });
+      if (res.status === 401 || res.status === 403) {
+        toast.error('Session expired. Please log in again.');
+        onLogout();
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         setWorkspaces(data);
@@ -159,6 +165,11 @@ export function Dashboard({
         fetch(`/api/workspaces/${currentWorkspaceId}`, { headers: authHeaders })
       ]);
 
+      if (programsRes.status === 401 || programsRes.status === 403) {
+        toast.error('Session expired. Please log in again.');
+        onLogout();
+        return;
+      }
       if (programsRes.ok) setPrograms(await programsRes.json());
       if (templatesRes.ok) setTemplates(await templatesRes.json());
       if (certsRes.ok) setCertificates(await certsRes.json());
@@ -276,7 +287,7 @@ export function Dashboard({
   const handleIssueSingleCertificate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!singleProgramId || !singleRecipientName || !singleRecipientEmail) {
-      alert('Name and Email are required.');
+      toast.error('Name and Email are required.');
       return;
     }
 
@@ -317,14 +328,14 @@ export function Dashboard({
         setSingleCustomFields({});
         changeTab('issued');
         await triggerDataRefresh();
-        alert('Certificate issued and registered successfully!');
+        toast.success('Certificate issued and registered successfully!');
       } else {
         const errData = await res.json();
-        alert(`Failed to issue certificate: ${errData.error || 'Unknown error'}`);
+        toast.error(`Failed to issue certificate: ${errData.error || 'Unknown error'}`);
       }
     } catch (err) {
       console.error('Single issuance failed', err);
-      alert('An error occurred during issuance.');
+      toast.error('An error occurred during issuance.');
     }
   };
 
@@ -438,7 +449,7 @@ export function Dashboard({
     if (!file) return;
 
     if (file.size > 3.5 * 1024 * 1024) {
-      alert("Image is too large. Please select an image smaller than 3.5MB for fast loading.");
+      toast.error("Image is too large. Please select an image smaller than 3.5MB for fast loading.");
       return;
     }
 
@@ -650,7 +661,7 @@ export function Dashboard({
     // Filter only valid entries to issue safely
     const activeIssuables = validatedRecipients.filter(r => r.isValid);
     if (activeIssuables.length === 0) {
-      alert('There are no valid, clean recipient lines matching the template fields to issue.');
+      toast.error('There are no valid, clean recipient lines matching the template fields to issue.');
       return;
     }
 
@@ -672,11 +683,11 @@ export function Dashboard({
         await triggerDataRefresh();
       } else {
         const errData = await res.json().catch(() => ({}));
-        alert(`Issuance failed: ${errData.error || 'The server encountered an error processing the certificate registry.'}`);
+        toast.error(`Issuance failed: ${errData.error || 'The server encountered an error processing the certificate registry.'}`);
       }
     } catch (err) {
       console.error('Issuance failed', err);
-      alert('An unexpected network error occurred while dispatching certificates.');
+      toast.error('An unexpected network error occurred while dispatching certificates.');
     }
   };
 
@@ -747,7 +758,7 @@ export function Dashboard({
 
       if (res.ok) {
         await triggerDataRefresh();
-        alert('Branding custom variables synchronized successfully!');
+        toast.success('Branding custom variables synchronized successfully!');
       }
     } catch (err) {
       console.error(err);
@@ -1005,7 +1016,7 @@ export function Dashboard({
                     setSelectedProgramId(programs[0].id);
                     changeTab('recipients');
                   } else {
-                    alert('Please configure at least one certification program first.');
+                    toast.error('Please configure at least one certification program first.');
                   }
                 }}
                 className="bg-slate-950 text-white text-[11px] px-4 py-2 rounded-full font-semibold shadow-sm hover:bg-indigo-600 transition-all"
@@ -1211,7 +1222,7 @@ export function Dashboard({
                       <button
                         onClick={() => {
                           if (templates.length === 0) {
-                            alert('Create at least one template program layout before configuring certificate programs.');
+                            toast.error('Create at least one template program layout before configuring certificate programs.');
                             return;
                           }
                           setEditingProgram(null);
@@ -1414,6 +1425,22 @@ export function Dashboard({
                             </tr>
                           );
                         })}
+                      {programs.length === 0 && (
+                          <tr>
+                            <td colSpan={5} className="px-8 py-16 text-center text-slate-500 bg-white">
+                              <div className="flex flex-col items-center justify-center space-y-3">
+                                <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center">
+                                  <Layers className="w-6 h-6 text-indigo-400" />
+                                </div>
+                                <h3 className="font-bold text-slate-700 text-sm">No Programs Found</h3>
+                                <p className="text-xs text-slate-500 max-w-xs mx-auto">Create a certificate program to start issuing credentials to your recipients.</p>
+                                <button onClick={() => setShowProgramForm(true)} className="mt-2 text-indigo-600 hover:text-indigo-800 text-xs font-bold underline transition-colors">
+                                  Create First Program
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -1753,7 +1780,7 @@ export function Dashboard({
                       <button
                         onClick={() => {
                           if (programs.length === 0) {
-                            alert('Configure at least one certification program first.');
+                            toast.error('Configure at least one certification program first.');
                             return;
                           }
                           setSingleProgramId(programs[0].id);
