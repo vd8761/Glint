@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Undo2, Redo2, Sliders, Plus, Trash2, Save, ArrowLeft, Sparkles, 
   Layers, Type, QrCode, Award, Check, Grid, Image, Info, User,
-  MousePointerClick, AlignLeft, AlignCenter, AlignRight, Bold, HelpCircle, Eye, EyeOff, Upload
+  MousePointerClick, AlignLeft, AlignCenter, AlignRight, Bold, Italic, Underline, HelpCircle, Eye, EyeOff, Upload
 } from 'lucide-react';
 import { CertificateTemplate, TextElement } from '../types';
 
@@ -426,7 +426,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
     let text = 'New Custom Text Layer';
     let fontSize = 14;
     let fontWeight: 'normal' | 'medium' | 'bold' = 'medium';
-    let fontFamily: TextElement['fontFamily'] = 'Inter';
+    let fontFamily = 'Inter';
     let color = '#0F172A';
     
     if (type === 'heading') {
@@ -1189,7 +1189,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
     let text = 'New Custom Text Layer';
     let fontSize = 14;
     let fontWeight: 'normal' | 'medium' | 'bold' = 'medium';
-    let fontFamily: TextElement['fontFamily'] = 'Inter';
+    let fontFamily = 'Inter';
     let color = '#0F172A';
     
     if (type === 'heading') {
@@ -1656,12 +1656,22 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                             <select
                                value={el.fontFamily}
                                onChange={(e) => updateTextElementProperty(el.id, 'fontFamily', e.target.value)}
-                               className="w-full bg-white border border-slate-200 p-1.5 rounded text-slate-900 focus:outline-none"
+                               className="w-full bg-white border border-slate-200 p-1.5 rounded text-slate-900 focus:outline-none text-xs"
                             >
                               <option value="Inter">Inter (Sans-Serif)</option>
                               <option value="Space Grotesk">Space Grotesk (Tech Heading)</option>
                               <option value="Playfair Display">Playfair Display (Serif)</option>
                               <option value="JetBrains Mono">JetBrains Mono (Monospace)</option>
+                              <option value="Montserrat">Montserrat (Clean Corporate)</option>
+                              <option value="Poppins">Poppins (Modern Sans-Serif)</option>
+                              <option value="Lora">Lora (Elegant Serif)</option>
+                              <option value="Cinzel">Cinzel (Classic Roman)</option>
+                              <option value="Cormorant Garamond">Cormorant Garamond (Premium Serif)</option>
+                              <option value="Libre Baskerville">Libre Baskerville (Editorial Serif)</option>
+                              <option value="Alex Brush">Alex Brush (Calligraphy Script)</option>
+                              <option value="Great Vibes">Great Vibes (Luxurious Script)</option>
+                              <option value="Dancing Script">Dancing Script (Casual Script)</option>
+                              <option value="Parisienne">Parisienne (Vintage Script)</option>
                             </select>
                           </div>
 
@@ -1670,10 +1680,10 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                             <input
                               type="number"
                               min="6"
-                              max="80"
+                              max="120"
                               value={el.fontSize}
                               onChange={(e) => updateTextElementProperty(el.id, 'fontSize', parseInt(e.target.value) || 12)}
-                              className="w-full bg-white border border-slate-200 p-1.5 rounded text-slate-900 focus:outline-none"
+                              className="w-full bg-white border border-slate-200 p-1.5 rounded text-slate-900 focus:outline-none text-xs"
                             />
                           </div>
 
@@ -1687,46 +1697,164 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                             />
                           </div>
 
+                          {/* Font Weight */}
                           <div className="space-y-1 col-span-2">
-                            <label className="text-[10px] uppercase text-slate-500 font-bold">Weight & Align</label>
-                            <div className="flex gap-1.5">
-                              {/* Weight toggles */}
+                            <label className="text-[10px] uppercase text-slate-500 font-bold">Font Weight</label>
+                            <div className="flex gap-1">
                               <button
-                                onClick={() => updateTextElementProperty(el.id, 'fontWeight', el.fontWeight === 'bold' ? 'normal' : 'bold')}
-                                className={`flex-1 p-1.5 rounded border transition-colors cursor-pointer ${el.fontWeight === 'bold' ? 'bg-indigo-600 border-indigo-550 text-white font-bold' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-105 hover:text-slate-900'}`}
+                                type="button"
+                                onClick={() => updateTextElementProperty(el.id, 'fontWeight', 'normal')}
+                                className={`flex-1 py-1 text-[10px] rounded border transition-colors cursor-pointer ${el.fontWeight === 'normal' || !el.fontWeight ? 'bg-indigo-600 border-indigo-550 text-white font-normal' : 'bg-white border-slate-200 text-slate-550 hover:bg-slate-50'}`}
                               >
-                                <strong>B</strong>
+                                Regular
                               </button>
                               <button
-                                onClick={() => updateTextElementProperty(el.id, 'fontWeight', el.fontWeight === 'medium' ? 'normal' : 'medium')}
-                                className={`flex-1 p-1.5 rounded border transition-colors cursor-pointer ${el.fontWeight === 'medium' ? 'bg-indigo-600 border-indigo-550 text-white font-bold' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-105 hover:text-slate-900'}`}
+                                type="button"
+                                onClick={() => updateTextElementProperty(el.id, 'fontWeight', 'medium')}
+                                className={`flex-1 py-1 text-[10px] rounded border transition-colors cursor-pointer ${el.fontWeight === 'medium' ? 'bg-indigo-600 border-indigo-550 text-white font-medium' : 'bg-white border-slate-200 text-slate-550 hover:bg-slate-50'}`}
                               >
-                                <strong>M</strong>
+                                Medium
                               </button>
-                              
+                              <button
+                                type="button"
+                                onClick={() => updateTextElementProperty(el.id, 'fontWeight', 'bold')}
+                                className={`flex-1 py-1 text-[10px] rounded border transition-colors cursor-pointer ${el.fontWeight === 'bold' ? 'bg-indigo-600 border-indigo-550 text-white font-bold' : 'bg-white border-slate-200 text-slate-550 hover:bg-slate-50'}`}
+                              >
+                                Bold
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Text Styles & Alignments Toolbar */}
+                          <div className="space-y-1 col-span-2">
+                            <label className="text-[10px] uppercase text-slate-500 font-bold">Styling & Alignment</label>
+                            <div className="flex gap-1">
+                              {/* Italic toggle */}
+                              <button
+                                type="button"
+                                onClick={() => updateTextElementProperty(el.id, 'fontStyle', el.fontStyle === 'italic' ? 'normal' : 'italic')}
+                                className={`p-1.5 rounded border transition-colors cursor-pointer flex-1 flex justify-center items-center ${el.fontStyle === 'italic' ? 'bg-indigo-600 border-indigo-550 text-white' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}
+                                title="Italic"
+                              >
+                                <Italic className="w-3.5 h-3.5" />
+                              </button>
+
+                              {/* Underline toggle */}
+                              <button
+                                type="button"
+                                onClick={() => updateTextElementProperty(el.id, 'textDecoration', el.textDecoration === 'underline' ? 'none' : 'underline')}
+                                className={`p-1.5 rounded border transition-colors cursor-pointer flex-1 flex justify-center items-center ${el.textDecoration === 'underline' ? 'bg-indigo-600 border-indigo-550 text-white' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}
+                                title="Underline"
+                              >
+                                <Underline className="w-3.5 h-3.5" />
+                              </button>
+
+                              {/* Uppercase toggle */}
+                              <button
+                                type="button"
+                                onClick={() => updateTextElementProperty(el.id, 'textTransform', el.textTransform === 'uppercase' ? 'none' : 'uppercase')}
+                                className={`p-1.5 rounded border text-[10px] font-bold transition-colors cursor-pointer flex-1 flex justify-center items-center ${el.textTransform === 'uppercase' ? 'bg-indigo-600 border-indigo-550 text-white' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}
+                                title="Uppercase"
+                              >
+                                aA
+                              </button>
+
+                              {/* Divider */}
+                              <div className="w-[1px] bg-slate-250 my-1.5 mx-1" />
+
                               {/* Alignments */}
                               <button
+                                type="button"
                                 onClick={() => updateTextElementProperty(el.id, 'align', 'left')}
-                                className={`p-1.5 rounded border transition-colors cursor-pointer ${el.align === 'left' ? 'bg-indigo-600 border-indigo-550 text-white' : 'bg-white border-slate-200 text-slate-550'}`}
+                                className={`p-1.5 rounded border transition-colors cursor-pointer flex-1 flex justify-center items-center ${el.align === 'left' ? 'bg-indigo-600 border-indigo-550 text-white' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}
                               >
                                 <AlignLeft className="w-3.5 h-3.5" />
                               </button>
                               <button
+                                type="button"
                                 onClick={() => updateTextElementProperty(el.id, 'align', 'center')}
-                                className={`p-1.5 rounded border transition-colors cursor-pointer ${el.align === 'center' ? 'bg-indigo-600 border-indigo-550 text-white' : 'bg-white border-slate-200 text-slate-550'}`}
+                                className={`p-1.5 rounded border transition-colors cursor-pointer flex-1 flex justify-center items-center ${el.align === 'center' ? 'bg-indigo-600 border-indigo-550 text-white' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}
                               >
                                 <AlignCenter className="w-3.5 h-3.5" />
                               </button>
                               <button
+                                type="button"
                                 onClick={() => updateTextElementProperty(el.id, 'align', 'right')}
-                                className={`p-1.5 rounded border transition-colors cursor-pointer ${el.align === 'right' ? 'bg-indigo-600 border-indigo-550 text-white' : 'bg-white border-slate-200 text-slate-555'}`}
+                                className={`p-1.5 rounded border transition-colors cursor-pointer flex-1 flex justify-center items-center ${el.align === 'right' ? 'bg-indigo-600 border-indigo-550 text-white' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}
                               >
                                 <AlignRight className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           </div>
 
-                          <div className="space-y-1 col-span-2 pt-2 border-t border-slate-200">
+                          {/* Letter Spacing */}
+                          <div className="space-y-1 col-span-2 pt-1 border-t border-slate-100">
+                            <div className="flex justify-between items-center">
+                              <label className="text-[10px] uppercase text-slate-500 font-bold">Letter Spacing: {el.letterSpacing || 0}px</label>
+                              <button 
+                                onClick={() => updateTextElementProperty(el.id, 'letterSpacing', 0)}
+                                className="text-[9px] text-indigo-650 font-bold hover:underline cursor-pointer"
+                              >
+                                Reset
+                              </button>
+                            </div>
+                            <input
+                              type="range"
+                              min="-2"
+                              max="20"
+                              step="0.5"
+                              value={el.letterSpacing || 0}
+                              onChange={(e) => updateTextElementProperty(el.id, 'letterSpacing', parseFloat(e.target.value))}
+                              className="w-full cursor-pointer mt-1 accent-indigo-600"
+                            />
+                          </div>
+
+                          {/* Line Height */}
+                          <div className="space-y-1 col-span-2 pt-1 border-t border-slate-100">
+                            <div className="flex justify-between items-center">
+                              <label className="text-[10px] uppercase text-slate-500 font-bold">Line Height: {el.lineHeight || 1.2}</label>
+                              <button 
+                                onClick={() => updateTextElementProperty(el.id, 'lineHeight', 1.2)}
+                                className="text-[9px] text-indigo-650 font-bold hover:underline cursor-pointer"
+                              >
+                                Reset
+                              </button>
+                            </div>
+                            <input
+                              type="range"
+                              min="0.8"
+                              max="3"
+                              step="0.1"
+                              value={el.lineHeight || 1.2}
+                              onChange={(e) => updateTextElementProperty(el.id, 'lineHeight', parseFloat(e.target.value))}
+                              className="w-full cursor-pointer mt-1 accent-indigo-600"
+                            />
+                          </div>
+
+                          {/* Opacity */}
+                          <div className="space-y-1 col-span-2 pt-1 border-t border-slate-100">
+                            <div className="flex justify-between items-center">
+                              <label className="text-[10px] uppercase text-slate-500 font-bold">Opacity: {el.opacity !== undefined ? Math.round(el.opacity * 100) : 100}%</label>
+                              <button 
+                                onClick={() => updateTextElementProperty(el.id, 'opacity', 1)}
+                                className="text-[9px] text-indigo-650 font-bold hover:underline cursor-pointer"
+                              >
+                                Reset
+                              </button>
+                            </div>
+                            <input
+                              type="range"
+                              min="0.1"
+                              max="1"
+                              step="0.05"
+                              value={el.opacity !== undefined ? el.opacity : 1}
+                              onChange={(e) => updateTextElementProperty(el.id, 'opacity', parseFloat(e.target.value))}
+                              className="w-full cursor-pointer mt-1 accent-indigo-600"
+                            />
+                          </div>
+
+                          {/* Box Width */}
+                          <div className="space-y-1 col-span-2 pt-1 border-t border-slate-100">
                             <div className="flex justify-between items-center">
                               <label className="text-[10px] uppercase text-slate-500 font-bold">Box Width: {el.width || 512}px</label>
                               <button 
@@ -1742,7 +1870,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                               max="1000"
                               value={el.width || 512}
                               onChange={(e) => updateTextElementProperty(el.id, 'width', parseInt(e.target.value))}
-                              className="w-full cursor-pointer mt-1"
+                              className="w-full cursor-pointer mt-1 accent-indigo-600"
                             />
                           </div>
 
@@ -2111,20 +2239,36 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                   )}
 
                   {currentTemplate.showQrCode && (
-                    <div className="space-y-1 pt-1">
-                      <div className="flex justify-between items-center">
-                        <label className="text-[10px] font-bold text-slate-500 uppercase">QR Code Size</label>
-                        <span className="text-[10px] font-mono font-bold text-indigo-650">{currentTemplate.qrCodeWidth || 32}px</span>
+                    <>
+                      <div className="space-y-1 pt-1">
+                        <div className="flex justify-between items-center">
+                          <label className="text-[10px] font-bold text-slate-500 uppercase">QR Code Size</label>
+                          <span className="text-[10px] font-mono font-bold text-indigo-650">{currentTemplate.qrCodeWidth || 32}px</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="16"
+                          max="80"
+                          value={currentTemplate.qrCodeWidth || 32}
+                          onChange={(e) => updateTemplateProperty('qrCodeWidth', parseInt(e.target.value))}
+                          className="w-full accent-indigo-600"
+                        />
                       </div>
-                      <input
-                        type="range"
-                        min="16"
-                        max="80"
-                        value={currentTemplate.qrCodeWidth || 32}
-                        onChange={(e) => updateTemplateProperty('qrCodeWidth', parseInt(e.target.value))}
-                        className="w-full accent-indigo-600"
-                      />
-                    </div>
+
+                      <div className="space-y-1 pt-2">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase block">Custom QR Link / Data</label>
+                        <input
+                          type="text"
+                          value={currentTemplate.qrCodeCustomUrl || ''}
+                          onChange={(e) => updateTemplateProperty('qrCodeCustomUrl', e.target.value)}
+                          placeholder="e.g. https://yourdomain.com/verify/{{id}}"
+                          className="w-full bg-white border border-slate-200 p-2 rounded text-slate-900 focus:outline-none text-xs"
+                        />
+                        <p className="text-[9px] text-slate-400 leading-normal">
+                          Supports placeholders: <code>{"{{id}}"}</code>, <code>{"{{name}}"}</code>, <code>{"{{program}}"}</code>, <code>{"{{date}}"}</code>. Default: Glint verify page.
+                        </p>
+                      </div>
+                    </>
                   )}
 
                   {currentTemplate.showSeal && (
@@ -2888,7 +3032,15 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                       fontSize: `${el.fontSize * 0.09}cqw`,
                       textAlign: el.align,
                       zIndex: isSelected ? 40 : 20,
-                      maxWidth: el.width ? `${el.width}px` : '512px'
+                      maxWidth: el.width ? `${el.width}px` : '512px',
+                      fontFamily: el.fontFamily,
+                      fontStyle: el.fontStyle || 'normal',
+                      fontWeight: el.fontWeight === 'bold' ? 700 : (el.fontWeight === 'medium' ? 500 : 400),
+                      textDecoration: el.textDecoration || 'none',
+                      letterSpacing: el.letterSpacing ? `${el.letterSpacing}px` : undefined,
+                      lineHeight: el.lineHeight || 'normal',
+                      opacity: el.opacity !== undefined ? el.opacity : undefined,
+                      textTransform: el.textTransform || 'none'
                     }}
                     className={`${fontClass} ${weightClass} cursor-pointer break-words leading-snug select-none group border-box transition-all px-2.5 py-1 ${
                       isSelected ? 'outline border-dashed outline-2 outline-indigo-500 outline-offset-2 bg-indigo-500/5 rounded-md' : 'hover:outline hover:outline-dashed hover:outline-1 hover:outline-slate-400 hover:outline-offset-2'
@@ -3234,7 +3386,13 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                       className="bg-white p-0.5 rounded-sm border border-slate-200 shadow-sm flex items-center justify-center select-none shrink-0"
                     >
                       <img 
-                        src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://glint.io/%23preview&color=0f172a" 
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(
+                          (currentTemplate.qrCodeCustomUrl || 'https://glint.io/verify/{{id}}')
+                            .replace('{{id}}', 'CERT-2026-XMOCK')
+                            .replace('{{name}}', 'Alex Rivera')
+                            .replace('{{program}}', 'Gemini Developer Mastery Program')
+                            .replace('{{date}}', '2026-06-18')
+                        )}&color=0f172a`}
                         alt="Verification QR"
                         className="w-full h-full object-contain"
                       />
