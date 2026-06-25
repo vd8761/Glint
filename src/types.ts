@@ -28,16 +28,23 @@ export interface TextElement {
   id: string;
   text: string; // text with static or variable markers like {{name}}, {{program}}, {{id}}, {{date}}
   fontSize: number;
-  fontFamily: 'Inter' | 'Space Grotesk' | 'Playfair Display' | 'JetBrains Mono';
-  fontWeight: 'normal' | 'medium' | 'bold';
+  fontFamily: string;
+  fontWeight: string;
   color: string;
   xPercent: number; // Percent positioning from left (0 to 100)
   yPercent: number; // Percent positioning from top (0 to 100)
-  align: 'left' | 'center' | 'right';
+  align: 'left' | 'center' | 'right' | 'justify';
   isPlaceholder?: boolean;
   width?: number; // Optional box width for wrapping/resizing
-  type?: 'text' | 'image';
+  height?: number; // Optional height for redaction blocks
+  type?: 'text' | 'image' | 'redaction';
   imageUrl?: string;
+  opacity?: number;
+  fontStyle?: string;
+  textDecoration?: string;
+  letterSpacing?: number;
+  lineHeight?: number;
+  textTransform?: string;
 }
 
 export interface CertificateTemplate {

@@ -650,6 +650,28 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
 
                 {/* Absolute Canvas Custom Text Layers */}
                 {activeTemplate.textElements.map((el) => {
+                  if (el.type === 'redaction') {
+                    const leftPct = el.xPercent !== undefined ? el.xPercent : 50;
+                    const topPct = el.yPercent !== undefined ? el.yPercent : 50;
+                    return (
+                      <div
+                        key={el.id}
+                        style={{
+                          position: 'absolute',
+                          left: `${leftPct}%`,
+                          top: `${topPct}%`,
+                          transform: 'translate(-50%, -50%)',
+                          width: `${(el.width || 200) * 0.1125}cqw`,
+                          height: `${(el.height || 40) * 0.1125}cqw`,
+                          backgroundColor: el.color || '#FFFFFF',
+                          zIndex: 15,
+                          opacity: el.opacity !== undefined ? el.opacity : 1
+                        }}
+                        className="select-none pointer-events-none"
+                      />
+                    );
+                  }
+
                   if (el.imageUrl) {
                     const leftPct = el.xPercent !== undefined ? el.xPercent : 50;
                     const topPct = el.yPercent !== undefined ? el.yPercent : 50;
@@ -719,7 +741,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                         top: `${topPct}%`,
                         transform: 'translate(-50%, -50%)',
                         color: el.color,
-                        textAlign: el.align || 'center',
+                        textAlign: (el.align || 'center') as any,
                         fontSize: `${el.fontSize * 0.1125}cqw`
                       }}
                       className={`${fontClass} ${weightClass} leading-snug break-words max-w-xl z-20 print:text-xs`}
@@ -898,7 +920,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                       </span>
                       <span className="text-[10px] text-slate-400">by {log.performedBy}</span>
                     </div>
-                    <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">
+                    <p className="text-xs text-slate-700 whitespace-pre-wrap break-all sm:break-words leading-relaxed">
                       {log.details}
                     </p>
                   </div>

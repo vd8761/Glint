@@ -5,6 +5,7 @@ import {
   MousePointerClick, AlignLeft, AlignCenter, AlignRight, Bold, HelpCircle, Eye, EyeOff, Upload
 } from 'lucide-react';
 import { CertificateTemplate, TextElement } from '../types';
+import { BEAUTIFUL_PRESETS } from '../presets';
 
 const capitalizeWords = (str: string) => {
   return str.replace(/\b\w/g, char => char.toUpperCase());
@@ -19,210 +20,6 @@ interface CanvaEditorProps {
   token?: string | null;
   programs?: any[];
 }
-
-// 6+ Beautiful Canva Designer Presets
-const BEAUTIFUL_PRESETS = [
-  {
-    name: 'Classic Golden Excellence',
-    layout: 'landscape' as const,
-    backgroundColor: '#FAF8F5',
-    borderColor: '#C5A880',
-    borderWidth: 10,
-    borderRadius: 0,
-    borderStyle: 'double' as const,
-    backgroundGradient: 'linear-gradient(135deg, #FAF8F5 0%, #F5F0E6 100%)',
-    decorFlourish: 'ornate' as const,
-    sealType: 'gold_medallion' as const,
-    logoIconType: 'edu',
-    logoX: 50,
-    logoY: 15,
-    logoWidth: 80,
-    signatureUrl: '',
-    signatureX: 30,
-    signatureY: 78,
-    signatureWidth: 100,
-    signatoryName: 'Dean Arthur Pendelton',
-    signatoryTitle: 'Chancellor of Academic Senate',
-    showSecondarySignatory: true,
-    secondarySignatoryName: 'Dr. Evelyn Masters',
-    secondarySignatoryTitle: 'Registrar General',
-    secondarySignatureX: 70,
-    secondarySignatureY: 78,
-    secondarySignatureWidth: 100,
-    textElements: [
-      { id: 't1', text: 'CERTIFICATE OF EXCELLENCE', fontSize: 26, fontFamily: 'Playfair Display' as const, fontWeight: 'bold' as const, color: '#2B261D', xPercent: 50, yPercent: 28, align: 'center' as const },
-      { id: 't2', text: 'This highly distinguished credential certifies that', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#796B58', xPercent: 50, yPercent: 36, align: 'center' as const },
-      { id: 't3', text: '{{name}}', fontSize: 34, fontFamily: 'Playfair Display' as const, fontWeight: 'bold' as const, color: '#C5A880', xPercent: 50, yPercent: 47, align: 'center' as const },
-      { id: 't4', text: 'has achieved sublime master level competencies and successfully graduated', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#796B58', xPercent: 50, yPercent: 56, align: 'center' as const },
-      { id: 't5', text: '{{program}}', fontSize: 18, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#2B261D', xPercent: 50, yPercent: 64, align: 'center' as const },
-      { id: 't6', text: 'ISSUED ON: {{date}}', fontSize: 9, fontFamily: 'JetBrains Mono' as const, fontWeight: 'medium' as const, color: '#796B58', xPercent: 12, yPercent: 88, align: 'left' as const },
-      { id: 't7', text: 'VERIFICATION ID: {{id}}', fontSize: 9, fontFamily: 'JetBrains Mono' as const, fontWeight: 'medium' as const, color: '#796B58', xPercent: 88, yPercent: 88, align: 'right' as const }
-    ]
-  },
-  {
-    name: 'Cybernetic Tech Modern',
-    layout: 'landscape' as const,
-    backgroundColor: '#0A0F1D',
-    borderColor: '#00F2FE',
-    borderWidth: 4,
-    borderRadius: 8,
-    borderStyle: 'solid' as const,
-    backgroundGradient: 'linear-gradient(180deg, #070913 0%, #0D1527 100%)',
-    decorFlourish: 'modern' as const,
-    sealType: 'stellar' as const,
-    logoIconType: 'tech',
-    logoX: 12,
-    logoY: 12,
-    logoWidth: 60,
-    signatureUrl: '',
-    signatureX: 50,
-    signatureY: 80,
-    signatureWidth: 90,
-    signatoryName: 'Thomas Kurian, CEO',
-    signatoryTitle: 'Infrastructure Advisory Council',
-    showSecondarySignatory: false,
-    textElements: [
-      { id: 't1', text: 'CRYPTOGRAPHIC DISPATCH CONFIRMATION', fontSize: 10, fontFamily: 'JetBrains Mono' as const, fontWeight: 'medium' as const, color: '#00F2FE', xPercent: 50, yPercent: 15, align: 'center' as const },
-      { id: 't2', text: 'TECHNOLOGY MASTERY PROGRAM', fontSize: 24, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#FFFFFF', xPercent: 50, yPercent: 26, align: 'center' as const },
-      { id: 't3', text: 'This record validates that the system administrator', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#94A3B8', xPercent: 50, yPercent: 35, align: 'center' as const },
-      { id: 't4', text: '{{name}}', fontSize: 36, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#4FACFE', xPercent: 50, yPercent: 46, align: 'center' as const },
-      { id: 't5', text: 'has successfully completed all modules and certified competencies for', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#94A3B8', xPercent: 50, yPercent: 56, align: 'center' as const },
-      { id: 't6', text: '{{program}}', fontSize: 20, fontFamily: 'JetBrains Mono' as const, fontWeight: 'bold' as const, color: '#00F2FE', xPercent: 50, yPercent: 64, align: 'center' as const },
-      { id: 't7', text: 'LEDGER SECURE STAMP: {{id}}', fontSize: 9, fontFamily: 'JetBrains Mono' as const, fontWeight: 'normal' as const, color: '#64748B', xPercent: 50, yPercent: 90, align: 'center' as const }
-    ]
-  },
-  {
-    name: 'Metropolitan Corporate Executive',
-    layout: 'landscape' as const,
-    backgroundColor: '#FFFFFF',
-    borderColor: '#0F172A',
-    borderWidth: 8,
-    borderRadius: 4,
-    borderStyle: 'solid' as const,
-    backgroundGradient: 'linear-gradient(135deg, #FFFFFF 0%, #F1F5F9 100%)',
-    decorFlourish: 'minimal' as const,
-    sealType: 'classic' as const,
-    logoIconType: 'corp',
-    logoX: 50,
-    logoY: 15,
-    logoWidth: 70,
-    signatureUrl: '',
-    signatureX: 35,
-    signatureY: 76,
-    signatureWidth: 100,
-    signatoryName: 'Clara Sterling',
-    signatoryTitle: 'Managing Partner',
-    showSecondarySignatory: true,
-    secondarySignatoryName: 'Marcus Vance',
-    secondarySignatoryTitle: 'Operating Director',
-    secondarySignatureX: 65,
-    secondarySignatureY: 76,
-    secondarySignatureWidth: 100,
-    textElements: [
-      { id: 't1', text: 'CREDENTIAL OF RECOGNITION', fontSize: 22, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#0F172A', xPercent: 50, yPercent: 28, align: 'center' as const },
-      { id: 't2', text: 'For exemplary professional achievements, awarded to', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#475569', xPercent: 50, yPercent: 36, align: 'center' as const },
-      { id: 't3', text: '{{name}}', fontSize: 32, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#0F172A', xPercent: 50, yPercent: 47, align: 'center' as const },
-      { id: 't4', text: 'upon demonstrating elite leadership and completing the specialized training in', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#475569', xPercent: 50, yPercent: 56, align: 'center' as const },
-      { id: 't5', text: '{{program}}', fontSize: 16, fontFamily: 'JetBrains Mono' as const, fontWeight: 'medium' as const, color: '#0F172A', xPercent: 50, yPercent: 63, align: 'center' as const },
-      { id: 't6', text: 'Date of Issuance: {{date}}', fontSize: 9, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#94A3B8', xPercent: 50, yPercent: 88, align: 'center' as const }
-    ]
-  },
-  {
-    name: 'Artistic Pastel Modernism',
-    layout: 'landscape' as const,
-    backgroundColor: '#FAF5F5',
-    borderColor: '#FDBA74',
-    borderWidth: 6,
-    borderRadius: 24,
-    borderStyle: 'dashed' as const,
-    backgroundGradient: 'linear-gradient(135deg, #FEF3C7 0%, #FEE2E2 50%, #EEF2F6 100%)',
-    decorFlourish: 'classic' as const,
-    sealType: 'crimson_wax' as const,
-    logoIconType: 'art',
-    logoX: 50,
-    logoY: 15,
-    logoWidth: 70,
-    signatureUrl: '',
-    signatureX: 50,
-    signatureY: 76,
-    signatureWidth: 95,
-    signatoryName: 'Clara Sterling',
-    signatoryTitle: 'Creative Director',
-    showSecondarySignatory: false,
-    textElements: [
-      { id: 't1', text: 'Honorary Creative Guild Certificate', fontSize: 24, fontFamily: 'Playfair Display' as const, fontWeight: 'bold' as const, color: '#431407', xPercent: 50, yPercent: 28, align: 'center' as const },
-      { id: 't2', text: 'With congratulations and professional salute, granted to', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#7C2D12', xPercent: 50, yPercent: 37, align: 'center' as const },
-      { id: 't3', text: '{{name}}', fontSize: 34, fontFamily: 'Playfair Display' as const, fontWeight: 'bold' as const, color: '#BE123C', xPercent: 50, yPercent: 48, align: 'center' as const },
-      { id: 't4', text: 'for dedicated contribution and curated focus in the program', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#7C2D12', xPercent: 50, yPercent: 58, align: 'center' as const },
-      { id: 't5', text: '{{program}}', fontSize: 18, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#431407', xPercent: 50, yPercent: 66, align: 'center' as const }
-    ]
-  },
-  {
-    name: 'Deep Emerald & Gold Guard',
-    layout: 'landscape' as const,
-    backgroundColor: '#064E3B',
-    borderColor: '#FBBF24',
-    borderWidth: 10,
-    borderRadius: 2,
-    borderStyle: 'double' as const,
-    backgroundGradient: 'radial-gradient(circle, #065F46 0%, #022C22 100%)',
-    decorFlourish: 'ornate' as const,
-    sealType: 'emerald_shield' as const,
-    logoIconType: 'corp',
-    logoX: 50,
-    logoY: 14,
-    logoWidth: 75,
-    signatureUrl: '',
-    signatureX: 25,
-    signatureY: 78,
-    signatureWidth: 90,
-    signatoryName: 'Lord Alistair Sterling',
-    signatoryTitle: 'High Commissioner',
-    showSecondarySignatory: true,
-    secondarySignatoryName: 'Lady Fiona Mercer',
-    secondarySignatoryTitle: 'Chief Compliance Audit Officer',
-    secondarySignatureX: 75,
-    secondarySignatureY: 78,
-    secondarySignatureWidth: 90,
-    textElements: [
-      { id: 't1', text: 'DISPATCH OF ROYAL FELLOWSHIP', fontSize: 22, fontFamily: 'Playfair Display' as const, fontWeight: 'bold' as const, color: '#FBBF24', xPercent: 50, yPercent: 28, align: 'center' as const },
-      { id: 't2', text: 'This serves to announce to all sovereign domains that', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#A7F3D0', xPercent: 50, yPercent: 36, align: 'center' as const },
-      { id: 't3', text: '{{name}}', fontSize: 32, fontFamily: 'Playfair Display' as const, fontWeight: 'bold' as const, color: '#FFFFFF', xPercent: 50, yPercent: 47, align: 'center' as const },
-      { id: 't4', text: 'has satisfied all rigorous criteria and is admitted into the executive circle of', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#A7F3D0', xPercent: 50, yPercent: 56, align: 'center' as const },
-      { id: 't5', text: '{{program}}', fontSize: 18, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#FBBF24', xPercent: 50, yPercent: 64, align: 'center' as const }
-    ]
-  },
-  {
-    name: 'Academic Science Research',
-    layout: 'landscape' as const,
-    backgroundColor: '#FAFDFD',
-    borderColor: '#0284C7',
-    borderWidth: 6,
-    borderRadius: 0,
-    borderStyle: 'solid' as const,
-    backgroundGradient: 'linear-gradient(180deg, #FAFDFD 0%, #E0F2FE 100%)',
-    decorFlourish: 'minimal' as const,
-    sealType: 'classic' as const,
-    logoIconType: 'science',
-    logoX: 50,
-    logoY: 15,
-    logoWidth: 70,
-    signatureUrl: '',
-    signatureX: 50,
-    signatureY: 78,
-    signatureWidth: 100,
-    signatoryName: 'Dr. Helen Clark, PhD',
-    signatoryTitle: 'Dean of Sciences & Engineering',
-    showSecondarySignatory: false,
-    textElements: [
-      { id: 't1', text: 'ACADEMIC RESEARCH ACCREDITATION', fontSize: 20, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#0369A1', xPercent: 50, yPercent: 26, align: 'center' as const },
-      { id: 't2', text: 'Upon confirmation of original research submission, we hereby certify', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#475569', xPercent: 50, yPercent: 35, align: 'center' as const },
-      { id: 't3', text: '{{name}}', fontSize: 30, fontFamily: 'Playfair Display' as const, fontWeight: 'bold' as const, color: '#0F172A', xPercent: 50, yPercent: 47, align: 'center' as const },
-      { id: 't4', text: 'for highly innovative project implementations and theoretical mastery in', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#475569', xPercent: 50, yPercent: 57, align: 'center' as const },
-      { id: 't5', text: '{{program}}', fontSize: 18, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#0369A1', xPercent: 50, yPercent: 65, align: 'center' as const }
-    ]
-  }
-];
 
 // Beautiful Predefined Background Gradients list
 const GRADIENT_OPTIONS = [
@@ -358,6 +155,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
     startY: number;
     startWidth: number;
     startFontSize?: number;
+    startHeight?: number;
   } | null>(null);
 
   // Context menu state
@@ -366,6 +164,14 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
     y: number;
     targetId: string | null;
   } | null>(null);
+
+  // Snap to Grid & Layout guides state
+  const [snapToGrid, setSnapToGrid] = useState<boolean>(false);
+  const [gridVisible, setGridVisible] = useState<boolean>(false);
+
+  // Preset search & category filter state
+  const [presetSearchQuery, setPresetSearchQuery] = useState<string>('');
+  const [presetActiveCategory, setPresetActiveCategory] = useState<string>('All');
 
   // Close context menu on click
   useEffect(() => {
@@ -521,7 +327,8 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
     id: string,
     handle: 'left' | 'right' | 'top' | 'bottom' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right',
     currentWidth: number,
-    currentFontSize?: number
+    currentFontSize?: number,
+    currentHeight?: number
   ) => {
     e.preventDefault();
     e.stopPropagation();
@@ -532,7 +339,8 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
       startX: e.clientX,
       startY: e.clientY,
       startWidth: currentWidth,
-      startFontSize: currentFontSize
+      startFontSize: currentFontSize,
+      startHeight: currentHeight
     });
   };
 
@@ -543,6 +351,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
 
   const currentResizeWidthRef = useRef<number | null>(null);
   const currentResizeFontSizeRef = useRef<number | null>(null);
+  const currentResizeHeightRef = useRef<number | null>(null);
 
   // Document level mouse listeners to ensure smooth resizing
   useEffect(() => {
@@ -561,48 +370,77 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
         
         let newWidth = currentResize.startWidth;
         let newFontSize = currentResize.startFontSize;
+        let newHeight = currentResize.startHeight;
 
         if (currentResize.id.startsWith('t-')) {
-          if (currentResize.handle === 'right') {
-            newWidth = currentResize.startWidth + deltaX * 2;
-          } else if (currentResize.handle === 'left') {
-            newWidth = currentResize.startWidth - deltaX * 2;
-          } else if (currentResize.handle === 'top-right') {
-            newWidth = currentResize.startWidth + deltaX * 2;
-            if (currentResize.startFontSize) newFontSize = currentResize.startFontSize - deltaY * 0.5;
-          } else if (currentResize.handle === 'top-left') {
-            newWidth = currentResize.startWidth - deltaX * 2;
-            if (currentResize.startFontSize) newFontSize = currentResize.startFontSize - deltaY * 0.5;
-          } else if (currentResize.handle === 'bottom-right') {
-            newWidth = currentResize.startWidth + deltaX * 2;
-            if (currentResize.startFontSize) newFontSize = currentResize.startFontSize + deltaY * 0.5;
-          } else if (currentResize.handle === 'bottom-left') {
-            newWidth = currentResize.startWidth - deltaX * 2;
-            if (currentResize.startFontSize) newFontSize = currentResize.startFontSize + deltaY * 0.5;
-          } else if (currentResize.handle === 'top') {
-            if (currentResize.startFontSize) newFontSize = currentResize.startFontSize - deltaY * 0.5;
-          } else if (currentResize.handle === 'bottom') {
-            if (currentResize.startFontSize) newFontSize = currentResize.startFontSize + deltaY * 0.5;
-          }
-          
-          if (newFontSize !== undefined) {
-            newFontSize = Math.min(120, Math.max(8, newFontSize));
-            currentResizeFontSizeRef.current = newFontSize;
-            
+          // Check if it is a redaction block (stores startHeight)
+          if (currentResize.startHeight !== undefined) {
+            if (currentResize.handle === 'right' || currentResize.handle === 'top-right' || currentResize.handle === 'bottom-right') {
+              newWidth = currentResize.startWidth + deltaX * 2;
+            } else if (currentResize.handle === 'left' || currentResize.handle === 'top-left' || currentResize.handle === 'bottom-left') {
+              newWidth = currentResize.startWidth - deltaX * 2;
+            }
+
+            if (currentResize.handle === 'bottom' || currentResize.handle === 'bottom-right' || currentResize.handle === 'bottom-left') {
+              newHeight = currentResize.startHeight + deltaY * 2;
+            } else if (currentResize.handle === 'top' || currentResize.handle === 'top-right' || currentResize.handle === 'top-left') {
+              newHeight = currentResize.startHeight - deltaY * 2;
+            }
+
+            newWidth = Math.min(1000, Math.max(10, newWidth));
+            newHeight = Math.min(600, Math.max(10, newHeight));
+            currentResizeWidthRef.current = newWidth;
+            currentResizeHeightRef.current = newHeight;
+
             const elementDom = document.getElementById(`canvas-item-${currentResize.id}`);
             if (elementDom) {
-              elementDom.style.fontSize = `${newFontSize * 0.72}px`;
+              elementDom.style.width = `${newWidth}px`;
+              elementDom.style.height = `${newHeight}px`;
+            }
+          } else {
+            // Text resizing
+            if (currentResize.handle === 'right') {
+              newWidth = currentResize.startWidth + deltaX * 2;
+            } else if (currentResize.handle === 'left') {
+              newWidth = currentResize.startWidth - deltaX * 2;
+            } else if (currentResize.handle === 'top-right') {
+              newWidth = currentResize.startWidth + deltaX * 2;
+              if (currentResize.startFontSize) newFontSize = currentResize.startFontSize - deltaY * 0.5;
+            } else if (currentResize.handle === 'top-left') {
+              newWidth = currentResize.startWidth - deltaX * 2;
+              if (currentResize.startFontSize) newFontSize = currentResize.startFontSize - deltaY * 0.5;
+            } else if (currentResize.handle === 'bottom-right') {
+              newWidth = currentResize.startWidth + deltaX * 2;
+              if (currentResize.startFontSize) newFontSize = currentResize.startFontSize + deltaY * 0.5;
+            } else if (currentResize.handle === 'bottom-left') {
+              newWidth = currentResize.startWidth - deltaX * 2;
+              if (currentResize.startFontSize) newFontSize = currentResize.startFontSize + deltaY * 0.5;
+            } else if (currentResize.handle === 'top') {
+              if (currentResize.startFontSize) newFontSize = currentResize.startFontSize - deltaY * 0.5;
+            } else if (currentResize.handle === 'bottom') {
+              if (currentResize.startFontSize) newFontSize = currentResize.startFontSize + deltaY * 0.5;
+            }
+            
+            if (newFontSize !== undefined) {
+              newFontSize = Math.min(120, Math.max(8, newFontSize));
+              currentResizeFontSizeRef.current = newFontSize;
+              
+              const elementDom = document.getElementById(`canvas-item-${currentResize.id}`);
+              if (elementDom) {
+                elementDom.style.fontSize = `${newFontSize * 0.72}px`;
+              }
+            }
+            
+            newWidth = Math.min(1000, Math.max(30, newWidth));
+            currentResizeWidthRef.current = newWidth;
+            
+            const elementDom = document.getElementById(`canvas-item-${currentResize.id}`);
+            if (elementDom && currentResize.handle !== 'top' && currentResize.handle !== 'bottom') {
+              elementDom.style.maxWidth = `${newWidth}px`;
             }
           }
-          
-          newWidth = Math.min(1000, Math.max(30, newWidth));
-          currentResizeWidthRef.current = newWidth;
-          
-          const elementDom = document.getElementById(`canvas-item-${currentResize.id}`);
-          if (elementDom && currentResize.handle !== 'top' && currentResize.handle !== 'bottom') {
-            elementDom.style.maxWidth = `${newWidth}px`;
-          }
         } else {
+          // Logo or signature resizing
           if (currentResize.handle === 'right' || currentResize.handle === 'top-right' || currentResize.handle === 'bottom-right') {
             newWidth = currentResize.startWidth + deltaX * 2;
           } else if (currentResize.handle === 'left' || currentResize.handle === 'top-left' || currentResize.handle === 'bottom-left') {
@@ -632,6 +470,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
       const currentResize = resizingItemRef.current;
       const finalWidth = currentResizeWidthRef.current;
       const finalFontSize = currentResizeFontSizeRef.current;
+      const finalHeight = currentResizeHeightRef.current;
 
       if (currentResize) {
         setCurrentTemplate(prev => {
@@ -649,6 +488,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                 const updatedEl = { ...el };
                 if (finalWidth !== null) updatedEl.width = finalWidth;
                 if (finalFontSize !== null) updatedEl.fontSize = finalFontSize;
+                if (finalHeight !== null) updatedEl.height = finalHeight;
                 return updatedEl;
               }
               return el;
@@ -662,6 +502,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
       
       currentResizeWidthRef.current = null;
       currentResizeFontSizeRef.current = null;
+      currentResizeHeightRef.current = null;
       setResizingItem(null);
     };
 
@@ -792,8 +633,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
   };
 
   // Custom visual template preset applicator
-  const applyPresetDesign = (presetIndex: number) => {
-    const preset = BEAUTIFUL_PRESETS[presetIndex];
+  const applyPresetDesign = (preset: (typeof BEAUTIFUL_PRESETS)[0]) => {
     if (!preset) return;
     const updated: CertificateTemplate = {
       ...currentTemplate,
@@ -1056,6 +896,11 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
     draggedItemRef.current = draggedItem;
   }, [draggedItem]);
 
+  const snapToGridRef = useRef(snapToGrid);
+  useEffect(() => {
+    snapToGridRef.current = snapToGrid;
+  }, [snapToGrid]);
+
   const currentCoordsRef = useRef<{ x: number; y: number } | null>(null);
 
   // Document level mouse listeners to ensure smooth drags outside canvas bounds
@@ -1080,6 +925,11 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
         
         let newX = Math.round(currentDrag.startLeft + percentDeltaX);
         let newY = Math.round(currentDrag.startTop + percentDeltaY);
+        
+        if (snapToGridRef.current) {
+          newX = Math.round(newX / 2.5) * 2.5;
+          newY = Math.round(newY / 2.5) * 2.5;
+        }
         
         // Keep boundaries safe
         newX = Math.min(100, Math.max(0, newX));
@@ -1193,6 +1043,32 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
       color,
       xPercent: 50,
       yPercent: 50,
+      align: 'center'
+    };
+
+    const updated = {
+      ...currentTemplate,
+      textElements: [...currentTemplate.textElements, newElement]
+    };
+    setCurrentTemplate(updated);
+    pushToHistory(updated);
+    setSelectedElId(id);
+  };
+
+  const addNewRedactionPatch = () => {
+    const id = `t-redaction-${Math.random().toString(36).substring(2, 7)}`;
+    const newElement: TextElement = {
+      id,
+      type: 'redaction',
+      text: '',
+      xPercent: 50,
+      yPercent: 45,
+      width: 200,
+      height: 40,
+      fontSize: 12,
+      fontWeight: 'normal',
+      fontFamily: 'Inter',
+      color: '#FFFFFF',
       align: 'center'
     };
 
@@ -1364,6 +1240,28 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
               <Redo2 className="w-4 h-4" />
             </button>
           </div>
+ 
+          {/* Layout Guides & Snapping Tools */}
+          <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded p-0.5 shadow-inner">
+            <button
+              type="button"
+              onClick={() => setGridVisible(!gridVisible)}
+              className={`p-1.5 rounded transition-all text-xs font-bold flex items-center gap-1 cursor-pointer ${gridVisible ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-550 hover:bg-slate-200 hover:text-slate-900'}`}
+              title="Toggle Alignment Grid Dots"
+            >
+              <Grid className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline text-[10px]">Grid</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSnapToGrid(!snapToGrid)}
+              className={`p-1.5 rounded transition-all text-xs font-bold flex items-center gap-1 cursor-pointer ${snapToGrid ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-550 hover:bg-slate-200 hover:text-slate-900'}`}
+              title="Snap to Grid increments (2.5%)"
+            >
+              <MousePointerClick className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline text-[10px]">Snap</span>
+            </button>
+          </div>
 
           <button
             onClick={() => onSave(currentTemplate)}
@@ -1417,32 +1315,98 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
           <div className="p-5 space-y-6">
             
             {/* TAB: TEMPLATES */}
-            {activeSideTab === 'templates' && (
-              <div className="space-y-4">
-                <div className="space-y-1">
-                  <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1">
-                    <Sparkles className="w-3.5 h-3.5 text-indigo-650" /> Pre-designed Presets
-                  </h3>
-                  <p className="text-[10px] text-slate-500">Clicking apply overwrites layout parameters to match gorgeous curated styles instantly.</p>
-                </div>
-                
-                <div className="space-y-3 pt-2">
-                  {BEAUTIFUL_PRESETS.map((it, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => applyPresetDesign(idx)}
-                      className="w-full text-left text-xs bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg p-3 transition-all duration-200 flex flex-col gap-1 hover:border-indigo-500 shadow-sm"
-                    >
-                      <div className="flex justify-between items-center w-full">
-                        <span className="font-bold text-slate-800">{it.name}</span>
-                        <ChevronSign />
+            {activeSideTab === 'templates' && (() => {
+              const filteredPresets = BEAUTIFUL_PRESETS.filter(preset => {
+                const matchesCategory = presetActiveCategory === 'All' || preset.category === presetActiveCategory;
+                const matchesSearch = preset.name.toLowerCase().includes(presetSearchQuery.toLowerCase()) ||
+                                      preset.programName.toLowerCase().includes(presetSearchQuery.toLowerCase()) ||
+                                      (preset.category && preset.category.toLowerCase().includes(presetSearchQuery.toLowerCase()));
+                return matchesCategory && matchesSearch;
+              });
+
+              return (
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1">
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-650" /> Pre-designed Presets
+                    </h3>
+                    <p className="text-[10px] text-slate-500">Search and select from 50+ professional MNC-grade certificate templates.</p>
+                  </div>
+
+                  {/* Search Input Box */}
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={presetSearchQuery}
+                      onChange={(e) => setPresetSearchQuery(e.target.value)}
+                      placeholder="Search templates..."
+                      className="w-full text-xs border border-slate-200 rounded-lg pl-8 pr-3 py-1.5 focus:border-indigo-500 outline-none text-slate-800 bg-white"
+                    />
+                    <div className="absolute left-2.5 top-2 text-slate-400">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                    </div>
+                    {presetSearchQuery && (
+                      <button
+                        onClick={() => setPresetSearchQuery('')}
+                        className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Category Pills List */}
+                  <div className="flex gap-1 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-slate-200">
+                    {['All', 'Technology & MNC', 'Business & Consulting', 'Academic & University', 'Creative & Design', 'Health & Wellness', 'Professional Certifications'].map(cat => (
+                      <button
+                        key={cat}
+                        onClick={() => setPresetActiveCategory(cat)}
+                        className={`px-2.5 py-1 rounded-full text-[10px] font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                          presetActiveCategory === cat
+                            ? 'bg-indigo-600 text-white shadow-sm'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-650'
+                        }`}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Results Count */}
+                  <div className="text-[10px] text-slate-400 font-medium">
+                    Showing {filteredPresets.length} of {BEAUTIFUL_PRESETS.length} designs
+                  </div>
+                  
+                  <div className="space-y-2.5 pt-1">
+                    {filteredPresets.length > 0 ? (
+                      filteredPresets.map((it, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => applyPresetDesign(it)}
+                          className="w-full text-left text-xs bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-indigo-500 rounded-lg p-3 transition-all duration-200 flex flex-col gap-1.5 shadow-sm cursor-pointer"
+                        >
+                          <div className="flex justify-between items-center w-full gap-2">
+                            <span className="font-bold text-slate-800 truncate">{it.name}</span>
+                            <ChevronSign />
+                          </div>
+                          <p className="text-[9px] text-slate-500 font-mono line-clamp-1 italic">{it.programName}</p>
+                          <div className="flex justify-between items-center text-[8px] text-slate-400 font-mono uppercase">
+                            <span>{it.category}</span>
+                            <span>{it.borderStyle || 'solid'} • {it.sealType || 'none'}</span>
+                          </div>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="text-center py-6 text-slate-400 text-[11px] bg-slate-50 rounded-lg border border-dashed border-slate-200">
+                        No certificate templates match your search.
                       </div>
-                      <span className="text-[10px] text-slate-500 font-mono capitalize">Border: {it.borderStyle} • Seal: {it.sealType}</span>
-                    </button>
-                  ))}
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* TAB: AI Certificate Generator */}
             {activeSideTab === 'ai' && (
@@ -1577,6 +1541,12 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                   >
                     + Add Body Paragraph Block
                   </button>
+                  <button
+                    onClick={() => addNewRedactionPatch()}
+                    className="bg-slate-50 hover:bg-indigo-50 text-indigo-600 hover:text-indigo-700 p-3 rounded-lg text-center font-bold border border-slate-200 hover:border-indigo-500 transition-colors col-span-2 shadow-sm cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> + Add Eraser / Cover Patch
+                  </button>
                 </div>
 
                 {/* Inline text element editor */}
@@ -1584,145 +1554,238 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                   (() => {
                     const el = currentTemplate.textElements.find(item => item.id === selectedElId);
                     if (!el) return null;
+                    const isRedaction = el.type === 'redaction';
                     return (
                       <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-4 shadow-sm animate-fade-in text-slate-800">
                         <div className="flex justify-between items-center">
-                          <span className="text-[10px] font-bold uppercase text-indigo-600">Selected Layer Controls</span>
+                          <span className="text-[10px] font-bold uppercase text-indigo-600">
+                            {isRedaction ? 'Eraser / Patch Controls' : 'Selected Layer Controls'}
+                          </span>
                           <button
                             onClick={() => deleteSelectedElement()}
                             className="bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 p-1.5 rounded transition-colors cursor-pointer"
-                            title="Delete this text layer"
+                            title={isRedaction ? 'Delete cover patch' : 'Delete this text layer'}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
 
-                        {/* Text Editor Box */}
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-slate-500 uppercase">Edit Text</label>
-                          <textarea
-                            value={el.text}
-                            onChange={(e) => updateTextElementProperty(el.id, 'text', e.target.value)}
-                            className="w-full bg-white border border-slate-200 rounded p-2 text-slate-900 font-mono focus:outline-none focus:border-indigo-500 text-xs h-16"
-                          />
-                        </div>
+                        {isRedaction ? (
+                          <div className="space-y-4">
+                            <p className="text-[10px] text-slate-500">
+                              Use this solid colored patch to hide existing text (e.g. names) on uploaded templates. Matches the card background to erase text seamlessly.
+                            </p>
+                            
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1 col-span-2">
+                                <label className="text-[10px] uppercase text-slate-500 font-bold">Patch Color (Match Backdrop)</label>
+                                <div className="flex gap-2 items-center">
+                                  <input
+                                    type="color"
+                                    value={el.color || '#FFFFFF'}
+                                    onChange={(e) => updateTextElementProperty(el.id, 'color', e.target.value)}
+                                    className="w-12 h-8 bg-white rounded border border-slate-200 cursor-pointer p-0.5 focus:outline-none"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={el.color || '#FFFFFF'}
+                                    onChange={(e) => updateTextElementProperty(el.id, 'color', e.target.value)}
+                                    className="w-full bg-white border border-slate-200 p-1.5 rounded text-xs text-slate-900 font-mono focus:outline-none"
+                                    placeholder="#FFFFFF"
+                                  />
+                                </div>
+                              </div>
 
-                        {/* Dynamic Tag Injector helpers */}
-                        <div className="space-y-1.5">
-                          <span className="text-[10px] font-bold text-slate-500 uppercase">Insert Spreadsheet Placeholder Fields</span>
-                          <div className="flex flex-wrap gap-1.5">
-                            {getPlaceholderTags().map(tag => (
-                              <button
-                                key={tag}
-                                onClick={() => insertPlaceholderTag(tag)}
-                                className="bg-white hover:bg-slate-100 text-slate-700 text-[9px] font-mono px-2 py-0.5 rounded transition-colors border border-slate-200 shadow-sm cursor-pointer animate-fade-in"
-                              >
-                                {"{{" + tag + "}}"}
-                              </button>
-                            ))}
+                              <div className="space-y-1 col-span-2 pt-2 border-t border-slate-200">
+                                <div className="flex justify-between items-center">
+                                  <label className="text-[10px] uppercase text-slate-500 font-bold">Width: {el.width || 200}px</label>
+                                </div>
+                                <input
+                                  type="range"
+                                  min="10"
+                                  max="1000"
+                                  value={el.width || 200}
+                                  onChange={(e) => updateTextElementProperty(el.id, 'width', parseInt(e.target.value))}
+                                  className="w-full cursor-pointer mt-1"
+                                />
+                              </div>
+
+                              <div className="space-y-1 col-span-2 pt-2 border-t border-slate-200">
+                                <div className="flex justify-between items-center">
+                                  <label className="text-[10px] uppercase text-slate-500 font-bold">Height: {el.height || 40}px</label>
+                                </div>
+                                <input
+                                  type="range"
+                                  min="5"
+                                  max="600"
+                                  value={el.height || 40}
+                                  onChange={(e) => updateTextElementProperty(el.id, 'height', parseInt(e.target.value))}
+                                  className="w-full cursor-pointer mt-1"
+                                />
+                              </div>
+                            </div>
                           </div>
-                        </div>
+                        ) : (
+                          <>
+                            {/* Text Editor Box */}
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-slate-500 uppercase">Edit Text</label>
+                              <textarea
+                                value={el.text}
+                                onChange={(e) => updateTextElementProperty(el.id, 'text', e.target.value)}
+                                className="w-full bg-white border border-slate-200 rounded p-2 text-slate-900 font-mono focus:outline-none focus:border-indigo-500 text-xs h-16"
+                              />
+                            </div>
 
-                        {/* Styling parameters */}
-                        <div className="grid grid-cols-2 gap-3 pt-2">
-                          <div className="space-y-1 col-span-2">
-                            <label className="text-[10px] uppercase text-slate-500 font-bold">Typography</label>
-                            <select
-                               value={el.fontFamily}
-                               onChange={(e) => updateTextElementProperty(el.id, 'fontFamily', e.target.value)}
-                               className="w-full bg-white border border-slate-200 p-1.5 rounded text-slate-900 focus:outline-none"
+                            {/* Dynamic Tag Injector helpers */}
+                            <div className="space-y-1.5">
+                              <span className="text-[10px] font-bold text-slate-500 uppercase">Insert Spreadsheet Placeholder Fields</span>
+                              <div className="flex flex-wrap gap-1.5">
+                                {getPlaceholderTags().map(tag => (
+                                  <button
+                                    key={tag}
+                                    onClick={() => insertPlaceholderTag(tag)}
+                                    className="bg-white hover:bg-slate-100 text-slate-700 text-[9px] font-mono px-2 py-0.5 rounded transition-colors border border-slate-200 shadow-sm cursor-pointer animate-fade-in"
+                                  >
+                                    {"{{" + tag + "}}"}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Styling parameters */}
+                            <div className="grid grid-cols-2 gap-3 pt-2">
+                              <div className="space-y-1 col-span-2">
+                                <label className="text-[10px] uppercase text-slate-500 font-bold">Typography</label>
+                                <select
+                                   value={el.fontFamily}
+                                   onChange={(e) => updateTextElementProperty(el.id, 'fontFamily', e.target.value)}
+                                   className="w-full bg-white border border-slate-200 p-1.5 rounded text-slate-900 focus:outline-none"
+                                >
+                                  <option value="Inter">Inter (Sans-Serif)</option>
+                                  <option value="Space Grotesk">Space Grotesk (Tech Heading)</option>
+                                  <option value="Playfair Display">Playfair Display (Serif)</option>
+                                  <option value="JetBrains Mono">JetBrains Mono (Monospace)</option>
+                                </select>
+                              </div>
+
+                              <div className="space-y-1">
+                                <label className="text-[10px] uppercase text-slate-500 font-bold">Size (pt)</label>
+                                <input
+                                  type="number"
+                                  min="6"
+                                  max="80"
+                                  value={el.fontSize}
+                                  onChange={(e) => updateTextElementProperty(el.id, 'fontSize', parseInt(e.target.value) || 12)}
+                                  className="w-full bg-white border border-slate-200 p-1.5 rounded text-slate-900 focus:outline-none"
+                                />
+                              </div>
+
+                              <div className="space-y-1">
+                                <label className="text-[10px] uppercase text-slate-500 font-bold">Color</label>
+                                <input
+                                  type="color"
+                                  value={el.color}
+                                  onChange={(e) => updateTextElementProperty(el.id, 'color', e.target.value)}
+                                  className="w-full h-8 bg-white rounded border border-slate-200 cursor-pointer p-0.5 focus:outline-none"
+                                />
+                              </div>
+
+                              <div className="space-y-1 col-span-2">
+                                <label className="text-[10px] uppercase text-slate-500 font-bold">Weight & Align</label>
+                                <div className="flex gap-1.5">
+                                  {/* Weight toggles */}
+                                  <button
+                                    onClick={() => updateTextElementProperty(el.id, 'fontWeight', el.fontWeight === 'bold' ? 'normal' : 'bold')}
+                                    className={`flex-1 p-1.5 rounded border transition-colors cursor-pointer ${el.fontWeight === 'bold' ? 'bg-indigo-600 border-indigo-550 text-white font-bold' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-105 hover:text-slate-900'}`}
+                                  >
+                                    <strong>B</strong>
+                                  </button>
+                                  <button
+                                    onClick={() => updateTextElementProperty(el.id, 'fontWeight', el.fontWeight === 'medium' ? 'normal' : 'medium')}
+                                    className={`flex-1 p-1.5 rounded border transition-colors cursor-pointer ${el.fontWeight === 'medium' ? 'bg-indigo-600 border-indigo-550 text-white font-bold' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-105 hover:text-slate-900'}`}
+                                  >
+                                    <strong>M</strong>
+                                  </button>
+                                  
+                                  {/* Alignments */}
+                                  <button
+                                    onClick={() => updateTextElementProperty(el.id, 'align', 'left')}
+                                    className={`p-1.5 rounded border transition-colors cursor-pointer ${el.align === 'left' ? 'bg-indigo-600 border-indigo-550 text-white' : 'bg-white border-slate-200 text-slate-550'}`}
+                                  >
+                                    <AlignLeft className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => updateTextElementProperty(el.id, 'align', 'center')}
+                                    className={`p-1.5 rounded border transition-colors cursor-pointer ${el.align === 'center' ? 'bg-indigo-600 border-indigo-550 text-white' : 'bg-white border-slate-200 text-slate-555'}`}
+                                  >
+                                    <AlignCenter className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => updateTextElementProperty(el.id, 'align', 'right')}
+                                    className={`p-1.5 rounded border transition-colors cursor-pointer ${el.align === 'right' ? 'bg-indigo-600 border-indigo-550 text-white' : 'bg-white border-slate-200 text-slate-555'}`}
+                                  >
+                                    <AlignRight className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="space-y-1 col-span-2 pt-2 border-t border-slate-200">
+                                <div className="flex justify-between items-center">
+                                  <label className="text-[10px] uppercase text-slate-500 font-bold">Box Width: {el.width || 512}px</label>
+                                  <button 
+                                    onClick={() => updateTextElementProperty(el.id, 'width', undefined)}
+                                    className="text-[9px] text-indigo-650 font-bold hover:underline cursor-pointer"
+                                  >
+                                    Auto/Reset
+                                  </button>
+                                </div>
+                                <input
+                                  type="range"
+                                  min="100"
+                                  max="1000"
+                                  value={el.width || 512}
+                                  onChange={(e) => updateTextElementProperty(el.id, 'width', parseInt(e.target.value))}
+                                  className="w-full cursor-pointer mt-1"
+                                />
+                              </div>
+                            </div>
+                          </>
+                        )}
+
+                        {/* QUICK ALIGNMENT SECTION (APPLICABLE FOR BOTH TEXT AND REDACTION ELEMENTS) */}
+                        <div className="space-y-2 pt-3 border-t border-slate-200">
+                          <label className="text-[10px] uppercase text-slate-500 font-bold block">Quick Layout Alignment</label>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <button
+                              onClick={() => updateTextElementProperty(el.id, 'xPercent', 50)}
+                              className="bg-white hover:bg-slate-100 border border-slate-200 rounded p-1.5 text-[10px] text-slate-700 transition-colors cursor-pointer text-center font-medium"
                             >
-                              <option value="Inter">Inter (Sans-Serif)</option>
-                              <option value="Space Grotesk">Space Grotesk (Tech Heading)</option>
-                              <option value="Playfair Display">Playfair Display (Serif)</option>
-                              <option value="JetBrains Mono">JetBrains Mono (Monospace)</option>
-                            </select>
+                              Center Horizontally (50%)
+                            </button>
+                            <button
+                              onClick={() => updateTextElementProperty(el.id, 'yPercent', 50)}
+                              className="bg-white hover:bg-slate-100 border border-slate-200 rounded p-1.5 text-[10px] text-slate-700 transition-colors cursor-pointer text-center font-medium"
+                            >
+                              Center Vertically (50%)
+                            </button>
+                            <button
+                              onClick={() => updateTextElementProperty(el.id, 'xPercent', 15)}
+                              className="bg-white hover:bg-slate-100 border border-slate-200 rounded p-1.5 text-[10px] text-slate-700 transition-colors cursor-pointer text-center font-medium"
+                            >
+                              Align Left Margin (15%)
+                            </button>
+                            <button
+                              onClick={() => updateTextElementProperty(el.id, 'xPercent', 85)}
+                              className="bg-white hover:bg-slate-100 border border-slate-200 rounded p-1.5 text-[10px] text-slate-700 transition-colors cursor-pointer text-center font-medium"
+                            >
+                              Align Right Margin (85%)
+                            </button>
                           </div>
+                        </div>
 
-                          <div className="space-y-1">
-                            <label className="text-[10px] uppercase text-slate-500 font-bold">Size (pt)</label>
-                            <input
-                              type="number"
-                              min="6"
-                              max="80"
-                              value={el.fontSize}
-                              onChange={(e) => updateTextElementProperty(el.id, 'fontSize', parseInt(e.target.value) || 12)}
-                              className="w-full bg-white border border-slate-200 p-1.5 rounded text-slate-900 focus:outline-none"
-                            />
-                          </div>
-
-                          <div className="space-y-1">
-                            <label className="text-[10px] uppercase text-slate-500 font-bold">Color</label>
-                            <input
-                              type="color"
-                              value={el.color}
-                              onChange={(e) => updateTextElementProperty(el.id, 'color', e.target.value)}
-                              className="w-full h-8 bg-white rounded border border-slate-200 cursor-pointer p-0.5 focus:outline-none"
-                            />
-                          </div>
-
-                          <div className="space-y-1 col-span-2">
-                            <label className="text-[10px] uppercase text-slate-500 font-bold">Weight & Align</label>
-                            <div className="flex gap-1.5">
-                              {/* Weight toggles */}
-                              <button
-                                onClick={() => updateTextElementProperty(el.id, 'fontWeight', el.fontWeight === 'bold' ? 'normal' : 'bold')}
-                                className={`flex-1 p-1.5 rounded border transition-colors cursor-pointer ${el.fontWeight === 'bold' ? 'bg-indigo-600 border-indigo-550 text-white font-bold' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-105 hover:text-slate-900'}`}
-                              >
-                                <strong>B</strong>
-                              </button>
-                              <button
-                                onClick={() => updateTextElementProperty(el.id, 'fontWeight', el.fontWeight === 'medium' ? 'normal' : 'medium')}
-                                className={`flex-1 p-1.5 rounded border transition-colors cursor-pointer ${el.fontWeight === 'medium' ? 'bg-indigo-600 border-indigo-550 text-white font-bold' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-105 hover:text-slate-900'}`}
-                              >
-                                <strong>M</strong>
-                              </button>
-                              
-                              {/* Alignments */}
-                              <button
-                                onClick={() => updateTextElementProperty(el.id, 'align', 'left')}
-                                className={`p-1.5 rounded border transition-colors cursor-pointer ${el.align === 'left' ? 'bg-indigo-600 border-indigo-550 text-white' : 'bg-white border-slate-200 text-slate-550'}`}
-                              >
-                                <AlignLeft className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => updateTextElementProperty(el.id, 'align', 'center')}
-                                className={`p-1.5 rounded border transition-colors cursor-pointer ${el.align === 'center' ? 'bg-indigo-600 border-indigo-550 text-white' : 'bg-white border-slate-200 text-slate-550'}`}
-                              >
-                                <AlignCenter className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => updateTextElementProperty(el.id, 'align', 'right')}
-                                className={`p-1.5 rounded border transition-colors cursor-pointer ${el.align === 'right' ? 'bg-indigo-600 border-indigo-550 text-white' : 'bg-white border-slate-200 text-slate-555'}`}
-                              >
-                                <AlignRight className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="space-y-1 col-span-2 pt-2 border-t border-slate-200">
-                            <div className="flex justify-between items-center">
-                              <label className="text-[10px] uppercase text-slate-500 font-bold">Box Width: {el.width || 512}px</label>
-                              <button 
-                                onClick={() => updateTextElementProperty(el.id, 'width', undefined)}
-                                className="text-[9px] text-indigo-650 font-bold hover:underline cursor-pointer"
-                              >
-                                Auto/Reset
-                              </button>
-                            </div>
-                            <input
-                              type="range"
-                              min="100"
-                              max="1000"
-                              value={el.width || 512}
-                              onChange={(e) => updateTextElementProperty(el.id, 'width', parseInt(e.target.value))}
-                              className="w-full cursor-pointer mt-1"
-                            />
-                          </div>
-
-                          <div className="col-span-2 pt-1 border-t border-slate-200">
-                            <span className="text-[10px] text-slate-400 font-mono italic block text-center">Coordinate: Left {el.xPercent}% • Top {el.yPercent}%</span>
-                          </div>
+                        <div className="col-span-2 pt-1 border-t border-slate-200">
+                          <span className="text-[10px] text-slate-400 font-mono italic block text-center">Position: Left {el.xPercent}% • Top {el.yPercent}%</span>
                         </div>
                       </div>
                     );
@@ -2552,6 +2615,17 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
               
               {/* Symmetrical Corner Accents */}
               {renderCornerFlourish(currentTemplate.decorFlourish || 'none', currentTemplate.borderColor)}
+
+              {/* Visible Alignment Grid Overlay */}
+              {gridVisible && (
+                <div 
+                  className="absolute inset-0 pointer-events-none z-10 opacity-[0.22]" 
+                  style={{
+                    backgroundImage: 'radial-gradient(circle, #6366f1 1.2px, transparent 1.2px)',
+                    backgroundSize: '2.5% 2.5%'
+                  }}
+                />
+              )}
               
               {/* Drag Alignment floating guideline simulation */}
               {draggedItem && (
@@ -2678,8 +2752,73 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                 </div>
               )}
 
-              {/* DYNAMIC TEXT LAYERS WYSIWYG ABSOLUTE COORDINATES MAP */}
               {currentTemplate.textElements.map(el => {
+                if (el.type === 'redaction') {
+                  const isSelected = el.id === selectedElId;
+                  return (
+                    <div
+                      key={el.id}
+                      id={`canvas-item-${el.id}`}
+                      onMouseDown={(e) => handleMouseDown(e, el.id, el.xPercent, el.yPercent)}
+                      onContextMenu={(e) => handleContextMenu(e, el.id)}
+                      style={{
+                        position: 'absolute',
+                        left: `${el.xPercent}%`,
+                        top: `${el.yPercent}%`,
+                        transform: 'translate(-50%, -50%)',
+                        width: `${el.width || 200}px`,
+                        height: `${el.height || 40}px`,
+                        backgroundColor: el.color || '#FFFFFF',
+                        zIndex: isSelected ? 45 : 15,
+                        opacity: el.opacity !== undefined ? el.opacity : 1
+                      }}
+                      className={`cursor-pointer select-none transition-all ${
+                        isSelected 
+                          ? 'outline border-dashed outline-2 outline-indigo-500 outline-offset-2' 
+                          : 'hover:outline hover:outline-dashed hover:outline-1 hover:outline-slate-400 hover:outline-offset-2'
+                      }`}
+                      title="Redaction Eraser Patch (Drag & Resize to cover text)"
+                    >
+                      <span className="absolute inset-0 flex items-center justify-center text-[8px] font-mono font-bold text-indigo-500/25 pointer-events-none uppercase tracking-wider select-none overflow-hidden truncate">
+                        Eraser Patch
+                      </span>
+
+                      {isSelected && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              deleteSelectedElement();
+                            }}
+                            className="absolute right-[-14px] top-[-26px] bg-rose-600 hover:bg-rose-700 text-white rounded-full p-1 shadow-lg transition-transform hover:scale-110 z-[65] border border-white flex items-center justify-center pointer-events-auto cursor-pointer"
+                            title="Delete Eraser"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+
+                          <div
+                            onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'bottom-right', el.width || 200, undefined, el.height || 40)}
+                            className="absolute right-[-5px] bottom-[-5px] w-2 h-2 bg-indigo-600 rounded-full cursor-nwse-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
+                            title="Resize"
+                          />
+                          <div
+                            onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'right', el.width || 200, undefined, el.height || 40)}
+                            className="absolute right-[-5px] top-1/2 -translate-y-1/2 w-1.5 h-3 bg-indigo-600 rounded-sm cursor-ew-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
+                            title="Resize width"
+                          />
+                          <div
+                            onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'bottom', el.width || 200, undefined, el.height || 40)}
+                            className="absolute bottom-[-5px] left-1/2 -translate-x-1/2 w-3 h-1.5 bg-indigo-600 rounded-sm cursor-ns-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
+                            title="Resize height"
+                          />
+                        </>
+                      )}
+                    </div>
+                  );
+                }
+
                 if (el.imageUrl) {
                   const isSelected = el.id === selectedElId;
                   return (
@@ -2801,7 +2940,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                       transform: 'translate(-50%, -50%)',
                       color: el.color,
                       fontSize: `${el.fontSize * 0.09}cqw`,
-                      textAlign: el.align,
+                      textAlign: el.align as any,
                       zIndex: isSelected ? 40 : 20,
                       maxWidth: el.width ? `${el.width}px` : '512px'
                     }}
