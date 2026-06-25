@@ -6,7 +6,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Award, ShieldAlert, CheckCircle, Search, ArrowRight, 
-  Check, Zap, Layers, Sparkles, Star, RefreshCw
+  Check, Zap, Layers, Sparkles, Star, RefreshCw,
+  Terminal, Copy, Globe, Cpu, Server, Database, Activity
 } from 'lucide-react';
 import { HeroScrollDemo } from './ui/demo';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -22,6 +23,7 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
   const [previewLayout, setPreviewLayout] = useState<'google' | 'stellar'>('google');
   const [scrollY, setScrollY] = useState(0);
   const [hoverCard, setHoverCard] = useState({ x: 0, y: 0, hover: false });
+  const [activeFeatureTab, setActiveFeatureTab] = useState(0);
 
   // Cryptographic Trust Sandbox State
   const [sandboxInput, setSandboxInput] = useState('Recipient: John Doe\nCredential: B.S. Cybersecurity\nSecurity Seal: VERIFIED\nPlatform: Glint Ledger');
@@ -91,6 +93,19 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
     navigator.clipboard.writeText(sandboxHash);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Card Mouse Move for 3D Tilt Effect
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const card = e.currentTarget;
+    const rect = card.getBoundingClientRect();
+    const x = e.clientX - rect.left - rect.width / 2;
+    const y = e.clientY - rect.top - rect.height / 2;
+    setHoverCard({ x: x / 20, y: y / 20, hover: true });
+  };
+
+  const handleMouseLeave = () => {
+    setHoverCard({ x: 0, y: 0, hover: false });
   };
 
   return (

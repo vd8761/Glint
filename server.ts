@@ -72,18 +72,26 @@ const safeRollback = async (client: any) => {
 };
 
 // Reusable SMTP Mail Transporter via Nodemailer
-const smtpConfigured = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+const smtpConfigured = !!(
+  (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) ||
+  process.env.RESEND_API_KEY
+);
 let mailTransporter: any = null;
 
 if (smtpConfigured) {
-  const secure = process.env.SMTP_PORT === '465';
+  const host = process.env.SMTP_HOST || 'smtp.resend.com';
+  const port = parseInt(process.env.SMTP_PORT || (process.env.RESEND_API_KEY ? '465' : '587'), 10);
+  const secure = process.env.SMTP_PORT ? process.env.SMTP_PORT === '465' : true;
+  const user = process.env.SMTP_USER || 'resend';
+  const pass = process.env.SMTP_PASS || process.env.RESEND_API_KEY;
+
   mailTransporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT || '587', 10),
+    host: host,
+    port: port,
     secure: secure,
     auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS
+      user: user,
+      pass: pass
     },
     tls: {
       rejectUnauthorized: false
@@ -91,7 +99,7 @@ if (smtpConfigured) {
   });
   logger.info('SMTP Mail Transporter successfully initialized.');
 } else {
-  logger.warn('SMTP settings missing in env variables. Emails will be logged (simulated) but not delivered.');
+  logger.warn('SMTP settings/Resend API key missing in env variables. Emails will be logged (simulated) but not delivered.');
 }
 
 /**
@@ -116,7 +124,7 @@ const sendVerificationEmail = async (params: {
 
   try {
     let fromName = process.env.SMTP_FROM_NAME || 'Glint';
-    let fromEmail = process.env.SMTP_FROM || 'no-reply@originbi.com';
+    let fromEmail = process.env.RESEND_FROM_EMAIL || process.env.SMTP_FROM || 'no-reply@originbi.com';
     let primaryColor = '#0f172a'; // default dark slate
     let brandName = 'Glint';
     let logoUrl = '';
@@ -132,7 +140,7 @@ const sendVerificationEmail = async (params: {
       if (row.sender_name) fromName = row.sender_name;
       if (row.sender_email) {
         // Enforce SMTP_FROM domain verification to prevent Resend / SES from rejecting the mail
-        const allowedSender = process.env.SMTP_FROM || 'no-reply@originbi.com';
+        const allowedSender = process.env.RESEND_FROM_EMAIL || process.env.SMTP_FROM || 'no-reply@originbi.com';
         const allowedDomain = allowedSender.split('@')[1];
         const currentDomain = row.sender_email.split('@')[1];
         if (allowedDomain && currentDomain && allowedDomain.toLowerCase() !== currentDomain.toLowerCase()) {
