@@ -36,6 +36,23 @@ const GRADIENT_OPTIONS = [
   { name: 'Rosewood Petals', value: 'linear-gradient(135deg, #FAF5F5 0%, #FEE2E2 50%, #FCE7F3 100%)', isGradient: true },
 ];
 
+const FONT_OPTIONS = [
+  { value: 'Inter', label: 'Inter (Sans-Serif)' },
+  { value: 'Space Grotesk', label: 'Space Grotesk (Tech)' },
+  { value: 'Playfair Display', label: 'Playfair Display (Serif)' },
+  { value: 'JetBrains Mono', label: 'JetBrains Mono (Mono)' },
+  { value: 'Montserrat', label: 'Montserrat (Modern)' },
+  { value: 'Poppins', label: 'Poppins (Geometric)' },
+  { value: 'Lora', label: 'Lora (Classic Serif)' },
+  { value: 'Cormorant Garamond', label: 'Cormorant Garamond (Elegant)' },
+  { value: 'Libre Baskerville', label: 'Libre Baskerville (Bold)' },
+  { value: 'Cinzel', label: 'Cinzel (Majestic)' },
+  { value: 'Alex Brush', label: 'Alex Brush (Calligraphy)' },
+  { value: 'Dancing Script', label: 'Dancing Script (Handwritten)' },
+  { value: 'Great Vibes', label: 'Great Vibes (Flowing)' },
+  { value: 'Parisienne', label: 'Parisienne (Classic Script)' }
+];
+
 export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace', primaryColor = '#0F172A', token, programs = [] }: CanvaEditorProps) {
   // Current active template editing state
   const [currentTemplate, setCurrentTemplate] = useState<CertificateTemplate>(JSON.parse(JSON.stringify(template)));
@@ -1401,17 +1418,16 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
   };
 
   // Simulated handwriting scripts
-  const renderHandwrittenSignature = (name: string, styleId: string = 'elegant') => {
-    let fontStyle = { fontFamily: '"Playfair Display", serif', fontStyle: 'italic' };
-    if (styleId === 'bold_brush') {
-      fontStyle = { fontFamily: 'sans-serif', fontStyle: 'italic' };
-    } else if (styleId === 'executive') {
-      fontStyle = { fontFamily: '"JetBrains Mono", monospace', fontStyle: 'italic' };
-    }
+  const renderHandwrittenSignature = (name: string, fontFamily: string = 'Playfair Display', fontSize: number = 18) => {
+    let style = { 
+      fontFamily: fontFamily, 
+      fontStyle: 'italic',
+      fontSize: `${fontSize * 0.09}cqw`
+    };
     return (
       <div 
-        style={fontStyle}
-        className="text-center font-serif text-lg tracking-wide border-b border-slate-300 pb-1 text-slate-800"
+        style={style}
+        className="text-center tracking-wide border-b border-slate-400 pb-1 text-slate-800"
       >
         {name || 'Thomas Kurian'}
       </div>
@@ -1969,10 +1985,9 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                                   onChange={(e) => updateTextElementProperty(el.id, 'fontFamily', e.target.value)}
                                   className="w-full bg-white border border-slate-200 p-1.5 rounded text-slate-900 focus:outline-none"
                                 >
-                                  <option value="Inter">Inter (Sans-Serif)</option>
-                                  <option value="Space Grotesk">Space Grotesk (Tech Heading)</option>
-                                  <option value="Playfair Display">Playfair Display (Serif)</option>
-                                  <option value="JetBrains Mono">JetBrains Mono (Monospace)</option>
+                                  {FONT_OPTIONS.map(font => (
+                                    <option key={font.value} value={font.value}>{font.label}</option>
+                                  ))}
                                 </select>
                               </div>
 
@@ -2636,6 +2651,31 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                         placeholder="Chancellor"
                       />
                     </div>
+                    
+                    <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-200/50 mt-2">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-500 uppercase">Typography</label>
+                        <select
+                          value={currentTemplate.signatoryFontFamily || 'Playfair Display'}
+                          onChange={(e) => updateTemplateProperty('signatoryFontFamily', e.target.value)}
+                          className="w-full bg-white border border-slate-200 p-1.5 rounded text-[9px] text-slate-900 focus:outline-none"
+                        >
+                          {FONT_OPTIONS.map(font => (
+                            <option key={font.value} value={font.value}>{font.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-500 uppercase">Size (pt)</label>
+                        <input
+                          type="number"
+                          min="6" max="80"
+                          value={currentTemplate.signatoryFontSize || 18}
+                          onChange={(e) => updateTemplateProperty('signatoryFontSize', parseInt(e.target.value) || 18)}
+                          className="w-full bg-white border border-slate-200 p-1.5 rounded text-[9px] text-slate-900 focus:outline-none"
+                        />
+                      </div>
+                    </div>
 
                     {/* Signature Image Upload */}
                     <div className="space-y-2 pt-2 border-t border-slate-200/60">
@@ -2724,6 +2764,31 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                           />
                         </div>
 
+                        <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-200/50 mt-2">
+                          <div className="space-y-1">
+                            <label className="text-[9px] font-bold text-slate-500 uppercase">Typography</label>
+                            <select
+                              value={currentTemplate.secondarySignatoryFontFamily || 'Playfair Display'}
+                              onChange={(e) => updateTemplateProperty('secondarySignatoryFontFamily', e.target.value)}
+                              className="w-full bg-white border border-slate-200 p-1.5 rounded text-[9px] text-slate-900 focus:outline-none"
+                            >
+                              {FONT_OPTIONS.map(font => (
+                                <option key={font.value} value={font.value}>{font.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[9px] font-bold text-slate-500 uppercase">Size (pt)</label>
+                            <input
+                              type="number"
+                              min="6" max="80"
+                              value={currentTemplate.secondarySignatoryFontSize || 18}
+                              onChange={(e) => updateTemplateProperty('secondarySignatoryFontSize', parseInt(e.target.value) || 18)}
+                              className="w-full bg-white border border-slate-200 p-1.5 rounded text-[9px] text-slate-900 focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
                         {/* Secondary Signature Image Upload */}
                         <div className="space-y-2 pt-2 border-t border-slate-200/60">
                           <label className="text-[9px] font-bold text-slate-500 uppercase block">Signatory 2 Signature Image</label>
@@ -2775,19 +2840,6 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                         </div>
                       </div>
                     )}
-                  </div>
-
-                  <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg space-y-2">
-                    <span className="text-[9px] font-bold uppercase text-indigo-650">Preset Signature Graphic Font</span>
-                    <select
-                      value={currentTemplate.signatureStyle || 'elegant'}
-                      onChange={(e) => updateTemplateProperty('signatureStyle', e.target.value)}
-                      className="w-full bg-white border border-slate-200 p-1.5 rounded text-slate-800 focus:outline-none"
-                    >
-                      <option value="elegant">Graceful Edwardian Script</option>
-                      <option value="bold_brush">Bold Stroke Brush</option>
-                      <option value="executive">Flowing Executive Pen</option>
-</select>
                   </div>
 
                   {/* Predefined Logo icon override */}
@@ -3457,9 +3509,17 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                       alt="Signature"
                     />
                   ) : (
-                    renderHandwrittenSignature(currentTemplate.signatoryName || '', currentTemplate.signatureStyle || 'elegant')
+                    renderHandwrittenSignature(currentTemplate.signatoryName || '', currentTemplate.signatoryFontFamily || 'Playfair Display', currentTemplate.signatoryFontSize || 18)
                   )}
-                  <p className="text-[7px] font-bold uppercase tracking-widest text-slate-400 mt-1.5 leading-tight">{currentTemplate.signatoryTitle || 'CEO, Authority'}</p>
+                  <p 
+                    style={{
+                      fontFamily: currentTemplate.signatoryFontFamily || 'Inter',
+                      fontSize: currentTemplate.signatoryFontSize ? `${(currentTemplate.signatoryFontSize * 0.4) * 0.09}cqw` : undefined
+                    }}
+                    className="font-bold uppercase tracking-widest text-slate-400 mt-1.5 leading-tight text-[7px]"
+                  >
+                    {currentTemplate.signatoryTitle || 'CEO, Authority'}
+                  </p>
                   
                   {/* Coordinate Tag */}
                   <div className="absolute -top-6 left-1/2 -translate-x-1/2 font-mono text-[8px] bg-indigo-600 text-white px-1 py-0.2 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none select-none shrink-0 whitespace-nowrap">
@@ -3555,9 +3615,17 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                       alt="Secondary Signature"
                     />
                   ) : (
-                    renderHandwrittenSignature(currentTemplate.secondarySignatoryName || 'Dr. Clara Masters', currentTemplate.signatureStyle || 'elegant')
+                    renderHandwrittenSignature(currentTemplate.secondarySignatoryName || 'Dr. Clara Masters', currentTemplate.secondarySignatoryFontFamily || 'Playfair Display', currentTemplate.secondarySignatoryFontSize || 18)
                   )}
-                  <p className="text-[7px] font-bold uppercase tracking-widest text-slate-400 mt-1.5 leading-tight">{currentTemplate.secondarySignatoryTitle || 'Admissions Registrar'}</p>
+                  <p 
+                    style={{
+                      fontFamily: currentTemplate.secondarySignatoryFontFamily || 'Inter',
+                      fontSize: currentTemplate.secondarySignatoryFontSize ? `${(currentTemplate.secondarySignatoryFontSize * 0.4) * 0.09}cqw` : undefined
+                    }}
+                    className="font-bold uppercase tracking-widest text-slate-400 mt-1.5 leading-tight text-[7px]"
+                  >
+                    {currentTemplate.secondarySignatoryTitle || 'Admissions Registrar'}
+                  </p>
                   
                   {/* Coordinate Tag */}
                   <div className="absolute -top-6 left-1/2 -translate-x-1/2 font-mono text-[8px] bg-indigo-600 text-white px-1 py-0.2 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none select-none shrink-0 whitespace-nowrap">

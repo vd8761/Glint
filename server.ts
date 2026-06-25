@@ -1390,6 +1390,10 @@ app.get('/api/certificates/:id', async (req, res) => {
     }
     const cert = certResult.rows[0];
     
+    // Fetch associated program to get the actual templateId
+    const programResult = await pool.query('SELECT template_id FROM programs WHERE id = $1', [cert.program_id]);
+    const templateId = programResult.rows.length > 0 ? programResult.rows[0].template_id : null;
+    
     const wsResult = await pool.query('SELECT * FROM workspaces WHERE id = $1', [cert.workspace_id]);
     const branding = wsResult.rows.length > 0 ? {
       brandName: wsResult.rows[0].brand_name,
@@ -1408,6 +1412,7 @@ app.get('/api/certificates/:id', async (req, res) => {
         id: cert.id,
         workspaceId: cert.workspace_id,
         programId: cert.program_id,
+        templateId: templateId,
         programName: cert.program_name,
         recipientName: cert.recipient_name,
         recipientEmail: cert.recipient_email,

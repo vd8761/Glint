@@ -83,12 +83,19 @@ export interface CertificateTemplate {
   decorFlourish?: 'classic' | 'modern' | 'ornate' | 'minimal' | 'none';
   logoIconType?: string; // Predefined brand icons (Tech, Edu, Science, Art, Corporate)
   signatureStyle?: string; // Styled simulated script names
+  
+  signatoryFontFamily?: string;
+  signatoryFontSize?: number;
+  
   showSecondarySignatory?: boolean;
   secondarySignatoryName?: string;
   secondarySignatoryTitle?: string;
   secondarySignatureX?: number;
   secondarySignatureY?: number;
   secondarySignatureWidth?: number;
+  secondarySignatoryFontFamily?: string;
+  secondarySignatoryFontSize?: number;
+  
   backgroundImageUrl?: string;
   qrCodeCustomUrl?: string;
 }
