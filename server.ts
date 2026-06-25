@@ -141,14 +141,19 @@ const sendVerificationEmail = async (params: {
       if (row.sender_email) {
         // Enforce SMTP_FROM domain verification to prevent Resend / SES from rejecting the mail
         const allowedSender = process.env.RESEND_FROM_EMAIL || process.env.SMTP_FROM || 'no-reply@originbi.com';
-        const allowedDomain = allowedSender.split('@')[1];
-        const currentDomain = row.sender_email.split('@')[1];
-        if (allowedDomain && currentDomain && allowedDomain.toLowerCase() !== currentDomain.toLowerCase()) {
-          const localPart = row.sender_email.split('@')[0];
-          fromEmail = `${localPart}@${allowedDomain}`;
-          logger.info(`Rewrote sender_email from ${row.sender_email} to ${fromEmail} to match verified SMTP domain ${allowedDomain}`);
+        if (process.env.FORCE_FROM_EMAIL === 'true') {
+          fromEmail = allowedSender;
+          logger.info(`Forced sender_email to ${fromEmail} due to FORCE_FROM_EMAIL=true`);
         } else {
-          fromEmail = row.sender_email;
+          const allowedDomain = allowedSender.split('@')[1];
+          const currentDomain = row.sender_email.split('@')[1];
+          if (allowedDomain && currentDomain && allowedDomain.toLowerCase() !== currentDomain.toLowerCase()) {
+            const localPart = row.sender_email.split('@')[0];
+            fromEmail = `${localPart}@${allowedDomain}`;
+            logger.info(`Rewrote sender_email from ${row.sender_email} to ${fromEmail} to match verified SMTP domain ${allowedDomain}`);
+          } else {
+            fromEmail = row.sender_email;
+          }
         }
       }
       if (row.primary_color) primaryColor = row.primary_color;
