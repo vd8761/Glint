@@ -3,12 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { LandingPage } from './components/LandingPage';
-import { Dashboard } from './components/Dashboard';
-import { CertificateViewer } from './components/CertificateViewer';
-import { AuthPage } from './components/AuthPage';
-import { AdminDashboard } from './components/AdminDashboard';
+const Dashboard = lazy(() => import('./components/Dashboard').then(m => ({ default: m.Dashboard })));
+const CertificateViewer = lazy(() => import('./components/CertificateViewer').then(m => ({ default: m.CertificateViewer })));
+const AuthPage = lazy(() => import('./components/AuthPage').then(m => ({ default: m.AuthPage })));
+const AdminDashboard = lazy(() => import('./components/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
+import { Toaster } from 'sonner';
 
 type RouteState = 
   | { type: 'home' }
@@ -155,48 +156,55 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F8F9FA] transition-colors duration-200">
-      {route.type === 'home' && (
-        <LandingPage 
-          onStartFree={token ? () => navigateToDashboard(user?.workspaceId || 'ws-google-infra', 'overview') : navigateToAuth}
-          onViewSample={(id) => navigateToCredential(id)}
-          onSelectWorkspace={token ? (id) => navigateToDashboard(id, 'overview') : navigateToAuth}
-        />
-      )}
+      <Toaster position="bottom-right" richColors />
+      <Suspense fallback={
+        <div className="min-h-screen flex items-center justify-center bg-[#F8F9FA]">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+        </div>
+      }>
+        {route.type === 'home' && (
+          <LandingPage 
+            onStartFree={token ? () => navigateToDashboard(user?.workspaceId || 'ws-google-infra', 'overview') : navigateToAuth}
+            onViewSample={(id) => navigateToCredential(id)}
+            onSelectWorkspace={token ? (id) => navigateToDashboard(id, 'overview') : navigateToAuth}
+          />
+        )}
 
-      {route.type === 'auth' && (
-        <AuthPage 
-          onLoginSuccess={handleLoginSuccess}
-          onBackToHome={navigateToHome}
-        />
-      )}
+        {route.type === 'auth' && (
+          <AuthPage 
+            onLoginSuccess={handleLoginSuccess}
+            onBackToHome={navigateToHome}
+          />
+        )}
 
-      {route.type === 'dashboard' && (
-        <Dashboard 
-          currentWorkspaceId={route.workspaceId}
-          activeTab={route.tab}
-          token={token}
-          user={user}
-          onLogout={handleLogout}
-          onTabChange={(tab) => navigateToDashboard(route.workspaceId, tab)}
-          onWorkspaceChange={(id) => navigateToDashboard(id, route.tab)}
-          onViewCertificatePage={(id) => navigateToCredential(id)}
-        />
-      )}
+        {route.type === 'dashboard' && (
+          <Dashboard 
+            currentWorkspaceId={route.workspaceId}
+            activeTab={route.tab}
+            token={token}
+            user={user}
+            onLogout={handleLogout}
+            onTabChange={(tab) => navigateToDashboard(route.workspaceId, tab)}
+            onWorkspaceChange={(id) => navigateToDashboard(id, route.tab)}
+            onViewCertificatePage={(id) => navigateToCredential(id)}
+          />
+        )}
 
-      {route.type === 'admin' && (
-        <AdminDashboard 
-          token={token}
-          user={user}
-          onLogout={handleLogout}
-        />
-      )}
+        {route.type === 'admin' && (
+          <AdminDashboard 
+            token={token}
+            user={user}
+            onLogout={handleLogout}
+          />
+        )}
 
-      {route.type === 'credential' && (
-        <CertificateViewer 
-          certificateId={route.id}
-          onBackToHome={navigateToHome}
-        />
-      )}
+        {route.type === 'credential' && (
+          <CertificateViewer 
+            certificateId={route.id}
+            onBackToHome={navigateToHome}
+          />
+        )}
+      </Suspense>
     </div>
   );
 }

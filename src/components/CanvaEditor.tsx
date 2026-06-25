@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { toast } from 'sonner';
 import { 
   Undo2, Redo2, Sliders, Plus, Trash2, Save, ArrowLeft, Sparkles, 
   Layers, Type, QrCode, Award, Check, Grid, Image, Info, User,
@@ -20,218 +21,6 @@ interface CanvaEditorProps {
   token?: string | null;
   programs?: any[];
 }
-
-// 6+ Beautiful Canva Designer Presets
-const BEAUTIFUL_PRESETS = [
-  {
-    name: 'Google Cloud Certified Professional',
-    layout: 'landscape' as const,
-    backgroundColor: '#FFFFFF',
-    borderColor: '#1A73E8',
-    borderWidth: 4,
-    borderRadius: 4,
-    borderStyle: 'solid' as const,
-    backgroundGradient: 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
-    decorFlourish: 'minimal' as const,
-    sealType: 'gold_medallion' as const,
-    logoIconType: 'tech',
-    logoX: 50,
-    logoY: 14,
-    logoWidth: 80,
-    signatureUrl: '',
-    signatureX: 30,
-    signatureY: 78,
-    signatureWidth: 100,
-    signatoryName: 'Sundar Pichai',
-    signatoryTitle: 'CEO, Google LLC',
-    showSecondarySignatory: true,
-    secondarySignatoryName: 'Thomas Kurian',
-    secondarySignatoryTitle: 'CEO, Google Cloud',
-    secondarySignatureX: 70,
-    secondarySignatureY: 78,
-    secondarySignatureWidth: 100,
-    textElements: [
-      { id: 't1', text: 'GOOGLE CLOUD PROFESSIONAL CERTIFICATION', fontSize: 11, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#1A73E8', xPercent: 50, yPercent: 26, align: 'center' as const },
-      { id: 't2', text: 'This confirms that', fontSize: 10, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#64748B', xPercent: 50, yPercent: 34, align: 'center' as const },
-      { id: 't3', text: '{{name}}', fontSize: 34, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#0F172A', xPercent: 50, yPercent: 45, align: 'center' as const, isPlaceholder: true },
-      { id: 't4', text: 'has successfully demonstrated proficiency and met all requirements to be certified as', fontSize: 10, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#64748B', xPercent: 50, yPercent: 53, align: 'center' as const },
-      { id: 't5', text: '{{program}}', fontSize: 20, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#1A73E8', xPercent: 50, yPercent: 61, align: 'center' as const, isPlaceholder: true },
-      { id: 't6', text: 'Credential ID: {{id}}', fontSize: 8, fontFamily: 'JetBrains Mono' as const, fontWeight: 'normal' as const, color: '#94A3B8', xPercent: 12, yPercent: 88, align: 'left' as const },
-      { id: 't7', text: 'Issued: {{date}}', fontSize: 8, fontFamily: 'JetBrains Mono' as const, fontWeight: 'normal' as const, color: '#94A3B8', xPercent: 88, yPercent: 88, align: 'right' as const }
-    ]
-  },
-  {
-    name: 'Microsoft Solutions Expert',
-    layout: 'landscape' as const,
-    backgroundColor: '#FCFCFC',
-    borderColor: '#00A4EF',
-    borderWidth: 5,
-    borderRadius: 0,
-    borderStyle: 'solid' as const,
-    backgroundGradient: 'linear-gradient(180deg, #FFFFFF 0%, #F3F4F6 100%)',
-    decorFlourish: 'minimal' as const,
-    sealType: 'stellar' as const,
-    logoIconType: 'tech',
-    logoX: 12,
-    logoY: 12,
-    logoWidth: 70,
-    signatureUrl: '',
-    signatureX: 50,
-    signatureY: 78,
-    signatureWidth: 100,
-    signatoryName: 'Satya Nadella',
-    signatoryTitle: 'CEO, Microsoft Corporation',
-    showSecondarySignatory: false,
-    textElements: [
-      { id: 't1', text: 'MICROSOFT CERTIFICATION OF EXPERTISE', fontSize: 11, fontFamily: 'JetBrains Mono' as const, fontWeight: 'bold' as const, color: '#00A4EF', xPercent: 50, yPercent: 22, align: 'center' as const },
-      { id: 't2', text: 'This is to certify that', fontSize: 10, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#4B5563', xPercent: 50, yPercent: 32, align: 'center' as const },
-      { id: 't3', text: '{{name}}', fontSize: 32, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#1F2937', xPercent: 50, yPercent: 44, align: 'center' as const, isPlaceholder: true },
-      { id: 't4', text: 'has met the rigorous academic and practical requirements of the specialization track', fontSize: 10, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#4B5563', xPercent: 50, yPercent: 53, align: 'center' as const },
-      { id: 't5', text: '{{program}}', fontSize: 20, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#111827', xPercent: 50, yPercent: 62, align: 'center' as const, isPlaceholder: true },
-      { id: 't6', text: 'Verification Hash: {{id}}', fontSize: 8, fontFamily: 'JetBrains Mono' as const, fontWeight: 'normal' as const, color: '#9CA3AF', xPercent: 50, yPercent: 89, align: 'center' as const }
-    ]
-  },
-  {
-    name: 'IBM Cognitive Solutions Specialist',
-    layout: 'landscape' as const,
-    backgroundColor: '#FFFFFF',
-    borderColor: '#0F62FE',
-    borderWidth: 3,
-    borderRadius: 0,
-    borderStyle: 'solid' as const,
-    backgroundGradient: 'linear-gradient(135deg, #FFFFFF 0%, #F2F4F8 100%)',
-    decorFlourish: 'none' as const,
-    sealType: 'classic' as const,
-    logoIconType: 'corp',
-    logoX: 85,
-    logoY: 12,
-    logoWidth: 60,
-    signatureUrl: '',
-    signatureX: 25,
-    signatureY: 78,
-    signatureWidth: 100,
-    signatoryName: 'Arvind Krishna',
-    signatoryTitle: 'Chairman & CEO, IBM',
-    showSecondarySignatory: true,
-    secondarySignatoryName: 'Dr. John Kelly III',
-    secondarySignatoryTitle: 'SVP, Cognitive Solutions',
-    secondarySignatureX: 75,
-    secondarySignatureY: 78,
-    secondarySignatureWidth: 100,
-    textElements: [
-      { id: 't1', text: 'IBM Cognitive Enterprise Certification', fontSize: 12, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#0F62FE', xPercent: 12, yPercent: 22, align: 'left' as const },
-      { id: 't2', text: 'Awarded to', fontSize: 10, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#525252', xPercent: 12, yPercent: 34, align: 'left' as const },
-      { id: 't3', text: '{{name}}', fontSize: 34, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#161616', xPercent: 12, yPercent: 45, align: 'left' as const, isPlaceholder: true },
-      { id: 't4', text: 'for high-performing mastery in the enterprise technology curriculum of', fontSize: 10, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#525252', xPercent: 12, yPercent: 55, align: 'left' as const },
-      { id: 't5', text: '{{program}}', fontSize: 18, fontFamily: 'JetBrains Mono' as const, fontWeight: 'bold' as const, color: '#0F62FE', xPercent: 12, yPercent: 63, align: 'left' as const, isPlaceholder: true },
-      { id: 't6', text: 'SYSTEM AUDIT ID: {{id}}', fontSize: 8, fontFamily: 'JetBrains Mono' as const, fontWeight: 'normal' as const, color: '#8D8D8D', xPercent: 12, yPercent: 89, align: 'left' as const }
-    ]
-  },
-  {
-    name: 'Harvard Business Leadership Executive',
-    layout: 'landscape' as const,
-    backgroundColor: '#FAF8F5',
-    borderColor: '#A51C30',
-    borderWidth: 12,
-    borderRadius: 0,
-    borderStyle: 'double' as const,
-    backgroundGradient: 'linear-gradient(180deg, #FAF8F5 0%, #F5EFEB 100%)',
-    decorFlourish: 'ornate' as const,
-    sealType: 'crimson_wax' as const,
-    logoIconType: 'edu',
-    logoX: 50,
-    logoY: 14,
-    logoWidth: 75,
-    signatureUrl: '',
-    signatureX: 30,
-    signatureY: 78,
-    signatureWidth: 100,
-    signatoryName: 'Prof. Lawrence S. Bacow',
-    signatoryTitle: 'President of the University',
-    showSecondarySignatory: true,
-    secondarySignatoryName: 'Dean Srikant Datar',
-    secondarySignatoryTitle: 'Dean of the Business Faculty',
-    secondarySignatureX: 70,
-    secondarySignatureY: 78,
-    secondarySignatureWidth: 100,
-    textElements: [
-      { id: 't1', text: 'HARVARD BUSINESS SCHOOL', fontSize: 14, fontFamily: 'Playfair Display' as const, fontWeight: 'bold' as const, color: '#A51C30', xPercent: 50, yPercent: 26, align: 'center' as const },
-      { id: 't2', text: 'Executive Education', fontSize: 11, fontFamily: 'Playfair Display' as const, fontWeight: 'normal' as const, color: '#1E293B', xPercent: 50, yPercent: 31, align: 'center' as const },
-      { id: 't3', text: 'This is to certify that', fontSize: 10, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#64748B', xPercent: 50, yPercent: 37, align: 'center' as const },
-      { id: 't4', text: '{{name}}', fontSize: 34, fontFamily: 'Playfair Display' as const, fontWeight: 'bold' as const, color: '#1E293B', xPercent: 50, yPercent: 47, align: 'center' as const, isPlaceholder: true },
-      { id: 't5', text: 'has successfully completed the program of studies in', fontSize: 10, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#64748B', xPercent: 50, yPercent: 56, align: 'center' as const },
-      { id: 't6', text: '{{program}}', fontSize: 18, fontFamily: 'Playfair Display' as const, fontWeight: 'bold' as const, color: '#A51C30', xPercent: 50, yPercent: 64, align: 'center' as const, isPlaceholder: true },
-      { id: 't7', text: 'VERITAS ID: {{id}}', fontSize: 8, fontFamily: 'JetBrains Mono' as const, fontWeight: 'normal' as const, color: '#94A3B8', xPercent: 12, yPercent: 89, align: 'left' as const }
-    ]
-  },
-  {
-    name: 'McKinsey Strategy Fellowship',
-    layout: 'landscape' as const,
-    backgroundColor: '#06122C',
-    borderColor: '#C5A880',
-    borderWidth: 6,
-    borderRadius: 2,
-    borderStyle: 'solid' as const,
-    backgroundGradient: 'radial-gradient(circle, #0D2046 0%, #030815 100%)',
-    decorFlourish: 'minimal' as const,
-    sealType: 'emerald_shield' as const,
-    logoIconType: 'corp',
-    logoX: 50,
-    logoY: 14,
-    logoWidth: 70,
-    signatureUrl: '',
-    signatureX: 50,
-    signatureY: 80,
-    signatureWidth: 100,
-    signatoryName: 'Bob Sternfels',
-    signatoryTitle: 'Global Managing Partner',
-    showSecondarySignatory: false,
-    textElements: [
-      { id: 't1', text: 'MCKINSEY & COMPANY GLOBAL FELLOWSHIP', fontSize: 11, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#C5A880', xPercent: 50, yPercent: 24, align: 'center' as const },
-      { id: 't2', text: 'In recognition of excellent strategy formulation, awarded to', fontSize: 10, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#94A3B8', xPercent: 50, yPercent: 34, align: 'center' as const },
-      { id: 't3', text: '{{name}}', fontSize: 34, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#FFFFFF', xPercent: 50, yPercent: 46, align: 'center' as const, isPlaceholder: true },
-      { id: 't4', text: 'upon successful completion of the global leadership training module in', fontSize: 10, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#94A3B8', xPercent: 50, yPercent: 56, align: 'center' as const },
-      { id: 't5', text: '{{program}}', fontSize: 18, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#C5A880', xPercent: 50, yPercent: 64, align: 'center' as const, isPlaceholder: true },
-      { id: 't6', text: 'Fellowship Registry Code: {{id}}', fontSize: 8, fontFamily: 'JetBrains Mono' as const, fontWeight: 'normal' as const, color: '#475569', xPercent: 50, yPercent: 90, align: 'center' as const }
-    ]
-  },
-  {
-    name: 'Scrum Alliance Certified Product Owner',
-    layout: 'landscape' as const,
-    backgroundColor: '#FFFFFF',
-    borderColor: '#0F766E',
-    borderWidth: 12,
-    borderRadius: 6,
-    borderStyle: 'solid' as const,
-    backgroundGradient: 'linear-gradient(135deg, #FFFFFF 0%, #F0FDFA 100%)',
-    decorFlourish: 'minimal' as const,
-    sealType: 'gold_medallion' as const,
-    logoIconType: 'corp',
-    logoX: 50,
-    logoY: 14,
-    logoWidth: 70,
-    signatureUrl: '',
-    signatureX: 30,
-    signatureY: 78,
-    signatureWidth: 100,
-    signatoryName: 'Howard Sublett',
-    signatoryTitle: 'Chief Product Owner, Scrum Alliance',
-    showSecondarySignatory: true,
-    secondarySignatoryName: 'Melissa Boggs',
-    secondarySignatoryTitle: 'Chief Agile Officer',
-    secondarySignatureX: 70,
-    secondarySignatureY: 78,
-    secondarySignatureWidth: 100,
-    textElements: [
-      { id: 't1', text: 'CERTIFIED PRODUCT OWNER', fontSize: 22, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#0F766E', xPercent: 50, yPercent: 26, align: 'center' as const },
-      { id: 't2', text: 'Scrum Alliance certifies that', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#475569', xPercent: 50, yPercent: 35, align: 'center' as const },
-      { id: 't3', text: '{{name}}', fontSize: 34, fontFamily: 'Playfair Display' as const, fontWeight: 'bold' as const, color: '#0F172A', xPercent: 50, yPercent: 47, align: 'center' as const, isPlaceholder: true },
-      { id: 't4', text: 'has successfully met all validation criteria and is registered as a certified', fontSize: 10, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#475569', xPercent: 50, yPercent: 57, align: 'center' as const },
-      { id: 't5', text: '{{program}}', fontSize: 18, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#0F766E', xPercent: 50, yPercent: 65, align: 'center' as const, isPlaceholder: true },
-      { id: 't6', text: 'Certification Seal ID: {{id}}', fontSize: 8, fontFamily: 'JetBrains Mono' as const, fontWeight: 'normal' as const, color: '#94A3B8', xPercent: 12, yPercent: 89, align: 'left' as const }
-    ]
-  }
-];
 
 // Beautiful Predefined Background Gradients list
 const GRADIENT_OPTIONS = [
@@ -261,11 +50,38 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
   // Currently highlighted / selected element ID on visual canvas
   const [selectedElId, setSelectedElId] = useState<string | null>(null);
 
+  // Ref to scroll sidebar to selected element editor
+  const selectedElementPanelRef = useRef<HTMLDivElement>(null);
+  const sidebarContentRef = useRef<HTMLDivElement>(null);
+
+  // Helper: select element AND jump sidebar to the right editing panel
+  const selectElementAndFocus = (id: string) => {
+    setSelectedElId(id);
+    // Route to the correct sidebar tab based on element type
+    if (id === 'logo') {
+      setActiveSideTab('sign');
+      setTimeout(() => document.getElementById('logo-settings')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+    } else if (id === 'signature' || id === 'secondarySignature') {
+      setActiveSideTab('sign');
+      setTimeout(() => document.getElementById(`${id}-settings`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+    } else if (id === 'seal') {
+      setActiveSideTab('seals');
+    } else {
+      // Regular text/image/redaction element → open text editing panel
+      setActiveSideTab('text');
+      setTimeout(() => {
+        selectedElementPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 80);
+    }
+  };
+
   // AI Generator state
   const [aiPrompt, setAiPrompt] = useState<string>('');
   const [isGeneratingAi, setIsGeneratingAi] = useState<boolean>(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiSampleImage, setAiSampleImage] = useState<{ data: string; mimeType: string } | null>(null);
+  const [isParsingSample, setIsParsingSample] = useState<boolean>(false);
+  const [parsingProgress, setParsingProgress] = useState<string>('');
 
   // Selected program for field insertion helpers
   const [selectedProgramId, setSelectedProgramId] = useState<string>('');
@@ -348,6 +164,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const sampleUploadRef = useRef<HTMLInputElement>(null);
+  const directSampleUploadRef = useRef<HTMLInputElement>(null);
 
   // Undo / Redo stack tracker pushes
   const pushToHistory = (newTemplateState: CertificateTemplate) => {
@@ -799,7 +616,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
     if (!file) return;
 
     if (file.size > 3.5 * 1024 * 1024) {
-      alert("Image is too large. Please select an image smaller than 3.5MB for fast database encoding.");
+      toast.error("Image is too large. Please select an image smaller than 3.5MB for fast database encoding.");
       return;
     }
 
@@ -860,23 +677,38 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
     pushToHistory(updated);
   };
 
-  // Custom visual template preset applicator
+  // Custom visual template preset applicator - fully replaces template, no overlapping
   const applyPresetDesign = (preset: (typeof BEAUTIFUL_PRESETS)[0]) => {
     if (!preset) return;
+    // Deep-clone preset textElements to avoid reference sharing between templates
+    const freshTextElements: TextElement[] = JSON.parse(JSON.stringify(preset.textElements));
     const updated: CertificateTemplate = {
-      ...currentTemplate,
+      id: currentTemplate.id,
+      workspaceId: currentTemplate.workspaceId,
+      name: preset.name,
+      layout: preset.layout || 'landscape',
       backgroundColor: preset.backgroundColor,
       borderColor: preset.borderColor,
       borderWidth: preset.borderWidth,
-      borderRadius: preset.borderRadius,
-      borderStyle: preset.borderStyle,
+      borderRadius: preset.borderRadius ?? 0,
+      borderStyle: preset.borderStyle || 'solid',
       backgroundGradient: preset.backgroundGradient,
-      decorFlourish: preset.decorFlourish,
+      decorFlourish: preset.decorFlourish || 'none',
+      showSeal: preset.showSeal,
       sealType: preset.sealType,
+      showQrCode: preset.showQrCode,
+      qrCodeX: preset.qrCodeX,
+      qrCodeY: preset.qrCodeY,
+      qrCodeWidth: preset.qrCodeWidth,
+      qrCodeCustomUrl: preset.qrCodeCustomUrl,
+      sealWidth: preset.sealWidth,
+      logoUrl: preset.logoUrl || '',
       logoIconType: preset.logoIconType,
       logoX: preset.logoX,
       logoY: preset.logoY,
       logoWidth: preset.logoWidth,
+      signatureUrl: preset.signatureUrl || '',
+      secondarySignatureUrl: preset.secondarySignatureUrl || '',
       signatureX: preset.signatureX,
       signatureY: preset.signatureY,
       signatureWidth: preset.signatureWidth,
@@ -885,12 +717,13 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
       showSecondarySignatory: preset.showSecondarySignatory,
       secondarySignatoryName: preset.secondarySignatoryName,
       secondarySignatoryTitle: preset.secondarySignatoryTitle,
-      secondarySignatureX: preset.secondarySignatureX || 70,
-      secondarySignatureY: preset.secondarySignatureY || 78,
-      secondarySignatureWidth: preset.secondarySignatureWidth || 100,
-      textElements: JSON.parse(JSON.stringify(preset.textElements))
+      secondarySignatureX: preset.secondarySignatureX ?? 70,
+      secondarySignatureY: preset.secondarySignatureY ?? 78,
+      secondarySignatureWidth: preset.secondarySignatureWidth ?? 100,
+      backgroundImageUrl: undefined, // clear any uploaded backdrop on template switch
+      textElements: freshTextElements
     };
-    
+    setSelectedElId(null);
     setCurrentTemplate(updated);
     pushToHistory(updated);
   };
@@ -907,6 +740,184 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
       setAiSampleImage({ data, mimeType });
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleDirectSampleParsingUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 4 * 1024 * 1024) {
+      toast.error("Image is too large. Please select an image smaller than 4MB.");
+      return;
+    }
+
+    setIsParsingSample(true);
+    setParsingProgress("Reading image data...");
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      try {
+        const result = reader.result as string;
+        const commaIdx = result.indexOf(',');
+        const base64Data = result.substring(commaIdx + 1);
+        const mimeType = file.type || 'image/png';
+
+        setParsingProgress("Analyzing certificate with Gemini AI...");
+
+        const res = await fetch('/api/ai/parse-sample', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({
+            sampleImage: { data: base64Data, mimeType }
+          })
+        });
+
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || 'Server failed to analyze the certificate image');
+        }
+
+        const data = await res.json();
+        setParsingProgress("Generating editable canvas layers...");
+
+        // Build template from parsed response
+        const detected = data.detectedElements || [];
+        
+        // 1. We keep the base64Data image as the backdrop background image
+        const backgroundImageUrl = result; // base64 data url
+
+        // 2. Convert detected elements into CanvaEditor TextElements (and redactions)
+        const textElements: TextElement[] = [];
+
+        // Track positions for other assets
+        let logoX = 50;
+        let logoY = 15;
+        let logoWidth = 100;
+        let hasLogo = false;
+
+        let signatureX = 30;
+        let signatureY = 80;
+        let signatureWidth = 100;
+        let hasSignature = false;
+
+        let secondarySignatureX = 70;
+        let secondarySignatureY = 80;
+        let secondarySignatureWidth = 100;
+        let hasSecondarySignature = false;
+
+        let qrCodeX = 50;
+        let qrCodeY = 80;
+        let qrCodeWidth = 60;
+        let hasQrCode = false;
+
+        let sealX = 85;
+        let sealY = 80;
+        let sealWidth = 80;
+        let hasSeal = false;
+
+        detected.forEach((el: any, idx: number) => {
+          const randomId = Math.random().toString(36).substring(2, 7);
+          
+          // Every element gets a redaction patch to hide the original pixels!
+          textElements.push({
+            id: `t-redaction-${idx}-${randomId}`,
+            type: 'redaction',
+            text: '',
+            xPercent: el.xPercent,
+            yPercent: el.yPercent,
+            width: el.width || 120,
+            height: el.height || 30,
+            color: el.backgroundColor || '#FFFFFF',
+            fontSize: 12,
+            fontWeight: 'normal',
+            fontFamily: 'Inter',
+            align: 'center'
+          });
+
+          // If it's text, also create an editable text layer on top of the redaction patch
+          if (el.type === 'text') {
+            let processedText = el.text || '';
+            textElements.push({
+              id: `t-text-${idx}-${randomId}`,
+              type: 'text',
+              text: processedText,
+              xPercent: el.xPercent,
+              yPercent: el.yPercent,
+              width: el.width || 512,
+              fontSize: el.fontSize || 14,
+              fontFamily: el.fontFamily || 'Inter',
+              fontWeight: el.fontWeight || 'normal',
+              color: el.textColor || '#000000',
+              align: el.align || 'center',
+              isPlaceholder: el.isPlaceholder || false
+            });
+          } else if (el.type === 'logo') {
+            hasLogo = true;
+            logoX = el.xPercent;
+            logoY = el.yPercent;
+            logoWidth = el.width || 100;
+          } else if (el.type === 'signature') {
+            if (!hasSignature) {
+              hasSignature = true;
+              signatureX = el.xPercent;
+              signatureY = el.yPercent;
+              signatureWidth = el.width || 100;
+            } else {
+              hasSecondarySignature = true;
+              secondarySignatureX = el.xPercent;
+              secondarySignatureY = el.yPercent;
+              secondarySignatureWidth = el.width || 100;
+            }
+          } else if (el.type === 'seal') {
+            hasSeal = true;
+            sealX = el.xPercent;
+            sealY = el.yPercent;
+            sealWidth = el.width || 80;
+          }
+        });
+
+        // 3. Construct a fully customized template from the sample
+        const parsedTemplate: CertificateTemplate = {
+          ...currentTemplate,
+          name: `Parsed - ${file.name.split('.')[0]}`,
+          backgroundImageUrl,
+          backgroundColor: '#FFFFFF', // default white base
+          borderColor: '#E2E8F0',
+          borderWidth: 0, // border is part of the image
+          decorFlourish: 'none',
+          showSeal: hasSeal,
+          sealType: hasSeal ? 'gold_medallion' : 'none',
+          sealWidth: sealWidth,
+          logoX,
+          logoY,
+          logoWidth,
+          logoIconType: hasLogo ? 'tech' : 'none',
+          signatureX,
+          signatureY,
+          signatureWidth,
+          showSecondarySignatory: hasSecondarySignature,
+          secondarySignatureX,
+          secondarySignatureY,
+          secondarySignatureWidth,
+          textElements
+        };
+
+        setCurrentTemplate(parsedTemplate);
+        pushToHistory(parsedTemplate);
+        setSelectedElId(null);
+        setParsingProgress("Successfully loaded design!");
+        setTimeout(() => setIsParsingSample(false), 800);
+      } catch (err: any) {
+        console.error(err);
+        toast.error(err.message || "Failed to analyze certificate sample. Please try another image.");
+        setIsParsingSample(false);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const generateTemplateWithAi = async () => {
@@ -1108,7 +1119,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
   const handleMouseDown = (e: React.MouseEvent, id: string, startXPercent: number, startYPercent: number) => {
     e.preventDefault();
     e.stopPropagation();
-    setSelectedElId(id);
+    selectElementAndFocus(id);
     
     setDraggedItem({
       id,
@@ -1372,7 +1383,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
         )}
         {type === 'corp' && (
           <div className="w-full aspect-square bg-slate-900 border border-slate-600 rounded-sm p-2 shadow-sm flex items-center justify-center text-white">
-            <div className="w-5 h-5 border-2 border-white rounded-full flex items-center justify-center">★</div>
+            <div className="w-5 h-5 border-2 border-white rounded-full flex items-center justify-center">â˜…</div>
           </div>
         )}
         {type === 'science' && (
@@ -1382,7 +1393,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
         )}
         {type === 'art' && (
           <div className="w-full aspect-square bg-rose-50 border border-rose-200 rounded-xl p-2 flex items-center justify-center text-rose-500">
-            <div className="text-xl">❀</div>
+            <div className="text-xl">â€</div>
           </div>
         )}
       </div>
@@ -1474,7 +1485,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
             <button
               type="button"
               onClick={() => setGridVisible(!gridVisible)}
-              className={`p-1.5 rounded transition-all text-xs font-bold flex items-center gap-1 cursor-pointer ${gridVisible ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-550 hover:bg-slate-200 hover:text-slate-900'}`}
+              className={`p-1.5 rounded transition-all text-xs font-bold flex items-center gap-1 cursor-pointer ${gridVisible ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-555 hover:bg-slate-200 hover:text-slate-900'}`}
               title="Toggle Alignment Grid Dots"
             >
               <Grid className="w-3.5 h-3.5" />
@@ -1483,14 +1494,23 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
             <button
               type="button"
               onClick={() => setSnapToGrid(!snapToGrid)}
-              className={`p-1.5 rounded transition-all text-xs font-bold flex items-center gap-1 cursor-pointer ${snapToGrid ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-550 hover:bg-slate-200 hover:text-slate-900'}`}
+              className={`p-1.5 rounded transition-all text-xs font-bold flex items-center gap-1 cursor-pointer ${snapToGrid ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-555 hover:bg-slate-200 hover:text-slate-900'}`}
               title="Snap to Grid increments (2.5%)"
             >
               <MousePointerClick className="w-3.5 h-3.5" />
               <span className="hidden sm:inline text-[10px]">Snap</span>
             </button>
+            <button
+              type="button"
+              onClick={() => directSampleUploadRef.current?.click()}
+              className="p-1.5 rounded transition-all text-xs font-bold flex items-center gap-1 cursor-pointer text-slate-555 hover:bg-slate-200 hover:text-slate-900"
+              title="Upload Sample Certificate (Parses layout & covers hardcoded fields dynamically)"
+            >
+              <Upload className="w-3.5 h-3.5 text-emerald-600" />
+              <span className="hidden sm:inline text-[10px] text-emerald-650">Upload Sample</span>
+            </button>
           </div>
-
+ 
           <button
             onClick={() => onSave(currentTemplate)}
             className="bg-slate-950 hover:bg-slate-850 text-white text-xs px-5 py-2 rounded font-bold shadow transition-all flex items-center gap-1.5"
@@ -1505,6 +1525,13 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
           ref={sampleUploadRef}
           style={{ display: 'none' }}
           onChange={handleSampleImageUpload}
+        />
+      <input
+          type="file"
+          accept="image/png, image/jpeg"
+          ref={directSampleUploadRef}
+          style={{ display: 'none' }}
+          onChange={handleDirectSampleParsingUpload}
         />
         {/* Split core workspace content */}
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-w-0">
@@ -1591,7 +1618,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                         onClick={() => setPresetSearchQuery('')}
                         className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
                       >
-                        ✕
+                        âœ•
                       </button>
                     )}
                   </div>
@@ -1633,7 +1660,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                           <p className="text-[9px] text-slate-500 font-mono line-clamp-1 italic">{it.programName}</p>
                           <div className="flex justify-between items-center text-[8px] text-slate-400 font-mono uppercase">
                             <span>{it.category}</span>
-                            <span>{it.borderStyle || 'solid'} • {it.sealType || 'none'}</span>
+                            <span>{it.borderStyle || 'solid'} â€¢ {it.sealType || 'none'}</span>
                           </div>
                         </button>
                       ))
@@ -1788,17 +1815,18 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                   </button>
                 </div>
 
-                {/* Inline text element editor */}
+                {/* Inline text element editor - scrolled to when element is selected from canvas */}
                 {selectedElId && !['logo', 'signature', 'secondarySignature', 'seal'].includes(selectedElId) ? (
                   (() => {
                     const el = currentTemplate.textElements.find(item => item.id === selectedElId);
                     if (!el) return null;
                     const isRedaction = el.type === 'redaction';
                     return (
-                      <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-4 shadow-sm animate-fade-in text-slate-800">
+                      <div ref={selectedElementPanelRef} className="bg-gradient-to-br from-indigo-50 to-slate-50 border-2 border-indigo-200 p-4 rounded-xl space-y-4 shadow-md animate-fade-in text-slate-800">
                         <div className="flex justify-between items-center">
-                          <span className="text-[10px] font-bold uppercase text-indigo-600">
-                            {isRedaction ? 'Eraser / Patch Controls' : 'Selected Layer Controls'}
+                          <span className="text-[10px] font-bold uppercase text-indigo-600 flex items-center gap-1">
+                            <span className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse inline-block"></span>
+                            {isRedaction ? 'Eraser / Patch Controls' : `Editing: ${el.text.substring(0,20)}${el.text.length > 20 ? '…' : ''}`}
                           </span>
                           <button
                             onClick={() => deleteSelectedElement()}
@@ -1862,6 +1890,46 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                                   className="w-full cursor-pointer mt-1"
                                 />
                               </div>
+                              <div className="col-span-2 pt-2 border-t border-slate-200 space-y-1.5">
+                                <label className="text-[10px] uppercase text-slate-500 font-bold block">Position Alignment</label>
+                                <div className="flex gap-1.5 flex-wrap">
+                                  <button
+                                    onClick={() => {
+                                      const updated = currentTemplate.textElements.map(item => item.id === el.id ? { ...item, xPercent: 10 } : item);
+                                      updateTemplateProperty('textElements', updated);
+                                    }}
+                                    className="flex-1 text-[9px] bg-white border border-slate-200 hover:bg-slate-50 text-slate-705 py-1 px-1.5 rounded font-medium cursor-pointer"
+                                    title="Align Left Edge"
+                                  >
+                                    Left Edge
+                                  </button>
+                                  <button
+                                    onClick={() => alignCenterHorizontally(el.id)}
+                                    className="flex-1 text-[9px] bg-white border border-slate-200 hover:bg-slate-50 text-slate-705 py-1 px-1.5 rounded font-medium cursor-pointer"
+                                    title="Center Horizontally"
+                                  >
+                                    H-Center
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      const updated = currentTemplate.textElements.map(item => item.id === el.id ? { ...item, xPercent: 90 } : item);
+                                      updateTemplateProperty('textElements', updated);
+                                    }}
+                                    className="flex-1 text-[9px] bg-white border border-slate-200 hover:bg-slate-50 text-slate-705 py-1 px-1.5 rounded font-medium cursor-pointer"
+                                    title="Align Right Edge"
+                                  >
+                                    Right Edge
+                                  </button>
+                                  <button
+                                    onClick={() => alignCenterVertically(el.id)}
+                                    className="flex-1 text-[9px] bg-white border border-slate-200 hover:bg-slate-50 text-slate-705 py-1 px-1.5 rounded font-medium cursor-pointer"
+                                    title="Center Vertically"
+                                  >
+                                    V-Center
+                                  </button>
+                                </div>
+                                <span className="text-[10px] text-slate-400 font-mono italic block text-center pt-1">Coordinate: Left {el.xPercent}% • Top {el.yPercent}%</span>
+                              </div>
                             </div>
                           </div>
                         ) : (
@@ -1892,33 +1960,33 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                               </div>
                             </div>
 
-                        {/* Styling parameters */}
-                        <div className="grid grid-cols-2 gap-3 pt-2">
-                          <div className="space-y-1 col-span-2">
-                            <label className="text-[10px] uppercase text-slate-500 font-bold">Typography</label>
-                            <select
-                               value={el.fontFamily}
-                               onChange={(e) => updateTextElementProperty(el.id, 'fontFamily', e.target.value)}
-                               className="w-full bg-white border border-slate-200 p-1.5 rounded text-slate-900 focus:outline-none"
-                            >
-                              <option value="Inter">Inter (Sans-Serif)</option>
-                              <option value="Space Grotesk">Space Grotesk (Tech Heading)</option>
-                              <option value="Playfair Display">Playfair Display (Serif)</option>
-                              <option value="JetBrains Mono">JetBrains Mono (Monospace)</option>
-                            </select>
-                          </div>
+                            {/* Styling parameters */}
+                            <div className="grid grid-cols-2 gap-3 pt-2">
+                              <div className="space-y-1 col-span-2">
+                                <label className="text-[10px] uppercase text-slate-500 font-bold">Typography</label>
+                                <select
+                                  value={el.fontFamily}
+                                  onChange={(e) => updateTextElementProperty(el.id, 'fontFamily', e.target.value)}
+                                  className="w-full bg-white border border-slate-200 p-1.5 rounded text-slate-900 focus:outline-none"
+                                >
+                                  <option value="Inter">Inter (Sans-Serif)</option>
+                                  <option value="Space Grotesk">Space Grotesk (Tech Heading)</option>
+                                  <option value="Playfair Display">Playfair Display (Serif)</option>
+                                  <option value="JetBrains Mono">JetBrains Mono (Monospace)</option>
+                                </select>
+                              </div>
 
-                          <div className="space-y-1">
-                            <label className="text-[10px] uppercase text-slate-500 font-bold">Size (pt)</label>
-                            <input
-                              type="number"
-                              min="6"
-                              max="80"
-                              value={el.fontSize}
-                              onChange={(e) => updateTextElementProperty(el.id, 'fontSize', parseInt(e.target.value) || 12)}
-                              className="w-full bg-white border border-slate-200 p-1.5 rounded text-slate-900 focus:outline-none"
-                            />
-                          </div>
+                              <div className="space-y-1">
+                                <label className="text-[10px] uppercase text-slate-500 font-bold">Size (pt)</label>
+                                <input
+                                  type="number"
+                                  min="6"
+                                  max="80"
+                                  value={el.fontSize}
+                                  onChange={(e) => updateTextElementProperty(el.id, 'fontSize', parseInt(e.target.value) || 12)}
+                                  className="w-full bg-white border border-slate-200 p-1.5 rounded text-slate-900 focus:outline-none"
+                                />
+                              </div>
 
                               <div className="space-y-1">
                                 <label className="text-[10px] uppercase text-slate-500 font-bold">Color</label>
@@ -1930,73 +1998,105 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                                 />
                               </div>
 
-                          <div className="space-y-1 col-span-2">
-                            <label className="text-[10px] uppercase text-slate-500 font-bold">Weight & Align</label>
-                            <div className="flex gap-1.5">
-                              {/* Weight toggles */}
-                              <button
-                                onClick={() => updateTextElementProperty(el.id, 'fontWeight', el.fontWeight === 'bold' ? 'normal' : 'bold')}
-                                className={`flex-1 p-1.5 rounded border transition-colors cursor-pointer ${el.fontWeight === 'bold' ? 'bg-indigo-600 border-indigo-550 text-white font-bold' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-105 hover:text-slate-900'}`}
-                              >
-                                <strong>B</strong>
-                              </button>
-                              <button
-                                onClick={() => updateTextElementProperty(el.id, 'fontWeight', el.fontWeight === 'medium' ? 'normal' : 'medium')}
-                                className={`flex-1 p-1.5 rounded border transition-colors cursor-pointer ${el.fontWeight === 'medium' ? 'bg-indigo-600 border-indigo-550 text-white font-bold' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-105 hover:text-slate-900'}`}
-                              >
-                                <strong>M</strong>
-                              </button>
-                              
-                              {/* Alignments */}
-                              <button
-                                onClick={() => updateTextElementProperty(el.id, 'align', 'left')}
-                                className={`p-1.5 rounded border transition-colors cursor-pointer ${el.align === 'left' ? 'bg-indigo-600 border-indigo-550 text-white' : 'bg-white border-slate-200 text-slate-550'}`}
-                              >
-                                <AlignLeft className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => updateTextElementProperty(el.id, 'align', 'center')}
-                                className={`p-1.5 rounded border transition-colors cursor-pointer ${el.align === 'center' ? 'bg-indigo-600 border-indigo-550 text-white' : 'bg-white border-slate-200 text-slate-550'}`}
-                              >
-                                <AlignCenter className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => updateTextElementProperty(el.id, 'align', 'right')}
-                                className={`p-1.5 rounded border transition-colors cursor-pointer ${el.align === 'right' ? 'bg-indigo-600 border-indigo-550 text-white' : 'bg-white border-slate-200 text-slate-555'}`}
-                              >
-                                <AlignRight className="w-3.5 h-3.5" />
-                              </button>
+                              <div className="space-y-1 col-span-2">
+                                <label className="text-[10px] uppercase text-slate-500 font-bold">Weight &amp; Align</label>
+                                <div className="flex gap-1.5">
+                                  <button
+                                    onClick={() => updateTextElementProperty(el.id, 'fontWeight', el.fontWeight === 'bold' ? 'normal' : 'bold')}
+                                    className={`flex-1 p-1.5 rounded border transition-colors cursor-pointer ${el.fontWeight === 'bold' ? 'bg-indigo-600 text-white font-bold' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'}`}
+                                  >
+                                    <strong>B</strong>
+                                  </button>
+                                  <button
+                                    onClick={() => updateTextElementProperty(el.id, 'fontWeight', el.fontWeight === 'medium' ? 'normal' : 'medium')}
+                                    className={`flex-1 p-1.5 rounded border transition-colors cursor-pointer ${el.fontWeight === 'medium' ? 'bg-indigo-600 text-white font-bold' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'}`}
+                                  >
+                                    <strong>M</strong>
+                                  </button>
+                                  <button
+                                    onClick={() => updateTextElementProperty(el.id, 'align', 'left')}
+                                    className={`p-1.5 rounded border transition-colors cursor-pointer ${el.align === 'left' ? 'bg-indigo-600 text-white' : 'bg-white border-slate-200 text-slate-500'}`}
+                                  >
+                                    <AlignLeft className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => updateTextElementProperty(el.id, 'align', 'center')}
+                                    className={`p-1.5 rounded border transition-colors cursor-pointer ${el.align === 'center' ? 'bg-indigo-600 text-white' : 'bg-white border-slate-200 text-slate-500'}`}
+                                  >
+                                    <AlignCenter className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => updateTextElementProperty(el.id, 'align', 'right')}
+                                    className={`p-1.5 rounded border transition-colors cursor-pointer ${el.align === 'right' ? 'bg-indigo-600 text-white' : 'bg-white border-slate-200 text-slate-500'}`}
+                                  >
+                                    <AlignRight className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="space-y-1 col-span-2 pt-2 border-t border-slate-200">
+                                <div className="flex justify-between items-center">
+                                  <label className="text-[10px] uppercase text-slate-500 font-bold">Box Width: {el.width || 512}px</label>
+                                  <button
+                                    onClick={() => updateTextElementProperty(el.id, 'width', undefined)}
+                                    className="text-[9px] text-indigo-600 font-bold hover:underline cursor-pointer"
+                                  >
+                                    Auto/Reset
+                                  </button>
+                                </div>
+                                <input
+                                  type="range"
+                                  min="100"
+                                  max="1000"
+                                  value={el.width || 512}
+                                  onChange={(e) => updateTextElementProperty(el.id, 'width', parseInt(e.target.value))}
+                                  className="w-full cursor-pointer mt-1"
+                                />
+                              </div>
+
+                              <div className="col-span-2 pt-2 border-t border-slate-200 space-y-1.5">
+                                <label className="text-[10px] uppercase text-slate-500 font-bold block">Position Alignment</label>
+                                <div className="flex gap-1.5 flex-wrap">
+                                  <button
+                                    onClick={() => {
+                                      const updated = currentTemplate.textElements.map(item => item.id === el.id ? { ...item, xPercent: 10 } : item);
+                                      updateTemplateProperty('textElements', updated);
+                                    }}
+                                    className="flex-1 text-[9px] bg-white border border-slate-200 hover:bg-slate-50 text-slate-705 py-1 px-1.5 rounded font-medium cursor-pointer"
+                                    title="Align Left Edge"
+                                  >
+                                    Left Edge
+                                  </button>
+                                  <button
+                                    onClick={() => alignCenterHorizontally(el.id)}
+                                    className="flex-1 text-[9px] bg-white border border-slate-200 hover:bg-slate-50 text-slate-705 py-1 px-1.5 rounded font-medium cursor-pointer"
+                                    title="Center Horizontally"
+                                  >
+                                    H-Center
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      const updated = currentTemplate.textElements.map(item => item.id === el.id ? { ...item, xPercent: 90 } : item);
+                                      updateTemplateProperty('textElements', updated);
+                                    }}
+                                    className="flex-1 text-[9px] bg-white border border-slate-200 hover:bg-slate-50 text-slate-705 py-1 px-1.5 rounded font-medium cursor-pointer"
+                                    title="Align Right Edge"
+                                  >
+                                    Right Edge
+                                  </button>
+                                  <button
+                                    onClick={() => alignCenterVertically(el.id)}
+                                    className="flex-1 text-[9px] bg-white border border-slate-200 hover:bg-slate-50 text-slate-705 py-1 px-1.5 rounded font-medium cursor-pointer"
+                                    title="Center Vertically"
+                                  >
+                                    V-Center
+                                  </button>
+                                </div>
+                                <span className="text-[10px] text-slate-400 font-mono italic block text-center pt-1">Coordinate: Left {el.xPercent}% • Top {el.yPercent}%</span>
+                              </div>
                             </div>
-                          </div>
-
-                          <div className="space-y-1 col-span-2 pt-2 border-t border-slate-200">
-                            <div className="flex justify-between items-center">
-                              <label className="text-[10px] uppercase text-slate-500 font-bold">Box Width: {el.width || 512}px</label>
-                              <button 
-                                onClick={() => updateTextElementProperty(el.id, 'width', undefined)}
-                                className="text-[9px] text-indigo-650 font-bold hover:underline cursor-pointer"
-                              >
-                                Auto/Reset
-                              </button>
-                            </div>
-                            <input
-                              type="range"
-                              min="100"
-                              max="1000"
-                              value={el.width || 512}
-                              onChange={(e) => updateTextElementProperty(el.id, 'width', parseInt(e.target.value))}
-                              className="w-full cursor-pointer mt-1"
-                            />
-                          </div>
-
-                          <div className="col-span-2 pt-1 border-t border-slate-200">
-                            <span className="text-[10px] text-slate-400 font-mono italic block text-center">Coordinate: Left {el.xPercent}% • Top {el.yPercent}%</span>
-                          </div>
-                        </div>
-
-                        <div className="col-span-2 pt-1 border-t border-slate-200">
-                          <span className="text-[10px] text-slate-400 font-mono italic block text-center">Position: Left {el.xPercent}% • Top {el.yPercent}%</span>
-                        </div>
+                          </>
+                        )}
                       </div>
                     );
                   })()
@@ -2305,7 +2405,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                   <p className="text-[10px] text-slate-500">Configure trust verification elements, custom stamps, or dynamic QR codes.</p>
                 </div>
 
-                <div className="space-y-4 pt-2">
+                <div id="seal-settings" className="space-y-4 pt-2">
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-slate-500 uppercase block">Verification Display Mode</label>
                     <select
@@ -2431,7 +2531,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                 <div className="space-y-4 pt-2">
                   
                   {/* ORGANIZATIONAL LOGO BRANDING */}
-                  <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg space-y-3">
+                  <div id="logo-settings" className="bg-slate-50 border border-slate-200 p-3 rounded-lg space-y-3">
                     <span className="text-[9px] font-bold uppercase text-indigo-600">Organization Branding Logo</span>
                     
                     <div className="space-y-1">
@@ -2452,7 +2552,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                         }}
                         className="w-full bg-white border border-slate-200 p-1.5 rounded text-slate-900 focus:outline-none"
                       >
-                        <option value="custom">★ Custom Uploaded Logo Image</option>
+                        <option value="custom">â˜… Custom Uploaded Logo Image</option>
                         <option value="corp">Standard Corporate Star Shield</option>
                         <option value="edu">Classical Academic Mortar Laurel</option>
                         <option value="tech">Modern Glowing Spark Tech</option>
@@ -2512,7 +2612,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                   </div>
 
                   {/* SIGNATORY 1 BLOCK */}
-                  <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg space-y-3">
+                  <div id="signature-settings" className="bg-slate-50 border border-slate-200 p-3 rounded-lg space-y-3">
                     <span className="text-[9px] font-bold uppercase text-indigo-600">Primary Authority Signatory</span>
                     
                     <div className="space-y-1">
@@ -2589,7 +2689,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                   </div>
 
                   {/* DOUBLE SIGNATORY OPTION */}
-                  <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg space-y-3">
+                  <div id="secondarySignature-settings" className="bg-slate-50 border border-slate-200 p-3 rounded-lg space-y-3">
                     <div className="flex justify-between items-center">
                       <span className="text-[9px] font-bold uppercase text-indigo-600">Secondary Signatory (Double)</span>
                       <button
@@ -2786,7 +2886,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                       onClick={() => setSelectedElId('signature')}
                       className={`flex justify-between items-center p-2 rounded-lg cursor-pointer border transition-colors ${selectedElId === 'signature' ? 'bg-indigo-50 border-indigo-500 text-indigo-955' : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'}`}
                     >
-                      <span className="font-bold flex items-center gap-1.5 text-[11px]">✍ Primary Signatory</span>
+                      <span className="font-bold flex items-center gap-1.5 text-[11px]">âœ Primary Signatory</span>
                       <div className="flex items-center gap-1.5">
                         <span className="text-[8px] font-mono text-slate-400 font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold font-bold">L: {currentTemplate.signatureX}% T: {currentTemplate.signatureY}%</span>
                         <button
@@ -2805,7 +2905,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                       onClick={() => setSelectedElId('secondarySignature')}
                       className={`flex justify-between items-center p-2 rounded-lg cursor-pointer border transition-colors ${selectedElId === 'secondarySignature' ? 'bg-indigo-50 border-indigo-500 text-indigo-955' : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'}`}
                     >
-                      <span className="font-bold flex items-center gap-1.5 text-[11px]">✍ Secondary Signatory</span>
+                      <span className="font-bold flex items-center gap-1.5 text-[11px]">âœ Secondary Signatory</span>
                       <div className="flex items-center gap-1.5">
                         <span className="text-[8px] font-mono text-slate-400 font-bold font-bold font-bold font-bold font-bold font-bold font-bold">L: {currentTemplate.secondarySignatureX || 70}% T: {currentTemplate.secondarySignatureY || 78}%</span>
                         <button
@@ -2825,7 +2925,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                       onClick={() => setSelectedElId('seal')}
                       className={`flex justify-between items-center p-2 rounded-lg cursor-pointer border transition-colors ${selectedElId === 'seal' ? 'bg-indigo-50 border-indigo-500 text-indigo-955' : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'}`}
                     >
-                      <span className="font-bold flex items-center gap-1.5 text-[11px]">🛡 Audit Seals & QR Code</span>
+                      <span className="font-bold flex items-center gap-1.5 text-[11px]">ðŸ›¡ Audit Seals & QR Code</span>
                       <div className="flex items-center gap-1.5">
                         <span className="text-[8px] font-mono text-slate-400 font-bold">L: {currentTemplate.qrCodeX}% T: {currentTemplate.qrCodeY}%</span>
                         <button
@@ -2898,6 +2998,22 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
               className="aspect-[1.414/1] w-full bg-white relative shadow-2xl transition-all duration-150 overflow-hidden select-none border-indigo-400 cursor-default"
             >
               
+              {/* AI Sample Parsing Glassmorphism Overlay */}
+              {isParsingSample && (
+                <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center z-[50] text-white p-6 animate-fade-in">
+                  <div className="flex flex-col items-center gap-4 max-w-sm text-center">
+                    <div className="relative w-16 h-16">
+                      <div className="absolute inset-0 rounded-full border-4 border-indigo-205/20 animate-pulse"></div>
+                      <div className="absolute inset-0 rounded-full border-4 border-t-indigo-500 border-r-transparent border-b-transparent border-l-transparent animate-spin"></div>
+                    </div>
+                    <div className="space-y-1">
+                      <h4 className="text-sm font-extrabold tracking-wider uppercase text-indigo-400">AI Certificate Analyzer</h4>
+                      <p className="text-[11px] text-slate-300 font-medium animate-pulse">{parsingProgress}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Symmetrical Corner Accents */}
               {renderCornerFlourish(currentTemplate.decorFlourish || 'none', currentTemplate.borderColor)}
 
@@ -3540,12 +3656,12 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                     >
                       {currentTemplate.sealType === 'classic' && (
                         <div className="w-full h-full rounded-full border-2 border-indigo-500/40 bg-indigo-500/5 text-indigo-500 flex items-center justify-center font-bold text-[1.2cqw] shadow-sm">
-                          ★
+                          â˜…
                         </div>
                       )}
                       {currentTemplate.sealType === 'stellar' && (
                         <div className="w-full h-full bg-slate-900 border-2 border-dashed border-cyan-400 text-cyan-400 rounded-full flex items-center justify-center font-bold text-[1.2cqw] select-none">
-                          ✧
+                          âœ§
                         </div>
                       )}
                       {currentTemplate.sealType === 'modern' && (
@@ -3560,12 +3676,12 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                       )}
                       {currentTemplate.sealType === 'emerald_shield' && (
                         <div className="w-full h-full bg-emerald-900 border-2 border-amber-400 text-amber-300 rounded-md flex items-center justify-center font-bold text-[1.2cqw] select-none shadow">
-                          ⛨
+                          â›¨
                         </div>
                       )}
                       {currentTemplate.sealType === 'gold_medallion' && (
                         <div className="w-full h-full bg-gradient-to-tr from-yellow-600 via-amber-400 to-yellow-600 border border-yellow-300 rounded-full flex items-center justify-center text-yellow-950 font-serif font-bold text-[0.9cqw] shadow-lg select-none">
-                          🏆
+                          ðŸ†
                         </div>
                       )}
                     </div>
