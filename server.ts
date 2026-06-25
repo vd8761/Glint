@@ -8,6 +8,7 @@ import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
 import pg from 'pg';
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -1280,7 +1281,7 @@ app.post('/api/programs/:id/issue', authenticateToken, async (req, res) => {
 
     for (let idx = 0; idx < recipients.length; idx++) {
       const rec = recipients[idx];
-      const certId = `CERT-2026-${issuedCounterBase + idx}`;
+      const certId = crypto.randomUUID();
       const securityHash = `sha256:${Math.random().toString(16).substring(2, 10)}_security_seal_${certId}`;
       const auditTrail = [
         {
@@ -1433,6 +1434,40 @@ app.get('/api/certificates/:id', async (req, res) => {
   } catch (err: any) {
     logger.error('Error verifying certificate', err);
     res.status(500).json({ error: 'Database error fetching certificate details' });
+  }
+});
+
+// Debug SMTP configuration in production
+app.get('/api/debug/smtp', async (req, res) => {
+  try {
+    const result = await sendVerificationEmail({
+      recipientEmail: 'jayakrishna0023@gmail.com',
+      recipientName: 'SMTP Diagnostic Test',
+      subject: 'Glint SMTP Diagnostic Test',
+      body: 'This is a test email sent from the Glint debug route to verify SMTP configuration.',
+      workspaceId: 'ws-g10s3hd',
+      programName: 'SMTP Diagnostics',
+      certId: 'DIAG-101',
+      verificationUrl: 'https://glint-pi.vercel.app'
+    });
+    
+    res.json({
+      smtpConfigured,
+      host: process.env.SMTP_HOST,
+      port: process.env.SMTP_PORT,
+      user: process.env.SMTP_USER,
+      from: process.env.SMTP_FROM,
+      fromName: process.env.SMTP_FROM_NAME,
+      emailResult: result
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      smtpConfigured,
+      host: process.env.SMTP_HOST,
+      port: process.env.SMTP_PORT,
+      user: process.env.SMTP_USER,
+      error: err.message || err
+    });
   }
 });
 
