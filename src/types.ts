@@ -28,15 +28,22 @@ export interface TextElement {
   id: string;
   text: string; // text with static or variable markers like {{name}}, {{program}}, {{id}}, {{date}}
   fontSize: number;
-  fontFamily: 'Inter' | 'Space Grotesk' | 'Playfair Display' | 'JetBrains Mono';
-  fontWeight: 'normal' | 'medium' | 'bold';
+  fontFamily: string; // Dynamic Google Fonts support
+  fontWeight: 'normal' | 'medium' | 'bold' | string;
+  fontStyle?: 'normal' | 'italic';
+  textDecoration?: 'none' | 'underline';
+  letterSpacing?: number; // Letter spacing in pixels
+  lineHeight?: number; // Line height multiplier
+  opacity?: number; // Transparency multiplier (0 to 1)
+  textTransform?: 'none' | 'uppercase' | 'lowercase' | 'capitalize';
   color: string;
   xPercent: number; // Percent positioning from left (0 to 100)
   yPercent: number; // Percent positioning from top (0 to 100)
-  align: 'left' | 'center' | 'right';
+  align: 'left' | 'center' | 'right' | 'justify';
   isPlaceholder?: boolean;
   width?: number; // Optional box width for wrapping/resizing
-  type?: 'text' | 'image';
+  height?: number; // Optional box height for shapes/redaction patches
+  type?: 'text' | 'image' | 'redaction';
   imageUrl?: string;
 }
 
@@ -82,6 +89,7 @@ export interface CertificateTemplate {
   secondarySignatureY?: number;
   secondarySignatureWidth?: number;
   backgroundImageUrl?: string;
+  qrCodeCustomUrl?: string;
 }
 
 export type ProgramStatus = 'draft' | 'active' | 'archived';
