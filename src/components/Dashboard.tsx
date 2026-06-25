@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   BarChart3, Award, Users, Database, ShieldCheck, Settings, Globe, Mail, Landmark, 
-  Trash2, Plus, ArrowUpRight, UploadCloud, RefreshCw, Layers, Calendar, User, Search,
+  Trash2, Plus, ArrowUpRight, Upload, RefreshCw, Layers, Calendar, User, Search,
   AlertTriangle, Check, Sliders, Play, CheckCircle2, ShieldAlert, Sparkles, BookOpen,
   LogOut, Menu, X
 } from 'lucide-react';
@@ -432,6 +432,57 @@ export function Dashboard({
       console.error('Failed creating template template', err);
     }
   };
+  
+  const handleUploadCertificateDesign = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 3.5 * 1024 * 1024) {
+      alert("Image is too large. Please select an image smaller than 3.5MB for fast loading.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const base64Data = event.target?.result as string;
+      try {
+        const res = await fetch('/api/templates', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            ...authHeaders
+          },
+          body: JSON.stringify({
+            workspaceId: currentWorkspaceId,
+            name: `Uploaded - ${file.name.split('.')[0]}`,
+            layout: 'landscape',
+            backgroundColor: '#FFFFFF',
+            borderColor: '#0a0a0a',
+            borderWidth: 0,
+            showSeal: false,
+            sealType: 'classic',
+            signatoryName: 'Jane Doe',
+            signatoryTitle: 'Chancellor, Education Unit',
+            backgroundImageUrl: base64Data,
+            textElements: [
+              { id: 'et1', text: 'CERTIFICATE OF MASTERY', fontSize: 24, fontFamily: 'Space Grotesk', fontWeight: 'bold', color: '#0F172A', xPercent: 50, yPercent: 25, align: 'center' },
+              { id: 'et2', text: 'Granted proud recipient', fontSize: 11, fontFamily: 'Inter', fontWeight: 'normal', color: '#64748B', xPercent: 50, yPercent: 36, align: 'center' },
+              { id: 'et3', text: '{{name}}', fontSize: 34, fontFamily: 'Playfair Display', fontWeight: 'bold', color: currentWorkspace?.branding.accentColor || '#1a73e8', xPercent: 50, yPercent: 48, align: 'center', isPlaceholder: true },
+              { id: 'et4', text: 'for dedicated program participation in', fontSize: 11, fontFamily: 'Inter', fontWeight: 'normal', color: '#64748B', xPercent: 50, yPercent: 58, align: 'center' },
+              { id: 'et5', text: '{{program}}', fontSize: 18, fontFamily: 'Space Grotesk', fontWeight: 'bold', color: '#0F172A', xPercent: 50, yPercent: 66, align: 'center', isPlaceholder: true }
+            ]
+          })
+        });
+        if (res.ok) {
+          await triggerDataRefresh();
+        }
+      } catch (err) {
+        console.error('Failed creating template from uploaded design', err);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
 
   const handleDeleteTemplate = async (id: string) => {
     if (!confirm('Are you absolutely sure you want to remove this template? This cannot be undone.')) return;
@@ -774,7 +825,7 @@ export function Dashboard({
               className={`w-full flex items-center py-2 px-3 rounded-lg font-medium text-xs transition-all ${activeTab === 'recipients' ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
             >
               <span className="flex items-center gap-2.5">
-                <UploadCloud className="w-4 h-4" /> Bulk CSV Issuance
+                <Upload className="w-4 h-4" /> Bulk CSV Issuance
               </span>
             </button>
 
@@ -1322,12 +1373,27 @@ export function Dashboard({
                           <h2 className="font-serif text-3xl italic text-slate-950">Layout Template Blueprints</h2>
                           <p className="text-slate-500 text-sm">Choose and configure highly scalable CSS certificate canvases.</p>
                         </div>
-                        <button
-                          onClick={handleAddNewTemplate}
-                          className="bg-slate-950 text-white text-xs px-5 py-2.5 rounded-full font-bold shadow-sm hover:bg-slate-800"
-                        >
-                          + Seed Professional Blueprint
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => document.getElementById('dashboard-design-upload')?.click()}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-5 py-2.5 rounded-full font-bold shadow-sm flex items-center gap-1.5 transition-colors"
+                          >
+                            <Upload className="w-4 h-4" /> Upload Certificate Design
+                          </button>
+                          <input 
+                            type="file"
+                            id="dashboard-design-upload"
+                            accept="image/*"
+                            onChange={handleUploadCertificateDesign}
+                            className="hidden"
+                          />
+                          <button
+                            onClick={handleAddNewTemplate}
+                            className="bg-slate-950 text-white text-xs px-5 py-2.5 rounded-full font-bold shadow-sm hover:bg-slate-800"
+                          >
+                            + Seed Professional Blueprint
+                          </button>
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">

@@ -23,203 +23,211 @@ interface CanvaEditorProps {
 // 6+ Beautiful Canva Designer Presets
 const BEAUTIFUL_PRESETS = [
   {
-    name: 'Classic Golden Excellence',
+    name: 'Google Cloud Certified Professional',
     layout: 'landscape' as const,
-    backgroundColor: '#FAF8F5',
-    borderColor: '#C5A880',
-    borderWidth: 10,
-    borderRadius: 0,
-    borderStyle: 'double' as const,
-    backgroundGradient: 'linear-gradient(135deg, #FAF8F5 0%, #F5F0E6 100%)',
-    decorFlourish: 'ornate' as const,
+    backgroundColor: '#FFFFFF',
+    borderColor: '#1A73E8',
+    borderWidth: 4,
+    borderRadius: 4,
+    borderStyle: 'solid' as const,
+    backgroundGradient: 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)',
+    decorFlourish: 'minimal' as const,
     sealType: 'gold_medallion' as const,
-    logoIconType: 'edu',
+    logoIconType: 'tech',
     logoX: 50,
-    logoY: 15,
+    logoY: 14,
     logoWidth: 80,
     signatureUrl: '',
     signatureX: 30,
     signatureY: 78,
     signatureWidth: 100,
-    signatoryName: 'Dean Arthur Pendelton',
-    signatoryTitle: 'Chancellor of Academic Senate',
+    signatoryName: 'Sundar Pichai',
+    signatoryTitle: 'CEO, Google LLC',
     showSecondarySignatory: true,
-    secondarySignatoryName: 'Dr. Evelyn Masters',
-    secondarySignatoryTitle: 'Registrar General',
+    secondarySignatoryName: 'Thomas Kurian',
+    secondarySignatoryTitle: 'CEO, Google Cloud',
     secondarySignatureX: 70,
     secondarySignatureY: 78,
     secondarySignatureWidth: 100,
     textElements: [
-      { id: 't1', text: 'CERTIFICATE OF EXCELLENCE', fontSize: 26, fontFamily: 'Playfair Display' as const, fontWeight: 'bold' as const, color: '#2B261D', xPercent: 50, yPercent: 28, align: 'center' as const },
-      { id: 't2', text: 'This highly distinguished credential certifies that', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#796B58', xPercent: 50, yPercent: 36, align: 'center' as const },
-      { id: 't3', text: '{{name}}', fontSize: 34, fontFamily: 'Playfair Display' as const, fontWeight: 'bold' as const, color: '#C5A880', xPercent: 50, yPercent: 47, align: 'center' as const },
-      { id: 't4', text: 'has achieved sublime master level competencies and successfully graduated', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#796B58', xPercent: 50, yPercent: 56, align: 'center' as const },
-      { id: 't5', text: '{{program}}', fontSize: 18, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#2B261D', xPercent: 50, yPercent: 64, align: 'center' as const },
-      { id: 't6', text: 'ISSUED ON: {{date}}', fontSize: 9, fontFamily: 'JetBrains Mono' as const, fontWeight: 'medium' as const, color: '#796B58', xPercent: 12, yPercent: 88, align: 'left' as const },
-      { id: 't7', text: 'VERIFICATION ID: {{id}}', fontSize: 9, fontFamily: 'JetBrains Mono' as const, fontWeight: 'medium' as const, color: '#796B58', xPercent: 88, yPercent: 88, align: 'right' as const }
+      { id: 't1', text: 'GOOGLE CLOUD PROFESSIONAL CERTIFICATION', fontSize: 11, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#1A73E8', xPercent: 50, yPercent: 26, align: 'center' as const },
+      { id: 't2', text: 'This confirms that', fontSize: 10, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#64748B', xPercent: 50, yPercent: 34, align: 'center' as const },
+      { id: 't3', text: '{{name}}', fontSize: 34, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#0F172A', xPercent: 50, yPercent: 45, align: 'center' as const, isPlaceholder: true },
+      { id: 't4', text: 'has successfully demonstrated proficiency and met all requirements to be certified as', fontSize: 10, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#64748B', xPercent: 50, yPercent: 53, align: 'center' as const },
+      { id: 't5', text: '{{program}}', fontSize: 20, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#1A73E8', xPercent: 50, yPercent: 61, align: 'center' as const, isPlaceholder: true },
+      { id: 't6', text: 'Credential ID: {{id}}', fontSize: 8, fontFamily: 'JetBrains Mono' as const, fontWeight: 'normal' as const, color: '#94A3B8', xPercent: 12, yPercent: 88, align: 'left' as const },
+      { id: 't7', text: 'Issued: {{date}}', fontSize: 8, fontFamily: 'JetBrains Mono' as const, fontWeight: 'normal' as const, color: '#94A3B8', xPercent: 88, yPercent: 88, align: 'right' as const }
     ]
   },
   {
-    name: 'Cybernetic Tech Modern',
+    name: 'Microsoft Solutions Expert',
     layout: 'landscape' as const,
-    backgroundColor: '#0A0F1D',
-    borderColor: '#00F2FE',
-    borderWidth: 4,
-    borderRadius: 8,
+    backgroundColor: '#FCFCFC',
+    borderColor: '#00A4EF',
+    borderWidth: 5,
+    borderRadius: 0,
     borderStyle: 'solid' as const,
-    backgroundGradient: 'linear-gradient(180deg, #070913 0%, #0D1527 100%)',
-    decorFlourish: 'modern' as const,
+    backgroundGradient: 'linear-gradient(180deg, #FFFFFF 0%, #F3F4F6 100%)',
+    decorFlourish: 'minimal' as const,
     sealType: 'stellar' as const,
     logoIconType: 'tech',
     logoX: 12,
     logoY: 12,
-    logoWidth: 60,
+    logoWidth: 70,
     signatureUrl: '',
     signatureX: 50,
-    signatureY: 80,
-    signatureWidth: 90,
-    signatoryName: 'Thomas Kurian, CEO',
-    signatoryTitle: 'Infrastructure Advisory Council',
+    signatureY: 78,
+    signatureWidth: 100,
+    signatoryName: 'Satya Nadella',
+    signatoryTitle: 'CEO, Microsoft Corporation',
     showSecondarySignatory: false,
     textElements: [
-      { id: 't1', text: 'CRYPTOGRAPHIC DISPATCH CONFIRMATION', fontSize: 10, fontFamily: 'JetBrains Mono' as const, fontWeight: 'medium' as const, color: '#00F2FE', xPercent: 50, yPercent: 15, align: 'center' as const },
-      { id: 't2', text: 'TECHNOLOGY MASTERY PROGRAM', fontSize: 24, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#FFFFFF', xPercent: 50, yPercent: 26, align: 'center' as const },
-      { id: 't3', text: 'This record validates that the system administrator', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#94A3B8', xPercent: 50, yPercent: 35, align: 'center' as const },
-      { id: 't4', text: '{{name}}', fontSize: 36, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#4FACFE', xPercent: 50, yPercent: 46, align: 'center' as const },
-      { id: 't5', text: 'has successfully completed all modules and certified competencies for', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#94A3B8', xPercent: 50, yPercent: 56, align: 'center' as const },
-      { id: 't6', text: '{{program}}', fontSize: 20, fontFamily: 'JetBrains Mono' as const, fontWeight: 'bold' as const, color: '#00F2FE', xPercent: 50, yPercent: 64, align: 'center' as const },
-      { id: 't7', text: 'LEDGER SECURE STAMP: {{id}}', fontSize: 9, fontFamily: 'JetBrains Mono' as const, fontWeight: 'normal' as const, color: '#64748B', xPercent: 50, yPercent: 90, align: 'center' as const }
+      { id: 't1', text: 'MICROSOFT CERTIFICATION OF EXPERTISE', fontSize: 11, fontFamily: 'JetBrains Mono' as const, fontWeight: 'bold' as const, color: '#00A4EF', xPercent: 50, yPercent: 22, align: 'center' as const },
+      { id: 't2', text: 'This is to certify that', fontSize: 10, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#4B5563', xPercent: 50, yPercent: 32, align: 'center' as const },
+      { id: 't3', text: '{{name}}', fontSize: 32, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#1F2937', xPercent: 50, yPercent: 44, align: 'center' as const, isPlaceholder: true },
+      { id: 't4', text: 'has met the rigorous academic and practical requirements of the specialization track', fontSize: 10, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#4B5563', xPercent: 50, yPercent: 53, align: 'center' as const },
+      { id: 't5', text: '{{program}}', fontSize: 20, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#111827', xPercent: 50, yPercent: 62, align: 'center' as const, isPlaceholder: true },
+      { id: 't6', text: 'Verification Hash: {{id}}', fontSize: 8, fontFamily: 'JetBrains Mono' as const, fontWeight: 'normal' as const, color: '#9CA3AF', xPercent: 50, yPercent: 89, align: 'center' as const }
     ]
   },
   {
-    name: 'Metropolitan Corporate Executive',
+    name: 'IBM Cognitive Solutions Specialist',
     layout: 'landscape' as const,
     backgroundColor: '#FFFFFF',
-    borderColor: '#0F172A',
-    borderWidth: 8,
-    borderRadius: 4,
+    borderColor: '#0F62FE',
+    borderWidth: 3,
+    borderRadius: 0,
     borderStyle: 'solid' as const,
-    backgroundGradient: 'linear-gradient(135deg, #FFFFFF 0%, #F1F5F9 100%)',
-    decorFlourish: 'minimal' as const,
+    backgroundGradient: 'linear-gradient(135deg, #FFFFFF 0%, #F2F4F8 100%)',
+    decorFlourish: 'none' as const,
     sealType: 'classic' as const,
     logoIconType: 'corp',
-    logoX: 50,
-    logoY: 15,
-    logoWidth: 70,
+    logoX: 85,
+    logoY: 12,
+    logoWidth: 60,
     signatureUrl: '',
-    signatureX: 35,
-    signatureY: 76,
+    signatureX: 25,
+    signatureY: 78,
     signatureWidth: 100,
-    signatoryName: 'Clara Sterling',
-    signatoryTitle: 'Managing Partner',
+    signatoryName: 'Arvind Krishna',
+    signatoryTitle: 'Chairman & CEO, IBM',
     showSecondarySignatory: true,
-    secondarySignatoryName: 'Marcus Vance',
-    secondarySignatoryTitle: 'Operating Director',
-    secondarySignatureX: 65,
-    secondarySignatureY: 76,
+    secondarySignatoryName: 'Dr. John Kelly III',
+    secondarySignatoryTitle: 'SVP, Cognitive Solutions',
+    secondarySignatureX: 75,
+    secondarySignatureY: 78,
     secondarySignatureWidth: 100,
     textElements: [
-      { id: 't1', text: 'CREDENTIAL OF RECOGNITION', fontSize: 22, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#0F172A', xPercent: 50, yPercent: 28, align: 'center' as const },
-      { id: 't2', text: 'For exemplary professional achievements, awarded to', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#475569', xPercent: 50, yPercent: 36, align: 'center' as const },
-      { id: 't3', text: '{{name}}', fontSize: 32, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#0F172A', xPercent: 50, yPercent: 47, align: 'center' as const },
-      { id: 't4', text: 'upon demonstrating elite leadership and completing the specialized training in', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#475569', xPercent: 50, yPercent: 56, align: 'center' as const },
-      { id: 't5', text: '{{program}}', fontSize: 16, fontFamily: 'JetBrains Mono' as const, fontWeight: 'medium' as const, color: '#0F172A', xPercent: 50, yPercent: 63, align: 'center' as const },
-      { id: 't6', text: 'Date of Issuance: {{date}}', fontSize: 9, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#94A3B8', xPercent: 50, yPercent: 88, align: 'center' as const }
+      { id: 't1', text: 'IBM Cognitive Enterprise Certification', fontSize: 12, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#0F62FE', xPercent: 12, yPercent: 22, align: 'left' as const },
+      { id: 't2', text: 'Awarded to', fontSize: 10, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#525252', xPercent: 12, yPercent: 34, align: 'left' as const },
+      { id: 't3', text: '{{name}}', fontSize: 34, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#161616', xPercent: 12, yPercent: 45, align: 'left' as const, isPlaceholder: true },
+      { id: 't4', text: 'for high-performing mastery in the enterprise technology curriculum of', fontSize: 10, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#525252', xPercent: 12, yPercent: 55, align: 'left' as const },
+      { id: 't5', text: '{{program}}', fontSize: 18, fontFamily: 'JetBrains Mono' as const, fontWeight: 'bold' as const, color: '#0F62FE', xPercent: 12, yPercent: 63, align: 'left' as const, isPlaceholder: true },
+      { id: 't6', text: 'SYSTEM AUDIT ID: {{id}}', fontSize: 8, fontFamily: 'JetBrains Mono' as const, fontWeight: 'normal' as const, color: '#8D8D8D', xPercent: 12, yPercent: 89, align: 'left' as const }
     ]
   },
   {
-    name: 'Artistic Pastel Modernism',
+    name: 'Harvard Business Leadership Executive',
     layout: 'landscape' as const,
-    backgroundColor: '#FAF5F5',
-    borderColor: '#FDBA74',
-    borderWidth: 6,
-    borderRadius: 24,
-    borderStyle: 'dashed' as const,
-    backgroundGradient: 'linear-gradient(135deg, #FEF3C7 0%, #FEE2E2 50%, #EEF2F6 100%)',
-    decorFlourish: 'classic' as const,
-    sealType: 'crimson_wax' as const,
-    logoIconType: 'art',
-    logoX: 50,
-    logoY: 15,
-    logoWidth: 70,
-    signatureUrl: '',
-    signatureX: 50,
-    signatureY: 76,
-    signatureWidth: 95,
-    signatoryName: 'Clara Sterling',
-    signatoryTitle: 'Creative Director',
-    showSecondarySignatory: false,
-    textElements: [
-      { id: 't1', text: 'Honorary Creative Guild Certificate', fontSize: 24, fontFamily: 'Playfair Display' as const, fontWeight: 'bold' as const, color: '#431407', xPercent: 50, yPercent: 28, align: 'center' as const },
-      { id: 't2', text: 'With congratulations and professional salute, granted to', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#7C2D12', xPercent: 50, yPercent: 37, align: 'center' as const },
-      { id: 't3', text: '{{name}}', fontSize: 34, fontFamily: 'Playfair Display' as const, fontWeight: 'bold' as const, color: '#BE123C', xPercent: 50, yPercent: 48, align: 'center' as const },
-      { id: 't4', text: 'for dedicated contribution and curated focus in the program', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#7C2D12', xPercent: 50, yPercent: 58, align: 'center' as const },
-      { id: 't5', text: '{{program}}', fontSize: 18, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#431407', xPercent: 50, yPercent: 66, align: 'center' as const }
-    ]
-  },
-  {
-    name: 'Deep Emerald & Gold Guard',
-    layout: 'landscape' as const,
-    backgroundColor: '#064E3B',
-    borderColor: '#FBBF24',
-    borderWidth: 10,
-    borderRadius: 2,
+    backgroundColor: '#FAF8F5',
+    borderColor: '#A51C30',
+    borderWidth: 12,
+    borderRadius: 0,
     borderStyle: 'double' as const,
-    backgroundGradient: 'radial-gradient(circle, #065F46 0%, #022C22 100%)',
+    backgroundGradient: 'linear-gradient(180deg, #FAF8F5 0%, #F5EFEB 100%)',
     decorFlourish: 'ornate' as const,
-    sealType: 'emerald_shield' as const,
-    logoIconType: 'corp',
+    sealType: 'crimson_wax' as const,
+    logoIconType: 'edu',
     logoX: 50,
     logoY: 14,
     logoWidth: 75,
     signatureUrl: '',
-    signatureX: 25,
+    signatureX: 30,
     signatureY: 78,
-    signatureWidth: 90,
-    signatoryName: 'Lord Alistair Sterling',
-    signatoryTitle: 'High Commissioner',
+    signatureWidth: 100,
+    signatoryName: 'Prof. Lawrence S. Bacow',
+    signatoryTitle: 'President of the University',
     showSecondarySignatory: true,
-    secondarySignatoryName: 'Lady Fiona Mercer',
-    secondarySignatoryTitle: 'Chief Compliance Audit Officer',
-    secondarySignatureX: 75,
+    secondarySignatoryName: 'Dean Srikant Datar',
+    secondarySignatoryTitle: 'Dean of the Business Faculty',
+    secondarySignatureX: 70,
     secondarySignatureY: 78,
-    secondarySignatureWidth: 90,
+    secondarySignatureWidth: 100,
     textElements: [
-      { id: 't1', text: 'DISPATCH OF ROYAL FELLOWSHIP', fontSize: 22, fontFamily: 'Playfair Display' as const, fontWeight: 'bold' as const, color: '#FBBF24', xPercent: 50, yPercent: 28, align: 'center' as const },
-      { id: 't2', text: 'This serves to announce to all sovereign domains that', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#A7F3D0', xPercent: 50, yPercent: 36, align: 'center' as const },
-      { id: 't3', text: '{{name}}', fontSize: 32, fontFamily: 'Playfair Display' as const, fontWeight: 'bold' as const, color: '#FFFFFF', xPercent: 50, yPercent: 47, align: 'center' as const },
-      { id: 't4', text: 'has satisfied all rigorous criteria and is admitted into the executive circle of', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#A7F3D0', xPercent: 50, yPercent: 56, align: 'center' as const },
-      { id: 't5', text: '{{program}}', fontSize: 18, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#FBBF24', xPercent: 50, yPercent: 64, align: 'center' as const }
+      { id: 't1', text: 'HARVARD BUSINESS SCHOOL', fontSize: 14, fontFamily: 'Playfair Display' as const, fontWeight: 'bold' as const, color: '#A51C30', xPercent: 50, yPercent: 26, align: 'center' as const },
+      { id: 't2', text: 'Executive Education', fontSize: 11, fontFamily: 'Playfair Display' as const, fontWeight: 'normal' as const, color: '#1E293B', xPercent: 50, yPercent: 31, align: 'center' as const },
+      { id: 't3', text: 'This is to certify that', fontSize: 10, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#64748B', xPercent: 50, yPercent: 37, align: 'center' as const },
+      { id: 't4', text: '{{name}}', fontSize: 34, fontFamily: 'Playfair Display' as const, fontWeight: 'bold' as const, color: '#1E293B', xPercent: 50, yPercent: 47, align: 'center' as const, isPlaceholder: true },
+      { id: 't5', text: 'has successfully completed the program of studies in', fontSize: 10, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#64748B', xPercent: 50, yPercent: 56, align: 'center' as const },
+      { id: 't6', text: '{{program}}', fontSize: 18, fontFamily: 'Playfair Display' as const, fontWeight: 'bold' as const, color: '#A51C30', xPercent: 50, yPercent: 64, align: 'center' as const, isPlaceholder: true },
+      { id: 't7', text: 'VERITAS ID: {{id}}', fontSize: 8, fontFamily: 'JetBrains Mono' as const, fontWeight: 'normal' as const, color: '#94A3B8', xPercent: 12, yPercent: 89, align: 'left' as const }
     ]
   },
   {
-    name: 'Academic Science Research',
+    name: 'McKinsey Strategy Fellowship',
     layout: 'landscape' as const,
-    backgroundColor: '#FAFDFD',
-    borderColor: '#0284C7',
+    backgroundColor: '#06122C',
+    borderColor: '#C5A880',
     borderWidth: 6,
-    borderRadius: 0,
+    borderRadius: 2,
     borderStyle: 'solid' as const,
-    backgroundGradient: 'linear-gradient(180deg, #FAFDFD 0%, #E0F2FE 100%)',
+    backgroundGradient: 'radial-gradient(circle, #0D2046 0%, #030815 100%)',
     decorFlourish: 'minimal' as const,
-    sealType: 'classic' as const,
-    logoIconType: 'science',
+    sealType: 'emerald_shield' as const,
+    logoIconType: 'corp',
     logoX: 50,
-    logoY: 15,
+    logoY: 14,
     logoWidth: 70,
     signatureUrl: '',
     signatureX: 50,
-    signatureY: 78,
+    signatureY: 80,
     signatureWidth: 100,
-    signatoryName: 'Dr. Helen Clark, PhD',
-    signatoryTitle: 'Dean of Sciences & Engineering',
+    signatoryName: 'Bob Sternfels',
+    signatoryTitle: 'Global Managing Partner',
     showSecondarySignatory: false,
     textElements: [
-      { id: 't1', text: 'ACADEMIC RESEARCH ACCREDITATION', fontSize: 20, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#0369A1', xPercent: 50, yPercent: 26, align: 'center' as const },
-      { id: 't2', text: 'Upon confirmation of original research submission, we hereby certify', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#475569', xPercent: 50, yPercent: 35, align: 'center' as const },
-      { id: 't3', text: '{{name}}', fontSize: 30, fontFamily: 'Playfair Display' as const, fontWeight: 'bold' as const, color: '#0F172A', xPercent: 50, yPercent: 47, align: 'center' as const },
-      { id: 't4', text: 'for highly innovative project implementations and theoretical mastery in', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#475569', xPercent: 50, yPercent: 57, align: 'center' as const },
-      { id: 't5', text: '{{program}}', fontSize: 18, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#0369A1', xPercent: 50, yPercent: 65, align: 'center' as const }
+      { id: 't1', text: 'MCKINSEY & COMPANY GLOBAL FELLOWSHIP', fontSize: 11, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#C5A880', xPercent: 50, yPercent: 24, align: 'center' as const },
+      { id: 't2', text: 'In recognition of excellent strategy formulation, awarded to', fontSize: 10, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#94A3B8', xPercent: 50, yPercent: 34, align: 'center' as const },
+      { id: 't3', text: '{{name}}', fontSize: 34, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#FFFFFF', xPercent: 50, yPercent: 46, align: 'center' as const, isPlaceholder: true },
+      { id: 't4', text: 'upon successful completion of the global leadership training module in', fontSize: 10, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#94A3B8', xPercent: 50, yPercent: 56, align: 'center' as const },
+      { id: 't5', text: '{{program}}', fontSize: 18, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#C5A880', xPercent: 50, yPercent: 64, align: 'center' as const, isPlaceholder: true },
+      { id: 't6', text: 'Fellowship Registry Code: {{id}}', fontSize: 8, fontFamily: 'JetBrains Mono' as const, fontWeight: 'normal' as const, color: '#475569', xPercent: 50, yPercent: 90, align: 'center' as const }
+    ]
+  },
+  {
+    name: 'Scrum Alliance Certified Product Owner',
+    layout: 'landscape' as const,
+    backgroundColor: '#FFFFFF',
+    borderColor: '#0F766E',
+    borderWidth: 12,
+    borderRadius: 6,
+    borderStyle: 'solid' as const,
+    backgroundGradient: 'linear-gradient(135deg, #FFFFFF 0%, #F0FDFA 100%)',
+    decorFlourish: 'minimal' as const,
+    sealType: 'gold_medallion' as const,
+    logoIconType: 'corp',
+    logoX: 50,
+    logoY: 14,
+    logoWidth: 70,
+    signatureUrl: '',
+    signatureX: 30,
+    signatureY: 78,
+    signatureWidth: 100,
+    signatoryName: 'Howard Sublett',
+    signatoryTitle: 'Chief Product Owner, Scrum Alliance',
+    showSecondarySignatory: true,
+    secondarySignatoryName: 'Melissa Boggs',
+    secondarySignatoryTitle: 'Chief Agile Officer',
+    secondarySignatureX: 70,
+    secondarySignatureY: 78,
+    secondarySignatureWidth: 100,
+    textElements: [
+      { id: 't1', text: 'CERTIFIED PRODUCT OWNER', fontSize: 22, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#0F766E', xPercent: 50, yPercent: 26, align: 'center' as const },
+      { id: 't2', text: 'Scrum Alliance certifies that', fontSize: 11, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#475569', xPercent: 50, yPercent: 35, align: 'center' as const },
+      { id: 't3', text: '{{name}}', fontSize: 34, fontFamily: 'Playfair Display' as const, fontWeight: 'bold' as const, color: '#0F172A', xPercent: 50, yPercent: 47, align: 'center' as const, isPlaceholder: true },
+      { id: 't4', text: 'has successfully met all validation criteria and is registered as a certified', fontSize: 10, fontFamily: 'Inter' as const, fontWeight: 'normal' as const, color: '#475569', xPercent: 50, yPercent: 57, align: 'center' as const },
+      { id: 't5', text: '{{program}}', fontSize: 18, fontFamily: 'Space Grotesk' as const, fontWeight: 'bold' as const, color: '#0F766E', xPercent: 50, yPercent: 65, align: 'center' as const, isPlaceholder: true },
+      { id: 't6', text: 'Certification Seal ID: {{id}}', fontSize: 8, fontFamily: 'JetBrains Mono' as const, fontWeight: 'normal' as const, color: '#94A3B8', xPercent: 12, yPercent: 89, align: 'left' as const }
     ]
   }
 ];
@@ -744,8 +752,8 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 1.5 * 1024 * 1024) {
-      alert("Image is too large. Please select an image smaller than 1.5MB for fast database encoding.");
+    if (file.size > 3.5 * 1024 * 1024) {
+      alert("Image is too large. Please select an image smaller than 3.5MB for fast database encoding.");
       return;
     }
 
@@ -1780,6 +1788,47 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                   />
                 </div>
 
+                <div className="border-t border-slate-100 pt-4 space-y-3">
+                  <div className="space-y-1">
+                    <h4 className="text-[10px] font-bold uppercase text-slate-700 tracking-wider">
+                      Upload Entire Certificate Design
+                    </h4>
+                    <p className="text-[10px] text-slate-500 leading-normal">
+                      Use a complete pre-designed certificate image (JPEG/PNG) as your template background. Existing overlay placeholders will remain editable.
+                    </p>
+                  </div>
+                  
+                  <label
+                    htmlFor="editor-backdrop-upload-input"
+                    className="flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-xl p-5 hover:bg-slate-50 hover:border-indigo-500 transition-all cursor-pointer shadow-sm group"
+                  >
+                    <Image className="w-5 h-5 text-slate-400 group-hover:text-indigo-650 mb-1.5 transition-colors" />
+                    <span className="text-[10px] font-bold text-slate-600 group-hover:text-indigo-650 transition-colors">
+                      Select Backdrop Image
+                    </span>
+                    <span className="text-[8px] text-slate-400 mt-0.5">PNG or JPG max 3.5MB</span>
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleImageUpload(e, 'backgroundImage')}
+                    className="hidden"
+                    id="editor-backdrop-upload-input"
+                  />
+                  {currentTemplate.backgroundImageUrl && (
+                    <div className="flex items-center justify-between bg-slate-50 border rounded-lg p-2 mt-1">
+                      <span className="text-[9px] font-mono truncate max-w-[150px] text-slate-600">Backdrop is Active</span>
+                      <button
+                        type="button"
+                        onClick={() => updateTemplateProperty('backgroundImageUrl', '')}
+                        className="text-[9px] text-rose-600 hover:text-rose-800 font-bold underline"
+                      >
+                        Remove Backdrop
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 {uploadedAssets.length > 0 && (
                   <div className="space-y-2">
                     <h4 className="text-[10px] font-bold uppercase text-slate-500 tracking-wider">Your Assets Library</h4>
@@ -2557,9 +2606,9 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
             </div>
           )}
 
-          <div className="hidden sm:flex absolute top-4 right-4 flex gap-2 font-mono text-[9px] text-slate-500 bg-white border border-slate-200 p-2 rounded-lg select-none z-10 shadow-sm">
+          {/* <div className="hidden sm:flex absolute top-4 right-4 flex gap-2 font-mono text-[9px] text-slate-500 bg-white border border-slate-200 p-2 rounded-lg select-none z-10 shadow-sm">
             <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span> Vector precision lock: bound</span>
-          </div>
+          </div> */}
 
           {/* Core Interactive visual frame */}
           <div className="w-full max-w-4xl bg-white/80 border border-slate-250 rounded-xl p-8 shadow-sm flex items-center justify-center">
