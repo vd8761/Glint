@@ -64,7 +64,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
       const templateRes = await fetch(`/api/templates?workspaceId=${data.certificate.workspaceId}`);
       if (templateRes.ok) {
         const templatesList: CertificateTemplate[] = await templateRes.json();
-        const matched = templatesList.find(t => t.id === data.certificate.programId || t.id === 'temp-google-classic' || t.id === 'temp-stellar-modern');
+        const matched = templatesList.find(t => t.id === data.certificate.templateId || t.id === data.certificate.programId || t.id === 'temp-google-classic' || t.id === 'temp-stellar-modern');
         if (matched) {
           setTemplate(matched);
         } else if (templatesList.length > 0) {
