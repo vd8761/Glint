@@ -1989,6 +1989,102 @@ Follow these strict design guidelines:
 });
 
 
+// AI Sample Certificate Parser Endpoint
+app.post('/api/ai/parse-sample', authenticateToken, async (req, res) => {
+  const { sampleImage } = req.body;
+  if (!sampleImage || !sampleImage.data || !sampleImage.mimeType) {
+    return res.status(400).json({ error: 'sampleImage (data and mimeType) is required' });
+  }
+
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  if (!geminiApiKey) {
+    return res.status(500).json({ error: 'Google Gemini API key not configured on server' });
+  }
+
+  try {
+    const ai = new GoogleGenAI({ apiKey: geminiApiKey });
+    
+    const contents = [
+      {
+        inlineData: {
+          data: sampleImage.data,
+          mimeType: sampleImage.mimeType
+        }
+      },
+      {
+        text: `You are an expert certificate parser and analyzer.
+Analyze the uploaded sample certificate image. Your task is to detect and extract all printed elements on it, including text blocks, logos, signatures, and seals, so that they can be covered by solid-colored patches (to erase them) and replaced with editable elements in their exact positions.
+
+Identify the following elements:
+1. TEXT ELEMENTS:
+   - Identify every line or block of text.
+   - Return its exact detected string text (e.g. "CERTIFICATE OF ACHIEVEMENT", "Jane Doe", "For completing course", etc.).
+   - Estimate its coordinate position as xPercent and yPercent. These MUST be integers between 0 and 100, representing the percentage offset of the center of the block from the top-left of the image.
+   - Estimate its width and height in pixels assuming the standard canvas size is 1200x900 pixels.
+   - Detect the color of the background immediately behind/surrounding this text block (as a hex color, e.g. "#FFFFFF" or "#F4F7F9"), which will be used for the redaction patch.
+   - Detect the text color (as a hex color, e.g., "#1A202C").
+   - Estimate its fontSize, fontFamily (choose the closest matching from: 'Inter', 'Space Grotesk', 'Playfair Display', 'JetBrains Mono'), fontWeight (choose closest: 'normal', 'medium', 'bold'), and align ('left', 'center', 'right').
+   - Determine if this text represents a dynamic placeholder (e.g. a recipient name should have isPlaceholder=true and isNamePlaceholder=true; a program name/course name should have isPlaceholder=true and isProgramPlaceholder=true).
+
+2. LOGO, SIGNATURES, AND SEALS:
+   - Locate any logos, signatures, or seals/stamps in the certificate image.
+   - For each, return its type ('logo', 'signature', or 'seal').
+   - Estimate its coordinate position (xPercent, yPercent), width, height, and the surrounding background color (hex code) so a redaction patch can cover it.
+   - (For signatures or logos, also set text="" and isPlaceholder=false).`
+      }
+    ];
+
+    const response = await generateGeminiContentWithRetry(ai, {
+      model: 'gemini-2.5-flash',
+      contents,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            detectedElements: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  type: { type: Type.STRING, enum: ['text', 'logo', 'signature', 'seal'] },
+                  text: { type: Type.STRING },
+                  xPercent: { type: Type.INTEGER },
+                  yPercent: { type: Type.INTEGER },
+                  width: { type: Type.INTEGER, description: 'Estimated width of the bounding box in pixels on a 1200x900 canvas' },
+                  height: { type: Type.INTEGER, description: 'Estimated height of the bounding box in pixels on a 1200x900 canvas' },
+                  backgroundColor: { type: Type.STRING, description: 'Hex color of the background immediately surrounding this element' },
+                  textColor: { type: Type.STRING, description: 'Hex color of the text (only for type=text)' },
+                  fontSize: { type: Type.INTEGER },
+                  fontFamily: { type: Type.STRING, enum: ['Inter', 'Space Grotesk', 'Playfair Display', 'JetBrains Mono'] },
+                  fontWeight: { type: Type.STRING, enum: ['normal', 'medium', 'bold'] },
+                  align: { type: Type.STRING, enum: ['left', 'center', 'right'] },
+                  isPlaceholder: { type: Type.BOOLEAN },
+                  isNamePlaceholder: { type: Type.BOOLEAN },
+                  isProgramPlaceholder: { type: Type.BOOLEAN }
+                },
+                required: ['type', 'xPercent', 'yPercent', 'width', 'height', 'backgroundColor']
+              }
+            }
+          },
+          required: ['detectedElements']
+        }
+      }
+    });
+
+    if (!response.text) {
+      throw new Error('Empty response from Gemini');
+    }
+
+    const data = JSON.parse(response.text);
+    res.json(data);
+  } catch (err: any) {
+    logger.error('Error parsing sample certificate', err);
+    res.status(500).json({ error: err.message || 'Error parsing sample certificate' });
+  }
+});
+
+
 // Global error handling middleware
 app.use((err: any, req: any, res: any, next: any) => {
   logger.error('Caught exception in Global Error Handler', err);

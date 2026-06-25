@@ -1,3 +1,4 @@
+import { toast } from 'sonner';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -206,7 +207,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
       document.body.removeChild(wrapper);
     } catch (err: any) {
       console.error(err);
-      alert(err.message || 'Failed to download certificate PDF');
+      toast.error(err.message || 'Failed to download certificate PDF');
     } finally {
       setIsDownloadingPdf(false);
     }
@@ -659,6 +660,28 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
 
                 {/* Absolute Canvas Custom Text Layers */}
                 {activeTemplate.textElements.map((el) => {
+                  if (el.type === 'redaction') {
+                    const leftPct = el.xPercent !== undefined ? el.xPercent : 50;
+                    const topPct = el.yPercent !== undefined ? el.yPercent : 50;
+                    return (
+                      <div
+                        key={el.id}
+                        style={{
+                          position: 'absolute',
+                          left: `${leftPct}%`,
+                          top: `${topPct}%`,
+                          transform: 'translate(-50%, -50%)',
+                          width: `${(el.width || 200) * 0.1125}cqw`,
+                          height: `${(el.height || 40) * 0.1125}cqw`,
+                          backgroundColor: el.color || '#FFFFFF',
+                          zIndex: 15,
+                          opacity: el.opacity !== undefined ? el.opacity : 1
+                        }}
+                        className="select-none pointer-events-none"
+                      />
+                    );
+                  }
+
                   if (el.imageUrl) {
                     const leftPct = el.xPercent !== undefined ? el.xPercent : 50;
                     const topPct = el.yPercent !== undefined ? el.yPercent : 50;
@@ -728,7 +751,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                         top: `${topPct}%`,
                         transform: 'translate(-50%, -50%)',
                         color: el.color,
-                        textAlign: el.align || 'center',
+                        textAlign: (el.align || 'center') as any,
                         fontSize: `${el.fontSize * 0.1125}cqw`,
                         fontFamily: el.fontFamily,
                         fontStyle: el.fontStyle || 'normal',
@@ -895,7 +918,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
           </div>
 
           {/* Secure Audit Trail chronological list displaying all verification attempts */}
-          <div className="bg-white border border-[#E9ECEF] rounded-2xl p-6 space-y-6 card-shadow print:hidden">
+          <div className="bg-white border border-[#E9ECEF] rounded-2xl p-6 space-y-6 card-shadow print:hidden overflow-hidden">
             <div className="flex justify-between items-center pb-3 border-b border-slate-100">
               <h4 className="text-xs font-bold text-slate-950 uppercase tracking-widest flex items-center gap-1.5">
                 <Database className="w-4 h-4 text-slate-900" />
@@ -904,7 +927,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
               <span className="text-[10px] font-mono text-slate-400 font-semibold uppercase">SECURE CHRONO-REGISTER</span>
             </div>
 
-            <div className="relative border-l border-slate-200 ml-3 pl-6 space-y-6">
+            <div className="relative border-l border-slate-200 ml-3 pl-6 space-y-6 overflow-hidden">
               {cert.auditTrail && cert.auditTrail.map((log, idx) => (
                 <div key={idx} className="relative">
                   {/* Event indicator dot */}
@@ -929,7 +952,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                       </span>
                       <span className="text-[10px] text-slate-400">by {log.performedBy}</span>
                     </div>
-                    <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">
+                    <p className="text-xs text-slate-700 break-all leading-relaxed overflow-hidden w-full">
                       {log.details}
                     </p>
                   </div>

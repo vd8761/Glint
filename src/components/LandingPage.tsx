@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Award, ShieldAlert, CheckCircle, Search, ArrowRight, 
   Check, Zap, Layers, Sparkles, Star, RefreshCw
@@ -57,6 +57,11 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
   };
 
   // Triggering the Verification Simulator
+  const timeoutRefs = useRef<NodeJS.Timeout[]>([]);
+  useEffect(() => {
+    return () => timeoutRefs.current.forEach(clearTimeout);
+  }, []);
+
   const handleVerifyScan = (e: React.FormEvent) => {
     e.preventDefault();
     const code = certCode.trim().toUpperCase();
@@ -75,12 +80,12 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
     ];
 
     logs.forEach((log, idx) => {
-      setTimeout(() => {
+      timeoutRefs.current.push(setTimeout(() => {
         setScanLogs(prev => [...prev, log]);
-      }, (idx + 1) * 450);
+      }, (idx + 1) * 450));
     });
 
-    setTimeout(() => {
+    timeoutRefs.current.push(setTimeout(() => {
       setScanState('success');
       setScannedCert({
         id: code.includes('CERT') ? code : 'CERT-2026-1014',
@@ -89,7 +94,7 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
         date: "2026-06-17",
         status: "VALID"
       });
-    }, 2500);
+    }, 2500));
   };
 
   // Reset simulator

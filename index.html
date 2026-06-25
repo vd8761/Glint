@@ -3,18 +3,24 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Glint is an enterprise-grade platform for issuing and verifying tamper-proof digital certificates." />
+    <meta name="keywords" content="certificates, digital credentials, verification, issuance, blockchain, glint" />
+    <meta property="og:title" content="Glint - Certificate Issuance & Verification" />
+    <meta property="og:description" content="Secure, fast, and scalable digital certificate management." />
     <title>Glint - Certificate Issuance & Verification Platform</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/html2canvas-pro@2.2.0/dist/html2canvas-pro.min.js"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/html2canvas-pro@2.2.0/dist/html2canvas-pro.min.js"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.min.js"></script>
     <script>
-      // Map global jsPDF from UMD namespace
-      window.jsPDF = window.jspdf ? window.jspdf.jsPDF : window.jsPDF;
-      // Map global html2canvas from html2canvas-pro UMD namespace
-      if (window.html2canvas && window.html2canvas.default) {
-        window.html2canvas = window.html2canvas.default;
-      }
+      window.addEventListener('load', function() {
+        // Map global jsPDF from UMD namespace
+        window.jsPDF = window.jspdf ? window.jspdf.jsPDF : window.jsPDF;
+        // Map global html2canvas from html2canvas-pro UMD namespace
+        if (window.html2canvas && window.html2canvas.default) {
+          window.html2canvas = window.html2canvas.default;
+        }
+      });
     </script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.min.js"></script>
   </head>
   <body>
     <div id="root"></div>
