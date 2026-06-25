@@ -263,6 +263,21 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
   
   // Custom uploaded assets library
   const [uploadedAssets, setUploadedAssets] = useState<string[]>([]);
+
+  // Interactive Canva Workspace helper tip state (one-time dismissible popup)
+  const [showCanvaTip, setShowCanvaTip] = useState<boolean>(() => {
+    return !localStorage.getItem('glint_canva_tip_dismissed');
+  });
+
+  useEffect(() => {
+    if (showCanvaTip) {
+      const timer = setTimeout(() => {
+        setShowCanvaTip(false);
+        localStorage.setItem('glint_canva_tip_dismissed', 'true');
+      }, 10000); // Auto-dismiss after 10 seconds
+      return () => clearTimeout(timer);
+    }
+  }, [showCanvaTip]);
   
   const getPlaceholderTags = () => {
     const baseTags = ['name', 'program', 'date', 'id'];
@@ -2519,10 +2534,28 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
         {/* Outer Designer Stage canvas container */}
         <div className="flex-1 bg-[#E2E8F0] p-4 sm:p-12 flex flex-col items-center justify-center overflow-y-auto selection:bg-slate-200 relative">
           
-          <div className="hidden md:block absolute top-4 left-4 bg-white border border-slate-200 p-2.5 rounded-lg text-[10px] text-slate-500 max-w-sm space-y-1.5 shadow-md z-10">
-            <h4 className="font-bold text-slate-800 flex items-center gap-1.5"><MousePointerClick className="w-3.5 h-3.5 text-indigo-650" /> Interactive Canva Workspace</h4>
-            <p className="leading-relaxed">Click and drag <strong>ANY element</strong> (logos, signatures, seals, or text blocks) directly on the canvas to visually adjust their placement coordinates in real-time!</p>
-          </div>
+          {showCanvaTip && (
+            <div className="hidden md:block absolute top-4 left-4 bg-white border border-slate-200 p-3 rounded-lg text-[10px] text-slate-500 max-w-sm space-y-1.5 shadow-md z-10 transition-all duration-300">
+              <div className="flex justify-between items-start gap-3">
+                <h4 className="font-bold text-slate-800 flex items-center gap-1.5">
+                  <MousePointerClick className="w-3.5 h-3.5 text-indigo-600" /> Interactive Canva Workspace
+                </h4>
+                <button
+                  onClick={() => {
+                    setShowCanvaTip(false);
+                    localStorage.setItem('glint_canva_tip_dismissed', 'true');
+                  }}
+                  className="text-slate-400 hover:text-slate-600 transition-colors p-0.5"
+                  title="Dismiss Tip"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <p className="leading-relaxed">Click and drag <strong>ANY element</strong> (logos, signatures, seals, or text blocks) directly on the canvas to visually adjust their placement coordinates in real-time!</p>
+            </div>
+          )}
 
           <div className="hidden sm:flex absolute top-4 right-4 flex gap-2 font-mono text-[9px] text-slate-500 bg-white border border-slate-200 p-2 rounded-lg select-none z-10 shadow-sm">
             <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span> Vector precision lock: bound</span>
