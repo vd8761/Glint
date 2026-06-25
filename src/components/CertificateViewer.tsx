@@ -115,7 +115,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
   };
 
   const executeDownloadStat = () => {
-    if (!cert) return;
+    if (!cert || cert.status === 'revoked') return;
     // Log Download
     fetch(`/api/certificates/${cert.id}/stats`, {
       method: 'POST',
@@ -135,7 +135,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
   };
 
   const executePdfDownload = async () => {
-    if (!cert || !printRef.current) return;
+    if (!cert || !printRef.current || cert.status === 'revoked') return;
     setIsDownloadingPdf(true);
 
     // Log Download
@@ -370,18 +370,20 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
         </div>
 
         <div className="flex items-center gap-2 justify-center sm:justify-end w-full sm:w-auto">
-          <button 
-            onClick={executeDownloadStat}
-            className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] px-3.5 py-1.5 rounded-full font-bold transition-all shadow-sm flex items-center gap-1.5 shrink-0"
-          >
-            <Printer className="w-3 h-3" /> Print
-          </button>
+          {cert.status !== 'revoked' && (
+            <button 
+              onClick={executeDownloadStat}
+              className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] px-3.5 py-1.5 rounded-full font-bold transition-all shadow-sm flex items-center gap-1.5 shrink-0"
+            >
+              <Printer className="w-3 h-3" /> Print
+            </button>
+          )}
           <button 
             onClick={executePdfDownload}
-            disabled={isDownloadingPdf}
+            disabled={isDownloadingPdf || cert.status === 'revoked'}
             className="bg-slate-950 hover:bg-slate-800 text-white text-[10px] px-4 py-1.5 rounded-full font-bold transition-all shadow-sm flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed shrink-0"
           >
-            <Download className="w-3.5 h-3.5" /> {isDownloadingPdf ? 'Downloading...' : 'Download PDF'}
+            <Download className="w-3.5 h-3.5" /> {cert.status === 'revoked' ? 'Download Blocked' : (isDownloadingPdf ? 'Downloading...' : 'Download PDF')}
           </button>
         </div>
       </header>
@@ -403,8 +405,8 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                 </span>
               )}
               {cert.status === 'revoked' && (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-50 text-red-700 text-xs font-bold uppercase tracking-wider border border-red-200">
-                  ⚠ Revoked Null
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 text-rose-700 text-xs font-bold uppercase tracking-wider border border-rose-200">
+                  ⚠ Revoked / Void
                 </span>
               )}
               {cert.status === 'expired' && (
@@ -467,9 +469,10 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
 
               <button
                 onClick={shareToLinkedIn}
-                className="w-full bg-sky-50 hover:bg-sky-100 text-sky-800 text-xs py-2.5 rounded-lg font-medium transition-all flex items-center justify-center gap-2"
+                disabled={cert.status === 'revoked'}
+                className="w-full bg-sky-50 hover:bg-sky-100 text-sky-800 text-xs py-2.5 rounded-lg font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                <Share2 className="w-3.5 h-3.5" /> Share Verification to LinkedIn Profile
+                <Share2 className="w-3.5 h-3.5" /> {cert.status === 'revoked' ? 'Sharing Disabled (Revoked)' : 'Share Verification to LinkedIn Profile'}
               </button>
             </div>
           </div>
@@ -573,7 +576,8 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                   borderStyle: activeTemplate.borderStyle === 'double' ? 'double' : (activeTemplate.borderStyle === 'dashed' ? 'dashed' : (activeTemplate.borderStyle === 'none' ? 'none' : 'solid')),
                   borderRadius: `${activeTemplate.borderRadius || 0}px`,
                   position: 'relative',
-                  containerType: 'inline-size'
+                  containerType: 'inline-size',
+                  filter: cert.status === 'revoked' ? 'grayscale(50%) contrast(90%)' : undefined
                 }}
                 className="aspect-[1.414/1] w-full rounded-lg relative transition-all duration-300 shadow-sm overflow-hidden p-6 lg:p-12 print:aspect-[1.414/1] printable-certificate"
               >
@@ -933,6 +937,20 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                         </a>
                       );
                     })()}
+                  </div>
+                )}
+
+                {/* Diagonal professional Revoked/Void overlay stamp */}
+                {cert.status === 'revoked' && (
+                  <div className="absolute inset-0 bg-rose-50/10 backdrop-blur-[0.5px] flex items-center justify-center z-40 select-none pointer-events-none">
+                    <div className="border-[0.5cqw] border-rose-600/70 rounded-[1.5cqw] px-[4cqw] py-[2cqw] transform -rotate-[15deg] bg-white/95 shadow-xl flex flex-col items-center justify-center gap-[0.5cqw] max-w-[80%]">
+                      <span className="text-rose-600 font-serif font-extrabold tracking-widest text-[3.5cqw] uppercase leading-none">
+                        REVOKED / VOID
+                      </span>
+                      <span className="text-[1.2cqw] text-rose-500 font-mono uppercase tracking-[0.2cqw] font-bold">
+                        Credential Nullified
+                      </span>
+                    </div>
                   </div>
                 )}
 

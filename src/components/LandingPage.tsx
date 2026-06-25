@@ -23,111 +23,74 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
   const [scrollY, setScrollY] = useState(0);
   const [hoverCard, setHoverCard] = useState({ x: 0, y: 0, hover: false });
 
-  // Verification Simulator State
-  const [certCode, setCertCode] = useState('');
-  const [scanState, setScanState] = useState<'idle' | 'scanning' | 'success' | 'failed'>('idle');
-  const [scanLogs, setScanLogs] = useState<string[]>([]);
-  const [scannedCert, setScannedCert] = useState<any>(null);
+  // Cryptographic Trust Sandbox State
+  const [sandboxInput, setSandboxInput] = useState('Recipient: John Doe\nCredential: B.S. Cybersecurity\nSecurity Seal: VERIFIED\nPlatform: Glint Ledger');
+  const [sandboxHash, setSandboxHash] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [ledgerLogs, setLedgerLogs] = useState([
+    { id: 894012, hash: 'a1b2c3d4e5f67890abcdef1234567890abcdef1234567890abcdef1234567890', node: 'Oregon', time: '16:56:12' },
+    { id: 894013, hash: 'f7e6d5c4b3a2918070605040302010abcdef0f1e2d3c4b5a69788796a5b4c3d2', node: 'Tokyo', time: '16:56:15' },
+    { id: 894014, hash: '3e4d5c6b7a892010f0e0d0c0b0a0908070605040302010abcdef0123456789ab', node: 'Frankfurt', time: '16:56:19' }
+  ]);
 
-  // Interactive Feature Explorer State
-  const [activeFeatureTab, setActiveFeatureTab] = useState(0);
-
-  // Parallax Scroll listener
+  // SHA-256 Cryptographic Sandbox Calculator
   useEffect(() => {
-    const handleScroll = () => {
-      window.requestAnimationFrame(() => {
-        setScrollY(window.scrollY);
-      });
-    };
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
-
-  // Card Mouse Move for 3D Tilt Effect
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    const card = e.currentTarget;
-    const rect = card.getBoundingClientRect();
-    const x = e.clientX - rect.left - rect.width / 2;
-    const y = e.clientY - rect.top - rect.height / 2;
-    setHoverCard({ x: x / 20, y: y / 20, hover: true });
-  };
-
-  const handleMouseLeave = () => {
-    setHoverCard({ x: 0, y: 0, hover: false });
-  };
-
-  // Triggering the Verification Simulator
-  const timeoutRefs = useRef<NodeJS.Timeout[]>([]);
-  useEffect(() => {
-    return () => timeoutRefs.current.forEach(clearTimeout);
-  }, []);
-
-  const handleVerifyScan = (e: React.FormEvent) => {
-    e.preventDefault();
-    const code = certCode.trim().toUpperCase();
-    if (!code) return;
-
-    setScanState('scanning');
-    setScanLogs([]);
-    setScannedCert(null);
-
-    const logs = [
-      "Establishing secure connection to Neon cloud cluster...",
-      "Querying distributed public registry for hash matching...",
-      "Validating digital signature integrity seal...",
-      "Cryptographic SHA256 integrity: 100% SECURE MATCH.",
-      "Sync complete. Loading verified ledger page receipt..."
-    ];
-
-    logs.forEach((log, idx) => {
-      timeoutRefs.current.push(setTimeout(() => {
-        setScanLogs(prev => [...prev, log]);
-      }, (idx + 1) * 450));
-    });
-
-    timeoutRefs.current.push(setTimeout(() => {
-      setScanState('success');
-      // Deterministic data generation based on code
-      const sum = code.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-      const names = ["Dr. Elias Vance", "Sarah Connor", "John Smith", "Ada Lovelace", "Alan Turing"];
-      const programs = [
-        "Advanced API & Platform Ledger System", 
-        "Cybersecurity Fundamentals", 
-        "Cloud Architecture Mastery", 
-        "Data Science & AI", 
-        "Full-Stack Engineering"
-      ];
-      
-      let recipientName = names[sum % names.length];
-      let programName = programs[sum % programs.length];
-      const year = 2024 + (sum % 3);
-      const month = String((sum % 12) + 1).padStart(2, '0');
-      const day = String((sum % 28) + 1).padStart(2, '0');
-      let issueDate = `${year}-${month}-${day}`;
-
-      // Specific overrides for known demo IDs
-      if (code === "CERT-2026-5040" || code === "CERT-2026-1014") {
-         recipientName = "Dr. Elias Vance";
-         programName = "Advanced API & Platform Ledger System";
-         issueDate = "2026-06-17";
+    const calculateHash = async () => {
+      if (!sandboxInput) {
+        setSandboxHash('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+        return;
       }
+      try {
+        const msgBuffer = new TextEncoder().encode(sandboxInput);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        setSandboxHash(hashHex);
+      } catch (err) {
+        let hash = 0;
+        for (let i = 0; i < sandboxInput.length; i++) {
+          hash = (hash << 5) - hash + sandboxInput.charCodeAt(i);
+          hash |= 0;
+        }
+        setSandboxHash('simulated_hash_' + Math.abs(hash).toString(16).padStart(16, '0'));
+      }
+    };
+    calculateHash();
+  }, [sandboxInput]);
 
-      setScannedCert({
-        id: code.includes('CERT') ? code : `CERT-${year}-${sum}`,
-        recipient: recipientName,
-        program: programName,
-        date: issueDate,
-        status: "VALID"
+  // Dynamic Ledger Log update
+  useEffect(() => {
+    const nodes = ['Oregon', 'Tokyo', 'Frankfurt', 'London'];
+    const interval = setInterval(() => {
+      setLedgerLogs(prev => {
+        const nextId = prev[prev.length - 1].id + 1;
+        const now = new Date();
+        const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+        const randomNode = nodes[Math.floor(Math.random() * nodes.length)];
+        
+        // Generate a random mock SHA-256 hex string
+        const chars = '0123456789abcdef';
+        let randomHash = '';
+        for (let i = 0; i < 64; i++) {
+          randomHash += chars[Math.floor(Math.random() * 16)];
+        }
+
+        const newLog = {
+          id: nextId,
+          hash: randomHash,
+          node: randomNode,
+          time: timeStr
+        };
+        return [...prev.slice(1), newLog];
       });
-    }, 2500));
-  };
+    }, 4500);
+    return () => clearInterval(interval);
+  }, []);
 
-  // Reset simulator
-  const handleResetScan = () => {
-    setScanState('idle');
-    setCertCode('');
-    setScanLogs([]);
-    setScannedCert(null);
+  const handleCopyHash = () => {
+    navigator.clipboard.writeText(sandboxHash);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
@@ -442,154 +405,181 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
         <HeroScrollDemo />
       </section>
 
-      {/* Interactive Verification Simulator Sandbox */}
+      {/* Interactive Cryptographic Hash Sandbox & Registry Node Explorer */}
       <motion.section 
         initial={{ opacity: 0, y: 40 }}
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true, margin: "-120px" }}
         transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
         id="sandbox" 
-        className="py-24 px-6 lg:px-16 bg-white border-y border-slate-200/50 relative z-10"
+        className="py-24 px-6 lg:px-16 bg-white border-y border-slate-200/50 relative z-10 overflow-hidden"
       >
-        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
-          {/* Left Text details */}
-          <div className="lg:col-span-5 space-y-6">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-full border border-indigo-100">
-              Platform Registry Verification
+        {/* Subtle backdrop glows */}
+        <div className="absolute top-1/4 -left-1/4 w-[500px] h-[500px] bg-indigo-500/5 rounded-full blur-[120px] pointer-events-none" />
+        <div className="absolute bottom-1/4 -right-1/4 w-[500px] h-[500px] bg-emerald-500/5 rounded-full blur-[120px] pointer-events-none" />
+
+        <div className="max-w-7xl mx-auto space-y-12">
+          {/* Header */}
+          <div className="text-center max-w-2xl mx-auto space-y-4">
+            <span className="text-xs font-bold uppercase tracking-widest text-indigo-600 bg-indigo-50 px-3.5 py-1.5 rounded-full border border-indigo-100">
+              Interactive Trust Ledger
             </span>
-            <h2 className="font-serif text-3xl md:text-4.5xl italic text-slate-950 leading-tight">
-              Test the cryptographic verifier simulator
+            <h2 className="font-serif text-3xl md:text-4.5xl italic text-slate-950">
+              Cryptographic Sandbox & Node Explorer
             </h2>
-            <p className="text-slate-500 text-sm leading-relaxed">
-              Verify actual issued credentials dynamically. Try typing code <span className="font-mono bg-slate-100 px-1 py-0.5 rounded text-indigo-600 text-xs font-bold">CERT-2026-1014</span> inside the terminal scanner and see how the ledger resolves cryptographic data, signatures, and timestamps.
+            <p className="text-slate-500 text-sm">
+              Type any credential data payload to see real-time SHA-256 integrity fingerprinting and visualize validation across global ledger registry nodes.
             </p>
-            
-            {/* Input Form */}
-            {scanState === 'idle' && (
-              <form onSubmit={handleVerifyScan} className="bg-slate-50 p-2 rounded-2xl border border-[#E9ECEF] flex items-center shadow-sm max-w-md focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all duration-300">
-                <Search className="text-slate-400 w-4 h-4 ml-2 mr-3 shrink-0" />
-                <input 
-                  type="text" 
-                  placeholder="Verify code (e.g. CERT-2026-1014)" 
-                  value={certCode}
-                  onChange={(e) => setCertCode(e.target.value)}
-                  className="w-full bg-transparent border-none text-xs focus:outline-none placeholder-slate-400 text-slate-800"
-                />
-                <button 
-                  type="submit"
-                  className="bg-indigo-600 hover:bg-indigo-755 text-white text-xs px-5 py-2.5 rounded-xl font-bold transition-all shadow-sm shrink-0 cursor-pointer"
-                >
-                  Verify Ledger
-                </button>
-              </form>
-            )}
-
-            {scanState === 'scanning' && (
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 max-w-md shadow-lg space-y-4 font-mono text-[10px] text-slate-400 min-h-[160px] flex flex-col justify-center relative overflow-hidden">
-                <div className="absolute top-0 left-0 h-1 bg-indigo-500 animate-pulse w-full" />
-                <div className="flex items-center gap-2 text-indigo-400 font-semibold">
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>RESOLVING CREDENTIAL HASH...</span>
-                </div>
-                <div className="space-y-1.5 border-t border-slate-800/80 pt-3">
-                  <AnimatePresence>
-                    {scanLogs.map((log, i) => (
-                      <motion.p 
-                        key={i} 
-                        initial={{ opacity: 0, x: -5 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        className="text-slate-300 flex items-start gap-1.5"
-                      >
-                        <span className="text-indigo-500">▶</span> {log}
-                      </motion.p>
-                    ))}
-                  </AnimatePresence>
-                </div>
-              </div>
-            )}
-
-            {scanState === 'success' && (
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-5 max-w-md shadow-sm space-y-4"
-              >
-                <div className="flex items-center gap-2.5 text-emerald-700">
-                  <CheckCircle className="w-5 h-5 fill-emerald-50 text-emerald-600" />
-                  <span className="text-xs font-bold uppercase tracking-wider">Ledger Match Confirmed</span>
-                </div>
-                <div className="space-y-1.5 text-xs text-slate-600 border-t border-emerald-100 pt-3">
-                  <p><strong>Certificate ID:</strong> {scannedCert.id}</p>
-                  <p><strong>Recipient:</strong> {scannedCert.recipient}</p>
-                  <p><strong>Program:</strong> {scannedCert.program}</p>
-                  <p><strong>Issue Date:</strong> {scannedCert.date}</p>
-                </div>
-                <div className="flex gap-3 pt-2">
-                  <button 
-                    onClick={() => onViewSample(scannedCert.id)}
-                    className="bg-emerald-600 hover:bg-emerald-705 text-white text-xs px-4 py-2 rounded-lg font-bold transition-all shadow-sm cursor-pointer"
-                  >
-                    View Official Ledger Page
-                  </button>
-                  <button 
-                    onClick={handleResetScan}
-                    className="border border-slate-200 hover:bg-slate-100 text-slate-600 text-xs px-4 py-2 rounded-lg font-bold transition-all cursor-pointer"
-                  >
-                    Reset
-                  </button>
-                </div>
-              </motion.div>
-            )}
           </div>
 
-          {/* Right Visual Simulator Card with Laser Line */}
-          <div className="lg:col-span-7 flex justify-center relative">
-            <div className="relative w-full max-w-lg bg-slate-50 border border-slate-205 rounded-2xl p-6 overflow-hidden shadow-inner flex items-center justify-center min-h-[300px]">
-              
-              {/* Laser Scanning Animation Overlay */}
-              {scanState === 'scanning' && (
-                <div className="absolute left-0 w-full h-[3px] bg-indigo-500 shadow-[0_0_18px_rgba(99,102,241,1)] z-30 animate-scan pointer-events-none" />
-              )}
-              
-              {/* Mock Certificate inside scanner */}
-              <div className={`w-[85%] aspect-[1.414/1] bg-white border-4 border-slate-300 rounded shadow-md p-4 flex flex-col justify-between transition-all duration-500 relative z-10 ${scanState === 'scanning' ? 'opacity-40 blur-[0.8px]' : ''}`}>
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h4 className="text-[6px] font-bold text-slate-400 uppercase tracking-widest">OFFICIAL PUBLIC REGISTRY</h4>
-                    <p className="text-[5px] text-slate-300">TRUST ROOT SHA256:0edf88cf...</p>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-stretch">
+            {/* Left Column: SHA-256 Sandbox Console */}
+            <div className="lg:col-span-6 flex flex-col">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col justify-between flex-1 relative overflow-hidden">
+                {/* Header of Console */}
+                <div className="flex items-center justify-between pb-4 border-b border-slate-800/80 mb-5">
+                  <div className="flex items-center gap-2">
+                    <Terminal className="w-4 h-4 text-indigo-400" />
+                    <span className="font-mono text-xs font-bold text-slate-200">hashing_console.exe</span>
                   </div>
-                  <div className="w-8 h-3 border border-slate-200 bg-slate-50 rounded flex items-center justify-center text-[4px] font-bold">
-                    ★ SECURED
+                  <div className="flex gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500/80" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
                   </div>
                 </div>
 
-                <div className="text-center space-y-1">
-                  <h5 className="text-[7.5px] font-bold tracking-widest text-slate-700">CERTIFICATE OF ACHIEVEMENT</h5>
-                  <p className="text-[10px] font-serif italic font-bold text-slate-900 border-b border-dashed border-slate-200 w-24 mx-auto pb-0.5">
-                    {scannedCert ? scannedCert.recipient : "Dr. Elias Vance"}
-                  </p>
-                  <p className="text-[5px] text-slate-400 max-w-[200px] mx-auto">
-                    for demonstrating complete mastery of {scannedCert ? scannedCert.program : "advanced cryptographic database indexing architectures"}.
-                  </p>
-                </div>
-
-                <div className="flex justify-between items-end pt-1 border-t border-slate-100">
+                <div className="space-y-4 flex-1 flex flex-col justify-between">
                   <div>
-                    <p className="text-[4px] text-slate-400 uppercase">ISSUED</p>
-                    <p className="text-[5px] font-bold text-slate-600 mb-1">{scannedCert ? scannedCert.date : "2026-06-17"}</p>
-                    <p className="text-[4px] text-slate-400 uppercase">CERTIFICATE ID</p>
-                    <p className="text-[5px] font-bold text-slate-600">{scannedCert ? scannedCert.id : "CERT-2026-1014"}</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-[5px] font-bold text-slate-700">Thomas Kurian</p>
-                    <p className="text-[3.5px] text-slate-400">Chief Officer</p>
-                  </div>
-                  <div className="w-5 h-5 bg-white border border-slate-200 rounded p-0.5 flex items-center justify-center">
-                    <img 
-                      src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://credentials.os/%23preview&color=0f172a" 
-                      alt="Verifier QR"
-                      className="w-full h-full object-contain"
+                    <label className="block text-[10px] uppercase font-mono tracking-wider text-indigo-400 mb-2 font-bold">
+                      INPUT PAYLOAD (STRING DATA)
+                    </label>
+                    <textarea 
+                      value={sandboxInput}
+                      onChange={(e) => setSandboxInput(e.target.value)}
+                      className="w-full bg-slate-950/80 border border-slate-800 rounded-xl p-4 font-mono text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 placeholder-slate-600 resize-none min-h-[110px]"
+                      placeholder="Type credential details to compute cryptographic hash..."
                     />
+                  </div>
+
+                  {/* Flow arrow/visual connector */}
+                  <div className="flex items-center justify-center gap-3 py-1">
+                    <div className="h-[1px] bg-gradient-to-r from-transparent via-slate-700 to-transparent flex-1" />
+                    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 font-mono text-[9px] uppercase tracking-wider animate-pulse">
+                      <RefreshCw className="w-2.5 h-2.5 animate-spin" /> SHA-256 Engine
+                    </div>
+                    <div className="h-[1px] bg-gradient-to-r from-transparent via-slate-700 to-transparent flex-1" />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] uppercase font-mono tracking-wider text-emerald-400 mb-2 font-bold">
+                      SHA-256 CRYPTOGRAPHIC DIGEST
+                    </label>
+                    <div className="relative group/hash">
+                      <div className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 font-mono text-xs text-slate-100 pr-12 break-all min-h-[72px] leading-relaxed select-all">
+                        {sandboxHash}
+                      </div>
+                      <button 
+                        onClick={handleCopyHash}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 p-2 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-all border border-slate-700/50 cursor-pointer"
+                        title="Copy cryptographic signature"
+                      >
+                        {copied ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Console Metadata Footer */}
+                <div className="grid grid-cols-3 gap-4 border-t border-slate-800/80 pt-4 mt-6 text-center">
+                  <div>
+                    <span className="block text-[8px] text-slate-500 uppercase font-mono">HASH LENGTH</span>
+                    <span className="font-mono text-xs font-bold text-slate-300">256 Bits</span>
+                  </div>
+                  <div>
+                    <span className="block text-[8px] text-slate-500 uppercase font-mono">LATENCY</span>
+                    <span className="font-mono text-xs font-bold text-emerald-400 flex items-center justify-center gap-1">
+                      <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" /> &lt; 0.1ms
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-[8px] text-slate-500 uppercase font-mono">SECURITY</span>
+                    <span className="font-mono text-xs font-bold text-indigo-400 font-bold">AES-HMAC</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column: Global Registry Explorer & Live Ledger */}
+            <div className="lg:col-span-6 flex flex-col justify-between space-y-6">
+              {/* Trust Nodes Status Dashboard */}
+              <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-6 shadow-sm flex flex-col justify-between flex-1">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                  <div className="flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-indigo-600" />
+                    <span className="font-sans text-xs font-bold text-slate-900">Distributed Registry Nodes</span>
+                  </div>
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-100">
+                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" /> 4 Nodes Connected
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 py-4">
+                  {[
+                    { name: 'Tokyo Registry Node', latency: '14ms', icon: Cpu },
+                    { name: 'Frankfurt Ledger Node', latency: '28ms', icon: Server },
+                    { name: 'Oregon Validator Node', latency: '42ms', icon: Database },
+                    { name: 'London Authority Node', latency: '21ms', icon: Activity },
+                  ].map((node, i) => (
+                    <div key={i} className="bg-white border border-slate-100 p-3 rounded-xl shadow-xs flex items-center justify-between hover:shadow-sm transition-all duration-200">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
+                          <node.icon className="w-3.5 h-3.5" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-800 leading-none mb-0.5">{node.name}</p>
+                          <p className="text-[8px] text-slate-400 font-mono">Ping: {node.latency}</p>
+                        </div>
+                      </div>
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                    </div>
+                  ))}
+                </div>
+
+                {/* Ledger Activity Stream */}
+                <div className="flex-1 flex flex-col justify-end mt-2">
+                  <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 font-mono">
+                    <Activity className="w-3.5 h-3.5 text-indigo-500 animate-pulse" /> Live Trust Validation Feed
+                  </div>
+                  <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 font-mono text-[9px] text-slate-400 space-y-2 max-h-[140px] overflow-hidden shadow-inner flex flex-col justify-end">
+                    <AnimatePresence initial={false}>
+                      {ledgerLogs.map((log) => (
+                        <motion.div 
+                          key={log.id} 
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          transition={{ duration: 0.3 }}
+                          className="flex items-start justify-between border-b border-slate-800/40 pb-1.5 last:border-0 last:pb-0"
+                        >
+                          <div className="flex items-center gap-1.5 text-slate-300">
+                            <span className="text-emerald-500">✔</span>
+                            <span>BLOCK #{log.id}</span>
+                            <span className="text-indigo-400 font-bold">[{log.node}]</span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-slate-500 text-[8.5px] truncate max-w-[110px] xl:max-w-[180px]" title={log.hash}>
+                              {log.hash.substring(0, 8)}...{log.hash.substring(56)}
+                            </span>
+                            <span className="text-slate-600 text-[8px] font-medium">{log.time}</span>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </AnimatePresence>
                   </div>
                 </div>
               </div>
