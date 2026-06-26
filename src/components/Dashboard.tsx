@@ -1113,39 +1113,39 @@ export function Dashboard({
                           <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-slate-950"></span> Issued</span>
                           <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500"></span> Verified</span>
                         </div>
-                      </div>
-
-                      {/* Pure high quality CSS Grid SVG chart representations */}
-                      <div className="h-64 flex items-end justify-between gap-4 pt-10 border-b border-slate-100 relative">
-                        {/* Background scale indicators */}
-                        <div className="absolute left-0 right-0 top-1/4 border-t border-slate-50 border-dashed pointer-events-none"></div>
-                        <div className="absolute left-0 right-0 top-2/4 border-t border-slate-5 border-dashed pointer-events-none"></div>
-                        <div className="absolute left-0 right-0 top-3/4 border-t border-slate-5 border-dashed pointer-events-none"></div>
-                        
-                        {/* Render customized trend bars dynamically based on loaded database elements */}
-                        {analytics?.issuanceTrend.map((pt, idx) => (
-                          <div key={idx} className="flex-1 flex flex-col items-center gap-2 group z-10">
-                            <div className="w-full flex items-end justify-center gap-1.5 h-44">
-                              {/* Issued representation */}
-                              <div 
-                                style={{ height: `${Math.min(100, Math.max(15, (pt.count / (analytics.issuedCount || 100)) * 280))}%` }}
-                                className="w-6 bg-slate-900 group-hover:bg-slate-700 rounded-sm transition-all relative"
-                                title={`Issued: ${pt.count}`}
-                              >
-                                <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-[8px] font-mono font-bold text-slate-800 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-100 px-1 rounded shadow-sm shrink-0 whitespace-nowrap">{pt.count}</span>
+                      </div>                      {/* Pure high quality CSS Grid SVG chart representations */}
+                      <div className="w-full overflow-x-auto pb-2 scrollbar-thin">
+                        <div className="h-64 flex items-end justify-between gap-4 pt-10 border-b border-slate-100 relative min-w-[500px]">
+                          {/* Background scale indicators */}
+                          <div className="absolute left-0 right-0 top-1/4 border-t border-slate-50 border-dashed pointer-events-none"></div>
+                          <div className="absolute left-0 right-0 top-2/4 border-t border-slate-5 border-dashed pointer-events-none"></div>
+                          <div className="absolute left-0 right-0 top-3/4 border-t border-slate-5 border-dashed pointer-events-none"></div>
+                          
+                          {/* Render customized trend bars dynamically based on loaded database elements */}
+                          {analytics?.issuanceTrend.map((pt, idx) => (
+                            <div key={idx} className="flex-1 flex flex-col items-center gap-2 group z-10">
+                              <div className="w-full flex items-end justify-center gap-1.5 h-44">
+                                {/* Issued representation */}
+                                <div 
+                                  style={{ height: `${Math.min(100, Math.max(15, (pt.count / (analytics.issuedCount || 100)) * 280))}%` }}
+                                  className="w-6 bg-slate-900 group-hover:bg-slate-700 rounded-sm transition-all relative"
+                                  title={`Issued: ${pt.count}`}
+                                >
+                                  <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-[8px] font-mono font-bold text-slate-800 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-100 px-1 rounded shadow-sm shrink-0 whitespace-nowrap">{pt.count}</span>
+                                </div>
+                                {/* Verified representation */}
+                                <div 
+                                  style={{ height: `${Math.min(100, Math.max(10, ((analytics.verificationTrend[idx]?.count || 0) / (analytics.viewCount || 50)) * 200))}%` }}
+                                  className="w-6 bg-emerald-500 group-hover:bg-emerald-400 rounded-sm transition-all relative"
+                                  title={`Verified: ${analytics.verificationTrend[idx]?.count || 0}`}
+                                >
+                                  <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-[8px] font-mono font-bold text-emerald-800 opacity-0 group-hover:opacity-100 transition-opacity bg-emerald-50 px-1 rounded shadow-sm shrink-0 whitespace-nowrap">{analytics.verificationTrend[idx]?.count || 0}</span>
+                                </div>
                               </div>
-                              {/* Verified representation */}
-                              <div 
-                                style={{ height: `${Math.min(100, Math.max(10, ((analytics.verificationTrend[idx]?.count || 0) / (analytics.viewCount || 50)) * 200))}%` }}
-                                className="w-6 bg-emerald-500 group-hover:bg-emerald-400 rounded-sm transition-all relative"
-                                title={`Verified: ${analytics.verificationTrend[idx]?.count || 0}`}
-                              >
-                                <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-[8px] font-mono font-bold text-emerald-800 opacity-0 group-hover:opacity-100 transition-opacity bg-emerald-50 px-1 rounded shadow-sm shrink-0 whitespace-nowrap">{analytics.verificationTrend[idx]?.count || 0}</span>
-                              </div>
+                              <span className="text-[10px] font-mono text-slate-400">{pt.date}</span>
                             </div>
-                            <span className="text-[10px] font-mono text-slate-400">{pt.date}</span>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
 
                       <div className="flex items-center gap-2.5 bg-slate-50 p-3 rounded-xl text-xs text-slate-500 border border-slate-100">
@@ -1348,102 +1348,184 @@ export function Dashboard({
                     </form>
                   )}
 
-                  {/* Program Table */}
-                  <div className="bg-white border border-[#E9ECEF] rounded-2xl overflow-hidden card-shadow overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
-                      <thead className="bg-[#F8F9FA] border-b border-[#E9ECEF] text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                        <tr>
-                          <th className="px-8 py-4">Event Track Metadata</th>
-                          <th className="px-6 py-4">Associated template</th>
-                          <th className="px-6 py-4">Custom Mapped Variables</th>
-                          <th className="px-6 py-4">Dispatched Status</th>
-                          <th className="px-8 py-4 text-right">Operations</th>
-                        </tr>
-                      </thead>
-                      <tbody className="text-xs text-slate-600 divide-y divide-slate-100">
+                  {programs.length === 0 ? (
+                    <div className="px-8 py-16 text-center text-slate-500 bg-white border border-[#E9ECEF] rounded-2xl">
+                      <div className="flex flex-col items-center justify-center space-y-3">
+                        <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center">
+                          <Layers className="w-6 h-6 text-indigo-400" />
+                        </div>
+                        <h3 className="font-bold text-slate-700 text-sm">No Programs Found</h3>
+                        <p className="text-xs text-slate-500 max-w-xs mx-auto">Create a certificate program to start issuing credentials to your recipients.</p>
+                        <button onClick={() => setShowProgramForm(true)} className="mt-2 text-indigo-600 hover:text-indigo-800 text-xs font-bold underline transition-colors">
+                          Create First Program
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Program Table - Desktop */}
+                      <div className="hidden md:block bg-white border border-[#E9ECEF] rounded-2xl overflow-hidden card-shadow overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                          <thead className="bg-[#F8F9FA] border-b border-[#E9ECEF] text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                            <tr>
+                              <th className="px-8 py-4">Event Track Metadata</th>
+                              <th className="px-6 py-4">Associated template</th>
+                              <th className="px-6 py-4">Custom Mapped Variables</th>
+                              <th className="px-6 py-4">Dispatched Status</th>
+                              <th className="px-8 py-4 text-right">Operations</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-xs text-slate-600 divide-y divide-slate-100">
+                            {programs.map((prog) => {
+                              const associatedTemplate = templates.find(t => t.id === prog.templateId)?.name || 'Default';
+                              const issueCount = certificates.filter(c => c.programId === prog.id).length;
+                              
+                              return (
+                                <tr key={prog.id} className="hover:bg-slate-50/40">
+                                  <td className="px-8 py-5 space-y-1.5">
+                                    <p className="font-bold text-slate-950 text-sm leading-tight capitalize">{prog.name}</p>
+                                    <p className="text-[10px] text-slate-400 leading-normal max-w-sm">{prog.description}</p>
+                                    <p className="text-[9px] font-mono text-slate-400">UUID: {prog.id} • Created Date: {new Date(prog.createdTime).toLocaleDateString()}</p>
+                                  </td>
+                                  <td className="px-6 py-5 font-semibold text-slate-900">
+                                    {associatedTemplate}
+                                  </td>
+                                  <td className="px-6 py-5 space-y-1.5">
+                                    <div className="flex flex-wrap gap-1">
+                                      {['name', 'email', 'date', ...prog.recipientFields.filter(f => !['name', 'email', 'date', 'id', 'program'].includes(f.toLowerCase()))].map((field, idx) => (
+                                        <span key={idx} className="bg-slate-150 text-[9px] hover:bg-slate-200 transition-colors font-mono font-bold text-slate-800 px-1.5 py-0.5 rounded uppercase border">
+                                          {field}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </td>
+                                  <td className="px-6 py-5">
+                                    <div className="space-y-1">
+                                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
+                                        issueCount > 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-slate-50 text-slate-405 border-slate-200'
+                                      }`}>
+                                        {issueCount > 0 ? 'Active Dispatched' : 'Pending Register'}
+                                      </span>
+                                      <p className="text-[10px] font-mono text-slate-400 font-bold">{issueCount} credentials issued</p>
+                                    </div>
+                                  </td>
+                                  <td className="px-8 py-5 text-right space-x-3.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleEditProgram(prog)}
+                                      className="text-[10px] uppercase text-[#1a73e8] hover:underline font-bold"
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedProgramId(prog.id);
+                                        setImportStep('input');
+                                        changeTab('recipients');
+                                      }}
+                                      className="text-[10px] uppercase text-[#1a73e8] hover:underline font-bold"
+                                    >
+                                      Discharge CSV
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteProgram(prog.id)}
+                                      className="text-slate-400 hover:text-rose-600 transition-colors"
+                                      title="Delete track"
+                                    >
+                                      <Trash2 className="w-4 h-4 inline" />
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Program Cards - Mobile */}
+                      <div className="block md:hidden space-y-4">
                         {programs.map((prog) => {
                           const associatedTemplate = templates.find(t => t.id === prog.templateId)?.name || 'Default';
                           const issueCount = certificates.filter(c => c.programId === prog.id).length;
                           
                           return (
-                            <tr key={prog.id} className="hover:bg-slate-50/40">
-                              <td className="px-8 py-5 space-y-1.5">
-                                <p className="font-bold text-slate-950 text-sm leading-tight capitalize">{prog.name}</p>
-                                <p className="text-[10px] text-slate-400 leading-normal max-w-sm">{prog.description}</p>
-                                <p className="text-[9px] font-mono text-slate-400">UUID: {prog.id} • Created Date: {new Date(prog.createdTime).toLocaleDateString()}</p>
-                              </td>
-                              <td className="px-6 py-5 font-semibold text-slate-900">
-                                {associatedTemplate}
-                              </td>
-                              <td className="px-6 py-5 space-y-1.5">
+                            <div key={prog.id} className="bg-white border border-[#E9ECEF] rounded-xl p-5 card-shadow space-y-4">
+                              <div className="flex justify-between items-start">
+                                <div className="space-y-1">
+                                  <h3 className="font-bold text-slate-955 text-sm capitalize">{prog.name}</h3>
+                                  <p className="text-[10px] text-slate-400 font-mono">UUID: {prog.id}</p>
+                                </div>
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
+                                  issueCount > 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-slate-50 text-slate-405 border-slate-200'
+                                }`}>
+                                  {issueCount > 0 ? 'Active' : 'Pending'}
+                                </span>
+                              </div>
+
+                              {prog.description && (
+                                <p className="text-[11px] text-slate-505 leading-normal">{prog.description}</p>
+                              )}
+
+                              <div className="grid grid-cols-2 gap-4 text-xs pt-2 border-t border-slate-100">
+                                <div>
+                                  <p className="text-[9px] uppercase tracking-wider text-slate-405 font-bold">Template</p>
+                                  <p className="font-semibold text-slate-800 truncate">{associatedTemplate}</p>
+                                </div>
+                                <div>
+                                  <p className="text-[9px] uppercase tracking-wider text-slate-405 font-bold">Issued</p>
+                                  <p className="font-semibold text-slate-800">{issueCount} credentials</p>
+                                </div>
+                              </div>
+
+                              <div className="space-y-1.5">
+                                <p className="text-[9px] uppercase tracking-wider text-slate-405 font-bold">Mapped Fields</p>
                                 <div className="flex flex-wrap gap-1">
                                   {['name', 'email', 'date', ...prog.recipientFields.filter(f => !['name', 'email', 'date', 'id', 'program'].includes(f.toLowerCase()))].map((field, idx) => (
-                                    <span key={idx} className="bg-slate-150 text-[9px] hover:bg-slate-200 transition-colors font-mono font-bold text-slate-800 px-1.5 py-0.5 rounded uppercase border">
+                                    <span key={idx} className="bg-slate-150 text-[9px] font-mono font-bold text-slate-800 px-1.5 py-0.5 rounded uppercase border">
                                       {field}
                                     </span>
                                   ))}
                                 </div>
-                              </td>
-                              <td className="px-6 py-5">
-                                <div className="space-y-1">
-                                  <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
-                                    issueCount > 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-slate-50 text-slate-405 border-slate-200'
-                                  }`}>
-                                    {issueCount > 0 ? 'Active Dispatched' : 'Pending Register'}
-                                  </span>
-                                  <p className="text-[10px] font-mono text-slate-400 font-bold">{issueCount} credentials issued</p>
+                              </div>
+
+                              <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                                <div className="flex gap-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEditProgram(prog)}
+                                    className="text-[10px] uppercase text-[#1a73e8] hover:underline font-bold"
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedProgramId(prog.id);
+                                      setImportStep('input');
+                                      changeTab('recipients');
+                                    }}
+                                    className="text-[10px] uppercase text-[#1a73e8] hover:underline font-bold"
+                                  >
+                                    CSV Issue
+                                  </button>
                                 </div>
-                              </td>
-                              <td className="px-8 py-5 text-right space-x-3.5">
-                                <button
-                                  type="button"
-                                  onClick={() => handleEditProgram(prog)}
-                                  className="text-[10px] uppercase text-[#1a73e8] hover:underline font-bold"
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setSelectedProgramId(prog.id);
-                                    setImportStep('input');
-                                    changeTab('recipients');
-                                  }}
-                                  className="text-[10px] uppercase text-[#1a73e8] hover:underline font-bold"
-                                >
-                                  Discharge CSV
-                                </button>
                                 <button
                                   type="button"
                                   onClick={() => handleDeleteProgram(prog.id)}
-                                  className="text-slate-400 hover:text-rose-600 transition-colors"
+                                  className="text-slate-405 hover:text-rose-600 p-1 rounded hover:bg-rose-50"
                                   title="Delete track"
                                 >
-                                  <Trash2 className="w-4 h-4 inline" />
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      {programs.length === 0 && (
-                          <tr>
-                            <td colSpan={5} className="px-8 py-16 text-center text-slate-500 bg-white">
-                              <div className="flex flex-col items-center justify-center space-y-3">
-                                <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center">
-                                  <Layers className="w-6 h-6 text-indigo-400" />
-                                </div>
-                                <h3 className="font-bold text-slate-700 text-sm">No Programs Found</h3>
-                                <p className="text-xs text-slate-500 max-w-xs mx-auto">Create a certificate program to start issuing credentials to your recipients.</p>
-                                <button onClick={() => setShowProgramForm(true)} className="mt-2 text-indigo-600 hover:text-indigo-800 text-xs font-bold underline transition-colors">
-                                  Create First Program
+                                  <Trash2 className="w-4 h-4" />
                                 </button>
                               </div>
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
 
                 </div>
               )}
@@ -1848,8 +1930,8 @@ export function Dashboard({
                     </div>
                   )}
 
-                  {/* Issued Database Table */}
-                  <div className="bg-white border border-[#E9ECEF] rounded-2xl overflow-hidden card-shadow overflow-x-auto">
+                  {/* Issued Database Table - Desktop */}
+                  <div className="hidden md:block bg-white border border-[#E9ECEF] rounded-2xl overflow-hidden card-shadow overflow-x-auto">
                     <table className="w-full text-left border-collapse text-xs">
                       <thead className="bg-[#F8F9FA] border-b border-[#E9ECEF] text-[10px] uppercase font-bold text-slate-400 tracking-wider">
                         <tr>
@@ -1869,7 +1951,7 @@ export function Dashboard({
                               <p className="text-[10px] text-slate-400 font-mono italic shrink-0 truncate max-w-[120px]">{c.securityHash.substring(0, 18)}...</p>
                             </td>
                             <td className="px-6 py-5">
-                              <p className="font-bold text-slate-950 text-sm leading-tight capitalize">{c.recipientName}</p>
+                              <p className="font-bold text-slate-955 text-sm leading-tight capitalize">{c.recipientName}</p>
                               <p className="text-[10px] text-[#9CA3AF] mt-0.5">{c.recipientEmail}</p>
                             </td>
                             <td className="px-6 py-5 space-y-1">
@@ -1925,6 +2007,79 @@ export function Dashboard({
                         ))}
                       </tbody>
                     </table>
+                  </div>
+
+                  {/* Issued Card List - Mobile */}
+                  <div className="block md:hidden space-y-4">
+                    {filteredCertificates.map(c => (
+                      <div key={c.id} className="bg-white border border-[#E9ECEF] rounded-xl p-5 card-shadow space-y-4">
+                        <div className="flex justify-between items-start">
+                          <div className="space-y-1">
+                            <span className="font-mono font-bold text-slate-900 text-xs">{c.id}</span>
+                            <p className="text-[9px] text-slate-400 font-mono break-all">{c.securityHash.substring(0, 32)}...</p>
+                          </div>
+                          {c.status === 'valid' && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[9px] font-bold uppercase border border-emerald-100">
+                              Valid
+                            </span>
+                          )}
+                          {c.status === 'revoked' && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-red-50 text-red-700 text-[9px] font-bold uppercase border border-red-100">
+                              Revoked
+                            </span>
+                          )}
+                          {c.status === 'expired' && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[9px] font-bold uppercase border border-amber-100">
+                              Expired
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4 text-xs pt-2 border-t border-slate-100">
+                          <div>
+                            <p className="text-[9px] uppercase tracking-wider text-slate-405 font-bold">Recipient</p>
+                            <p className="font-bold text-slate-955 capitalize">{c.recipientName}</p>
+                            <p className="text-[10px] text-slate-400 truncate">{c.recipientEmail}</p>
+                          </div>
+                          <div>
+                            <p className="text-[9px] uppercase tracking-wider text-slate-405 font-bold">Course / Track</p>
+                            <p className="font-semibold text-slate-800 truncate">{c.programName}</p>
+                            <p className="text-[10px] text-[#9CA3AF]">Issued: {c.issueDate}</p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4 text-xs pt-2 border-t border-slate-100">
+                          <div>
+                            <p className="text-[9px] uppercase tracking-wider text-slate-405 font-bold">Auditing Stats</p>
+                            <p className="text-[10px] text-slate-600">Views: <strong className="text-slate-900">{c.viewCount}</strong> • DLs: <strong className="text-slate-900">{c.downloadCount}</strong></p>
+                          </div>
+                          <div className="flex items-center justify-end gap-3 pt-2">
+                            <button
+                              onClick={() => onViewCertificatePage(c.id)}
+                              className="text-[10px] font-bold uppercase text-[#1a73e8] hover:underline"
+                            >
+                              View
+                            </button>
+                            
+                            {c.status === 'valid' ? (
+                              <button
+                                onClick={() => handleInitiateRevoke(c.id)}
+                                className="text-[10px] font-bold uppercase text-rose-500 hover:text-rose-700"
+                              >
+                                Revoke
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleRestoreCertificate(c.id)}
+                                className="text-[10px] font-bold uppercase text-emerald-600 hover:text-emerald-800"
+                              >
+                                Restore
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
 
                 </div>
@@ -2128,9 +2283,7 @@ export function Dashboard({
                       <h2 className="font-serif text-3xl italic text-slate-950">Email Dispatch Simulator Logs</h2>
                       <p className="text-slate-500 text-sm">Verify email notification delivery events, recipient claim links, and custom SMTP body wrappers.</p>
                     </div>
-                  </div>
-
-                  {/* Table Card */}
+                            {/* Table Card */}
                   <div className="bg-white border border-[#E9ECEF] rounded-2xl shadow-sm overflow-hidden card-shadow">
                     {emailLogs.length === 0 ? (
                       <div className="p-16 text-center text-slate-400 space-y-4">
@@ -2141,56 +2294,101 @@ export function Dashboard({
                         </div>
                       </div>
                     ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs divide-y divide-slate-100">
-                          <thead className="bg-slate-550/5 text-[#9CA3AF] uppercase text-[10px] tracking-wider font-semibold font-mono">
-                            <tr>
-                              <th className="px-6 py-4">Timestamp</th>
-                              <th className="px-6 py-4">Recipient</th>
-                              <th className="px-6 py-4">Subject</th>
-                              <th className="px-6 py-4">Status</th>
-                              <th className="px-6 py-4 text-right">Actions</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100 text-slate-700">
-                            {emailLogs.map((log) => (
-                              <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
-                                <td className="px-6 py-4 whitespace-nowrap font-mono text-[10px] text-slate-400">
-                                  {new Date(log.sentTime).toLocaleString()}
-                                </td>
-                                <td className="px-6 py-4">
-                                  <div className="font-semibold text-slate-900 capitalize">{log.recipientName}</div>
-                                  <div className="text-[10px] text-slate-400 font-mono">{log.recipientEmail}</div>
-                                </td>
-                                <td className="px-6 py-4 font-medium max-w-xs truncate">
-                                  {log.subject}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[9px] font-mono font-bold uppercase border border-emerald-100">
-                                    ● DISPATCHED
-                                  </span>
-                                </td>
-                                <td className="px-6 py-4 text-right space-x-2 whitespace-nowrap">
-                                  <button
-                                    onClick={() => setSelectedEmailLog(log)}
-                                    className="bg-slate-105 hover:bg-slate-100 text-slate-705 text-[10px] px-3 py-1.5 rounded-lg border font-bold transition-all"
-                                  >
-                                    View Email
-                                  </button>
-                                  <button
-                                    onClick={() => onViewCertificatePage(log.certificateId)}
-                                    className="bg-slate-950 hover:bg-slate-800 text-white text-[10px] px-3 py-1.5 rounded-lg font-bold transition-all shadow-sm"
-                                  >
-                                    Verify Credential
-                                  </button>
-                                </td>
+                      <>
+                        {/* Desktop View Table */}
+                        <div className="hidden md:block overflow-x-auto">
+                          <table className="w-full text-left text-xs divide-y divide-slate-100">
+                            <thead className="bg-slate-550/5 text-[#9CA3AF] uppercase text-[10px] tracking-wider font-semibold font-mono">
+                              <tr>
+                                <th className="px-6 py-4">Timestamp</th>
+                                <th className="px-6 py-4">Recipient</th>
+                                <th className="px-6 py-4">Subject</th>
+                                <th className="px-6 py-4">Status</th>
+                                <th className="px-6 py-4 text-right">Actions</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 text-slate-700">
+                              {emailLogs.map((log) => (
+                                <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
+                                  <td className="px-6 py-4 whitespace-nowrap font-mono text-[10px] text-slate-400">
+                                    {new Date(log.sentTime).toLocaleString()}
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    <div className="font-semibold text-slate-900 capitalize">{log.recipientName}</div>
+                                    <div className="text-[10px] text-slate-400 font-mono">{log.recipientEmail}</div>
+                                  </td>
+                                  <td className="px-6 py-4 font-medium max-w-xs truncate">
+                                    {log.subject}
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap">
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[9px] font-mono font-bold uppercase border border-emerald-100">
+                                      ● DISPATCHED
+                                    </span>
+                                  </td>
+                                  <td className="px-6 py-4 text-right space-x-2 whitespace-nowrap">
+                                    <button
+                                      onClick={() => setSelectedEmailLog(log)}
+                                      className="bg-slate-105 hover:bg-slate-100 text-slate-750 text-[10px] px-3 py-1.5 rounded-lg border font-bold transition-all"
+                                    >
+                                      View Email
+                                    </button>
+                                    <button
+                                      onClick={() => onViewCertificatePage(log.certificateId)}
+                                      className="bg-slate-950 hover:bg-slate-800 text-white text-[10px] px-3 py-1.5 rounded-lg font-bold transition-all shadow-sm"
+                                    >
+                                      Verify Credential
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Mobile View Cards list */}
+                        <div className="block md:hidden divide-y divide-slate-100">
+                          {emailLogs.map((log) => (
+                            <div key={log.id} className="p-5 space-y-4">
+                              <div className="flex justify-between items-start">
+                                <span className="font-mono text-[10px] text-slate-405">
+                                  {new Date(log.sentTime).toLocaleString()}
+                                </span>
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[9px] font-mono font-bold uppercase border border-emerald-100">
+                                  Dispatched
+                                </span>
+                              </div>
+
+                              <div className="space-y-1">
+                                <p className="text-[9px] uppercase tracking-wider text-slate-405 font-bold">Recipient</p>
+                                <div className="font-semibold text-slate-900 capitalize">{log.recipientName}</div>
+                                <div className="text-[10px] text-slate-405 font-mono">{log.recipientEmail}</div>
+                              </div>
+
+                              <div className="space-y-1">
+                                <p className="text-[9px] uppercase tracking-wider text-slate-405 font-bold">Subject</p>
+                                <div className="text-xs text-slate-700 font-medium truncate">{log.subject}</div>
+                              </div>
+
+                              <div className="flex gap-3 pt-3 border-t border-slate-100">
+                                <button
+                                  onClick={() => setSelectedEmailLog(log)}
+                                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-705 text-[10px] py-2 rounded-lg border font-bold transition-all"
+                                >
+                                  View Email
+                                </button>
+                                <button
+                                  onClick={() => onViewCertificatePage(log.certificateId)}
+                                  className="flex-1 bg-slate-950 hover:bg-slate-800 text-white text-[10px] py-2 rounded-lg font-bold transition-all text-center shadow-sm"
+                                >
+                                  Verify
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
                     )}
-                  </div>
+                  </div>              </div>
                 </div>
               )}
             </>
