@@ -395,6 +395,24 @@ const authenticateToken = (req: any, res: any, next: any) => {
   });
 };
 
+// Tenant Isolation Helper
+const enforceWorkspaceAccess = async (req: any, workspaceId: string, res: any): Promise<boolean> => {
+  if (req.user && req.user.email === 'admin@gmail.com') return true;
+  if (req.user && req.user.workspaceId === workspaceId) return true;
+  
+  try {
+    const wsResult = await pool.query('SELECT created_by_email FROM workspaces WHERE id = $1', [workspaceId]);
+    if (wsResult.rows.length > 0 && wsResult.rows[0].created_by_email === req.user.email) {
+      return true;
+    }
+  } catch (err) {
+    logger.error('Error in enforceWorkspaceAccess check', err);
+  }
+  
+  res.status(403).json({ error: 'Forbidden: Workspace access denied' });
+  return false;
+};
+
 const app = express();
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -620,7 +638,13 @@ const requireAdmin = (req: any, res: any, next: any) => {
 // List all workspaces
 app.get('/api/admin/workspaces', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM workspaces ORDER BY created_time DESC');
+    const result = await pool.query(`
+      SELECT w.*, 
+        (SELECT COUNT(*)::int FROM programs p WHERE p.workspace_id = w.id) as program_count,
+        (SELECT COUNT(*)::int FROM certificates c WHERE c.workspace_id = w.id) as certificate_count
+      FROM workspaces w 
+      ORDER BY w.created_time DESC
+    `);
     res.json(result.rows);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -672,7 +696,8 @@ app.delete('/api/admin/workspaces/:id', authenticateToken, requireAdmin, async (
 app.get('/api/admin/programs', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT p.*, w.name as workspace_name 
+      SELECT p.*, w.name as workspace_name,
+        (SELECT COUNT(*)::int FROM certificates c WHERE c.program_id = p.id) as certificate_count
       FROM programs p 
       JOIN workspaces w ON p.workspace_id = w.id 
       ORDER BY p.issue_date DESC
@@ -727,9 +752,9 @@ app.get('/api/admin/certificates', authenticateToken, requireAdmin, async (req, 
     const result = await pool.query(`
       SELECT c.*, p.name as program_name, w.name as workspace_name 
       FROM certificates c
-      JOIN programs p ON c.program_id = p.id
-      JOIN workspaces w ON c.workspace_id = w.id
-      ORDER BY c.created_at DESC
+      LEFT JOIN programs p ON c.program_id = p.id
+      LEFT JOIN workspaces w ON c.workspace_id = w.id
+      ORDER BY c.issue_date DESC, c.id DESC
     `);
     res.json(result.rows);
   } catch (err: any) {
@@ -744,7 +769,10 @@ app.get('/api/workspaces', authenticateToken, async (req: any, res) => {
     if (req.user && req.user.email === 'admin@gmail.com') {
       result = await pool.query('SELECT * FROM workspaces');
     } else if (req.user && req.user.workspaceId) {
-      result = await pool.query('SELECT * FROM workspaces WHERE id = $1', [req.user.workspaceId]);
+      result = await pool.query(
+        'SELECT * FROM workspaces WHERE id = $1 OR created_by_email = $2',
+        [req.user.workspaceId, req.user.email]
+      );
     } else {
       return res.status(403).json({ error: 'Access denied: No workspace associated with user' });
     }
@@ -776,9 +804,7 @@ app.get('/api/workspaces', authenticateToken, async (req: any, res) => {
 
 app.get('/api/workspaces/:id', authenticateToken, async (req: any, res) => {
   try {
-    if (req.user.email !== 'admin@gmail.com' && req.user.workspaceId !== req.params.id) {
-      return res.status(403).json({ error: 'Forbidden: Workspace access denied' });
-    }
+    if (!(await enforceWorkspaceAccess(req, req.params.id, res))) return;
 
     const result = await pool.query('SELECT * FROM workspaces WHERE id = $1', [req.params.id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Workspace not found' });
@@ -830,9 +856,9 @@ app.post('/api/workspaces', authenticateToken, async (req: any, res) => {
 
   try {
     await pool.query(
-      `INSERT INTO workspaces (id, name, slug, created_time, plan, brand_name, primary_color, accent_color, sender_name, sender_email, white_label, footer_text)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-      [id, name, slug, createdTime, plan, branding.brandName, branding.primaryColor, branding.accentColor, branding.senderName, branding.senderEmail, branding.whiteLabel, branding.footerText]
+      `INSERT INTO workspaces (id, name, slug, created_time, plan, brand_name, primary_color, accent_color, sender_name, sender_email, white_label, footer_text, created_by_email)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+      [id, name, slug, createdTime, plan, branding.brandName, branding.primaryColor, branding.accentColor, branding.senderName, branding.senderEmail, branding.whiteLabel, branding.footerText, req.user.email]
     );
     res.json({
       id,
@@ -850,9 +876,7 @@ app.post('/api/workspaces', authenticateToken, async (req: any, res) => {
 
 app.put('/api/workspaces/:id', authenticateToken, async (req: any, res) => {
   try {
-    if (req.user.email !== 'admin@gmail.com' && req.user.workspaceId !== req.params.id) {
-      return res.status(403).json({ error: 'Forbidden: Workspace access denied' });
-    }
+    if (!(await enforceWorkspaceAccess(req, req.params.id, res))) return;
 
     const result = await pool.query('SELECT * FROM workspaces WHERE id = $1', [req.params.id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Workspace not found' });
@@ -899,11 +923,35 @@ app.put('/api/workspaces/:id', authenticateToken, async (req: any, res) => {
 // 2. Program endpoints
 app.get('/api/programs', authenticateToken, async (req: any, res) => {
   let wsId = req.query.workspaceId as string;
-  if (req.user.email !== 'admin@gmail.com') {
-    if (wsId && wsId !== req.user.workspaceId) {
-      return res.status(403).json({ error: 'Forbidden: Workspace access denied' });
+  if (wsId) {
+    if (!(await enforceWorkspaceAccess(req, wsId, res))) return;
+  } else {
+    if (req.user.email !== 'admin@gmail.com') {
+      try {
+        const wsResult = await pool.query('SELECT id FROM workspaces WHERE id = $1 OR created_by_email = $2', [req.user.workspaceId, req.user.email]);
+        const allowedWsIds = wsResult.rows.map(row => row.id);
+        if (allowedWsIds.length === 0) {
+          return res.json([]);
+        }
+        const result = await pool.query('SELECT * FROM programs WHERE workspace_id = ANY($1)', [allowedWsIds]);
+        const programs = result.rows.map(row => ({
+          id: row.id,
+          workspaceId: row.workspace_id,
+          name: row.name,
+          description: row.description || '',
+          templateId: row.template_id,
+          issueDate: row.issue_date ? row.issue_date.toISOString().split('T')[0] : '',
+          expiryDate: row.expiry_date ? row.expiry_date.toISOString().split('T')[0] : undefined,
+          status: row.status,
+          createdTime: row.created_time,
+          recipientFields: Array.isArray(row.recipient_fields) ? row.recipient_fields : JSON.parse(JSON.stringify(row.recipient_fields || []))
+        }));
+        return res.json(programs);
+      } catch (err: any) {
+        logger.error('Error getting programs', err);
+        return res.status(500).json({ error: 'Database error fetching programs' });
+      }
     }
-    wsId = req.user.workspaceId;
   }
   try {
     let query = 'SELECT * FROM programs';
@@ -932,11 +980,13 @@ app.get('/api/programs', authenticateToken, async (req: any, res) => {
   }
 });
 
-app.post('/api/programs', authenticateToken, async (req, res) => {
+app.post('/api/programs', authenticateToken, async (req: any, res) => {
   const { workspaceId, name, description, templateId, issueDate, expiryDate, recipientFields } = req.body;
   if (!workspaceId || !name || !templateId) {
     return res.status(400).json({ error: 'workspaceId, name, and templateId are required' });
   }
+
+  if (!(await enforceWorkspaceAccess(req, workspaceId, res))) return;
 
   // Filter out standard base fields (name, email, date, id, program) and duplicates
   const baseFields = ['name', 'email', 'date', 'id', 'program'];
@@ -979,12 +1029,14 @@ app.post('/api/programs', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/programs/:id', authenticateToken, async (req, res) => {
+app.put('/api/programs/:id', authenticateToken, async (req: any, res) => {
   try {
     const result = await pool.query('SELECT * FROM programs WHERE id = $1', [req.params.id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Program not found' });
     
     const current = result.rows[0];
+    if (!(await enforceWorkspaceAccess(req, current.workspace_id, res))) return;
+
     const name = req.body.name || current.name;
     const description = req.body.description !== undefined ? req.body.description : current.description;
     const templateId = req.body.templateId || current.template_id;
@@ -1035,11 +1087,65 @@ app.put('/api/programs/:id', authenticateToken, async (req, res) => {
 // 3. Templates endpoints
 app.get('/api/templates', authenticateToken, async (req: any, res) => {
   let wsId = req.query.workspaceId as string;
-  if (req.user.email !== 'admin@gmail.com') {
-    if (wsId && wsId !== req.user.workspaceId) {
-      return res.status(403).json({ error: 'Forbidden: Workspace access denied' });
+  if (wsId) {
+    if (!(await enforceWorkspaceAccess(req, wsId, res))) return;
+  } else {
+    if (req.user.email !== 'admin@gmail.com') {
+      try {
+        const wsResult = await pool.query('SELECT id FROM workspaces WHERE id = $1 OR created_by_email = $2', [req.user.workspaceId, req.user.email]);
+        const allowedWsIds = wsResult.rows.map(row => row.id);
+        if (allowedWsIds.length === 0) {
+          return res.json([]);
+        }
+        const result = await pool.query('SELECT * FROM templates WHERE workspace_id = ANY($1)', [allowedWsIds]);
+        const templates = result.rows.map(row => ({
+          id: row.id,
+          workspaceId: row.workspace_id,
+          name: row.name,
+          layout: row.layout,
+          backgroundColor: row.background_color,
+          borderColor: row.border_color,
+          borderWidth: row.border_width,
+          showSeal: row.show_seal,
+          sealType: row.seal_type,
+          showQrCode: row.show_qr_code,
+          qrCodeX: Number(row.qr_code_x),
+          qrCodeY: Number(row.qr_code_y),
+          qrCodeWidth: row.qr_code_width ? Number(row.qr_code_width) : 32,
+          sealWidth: row.seal_width ? Number(row.seal_width) : 40,
+          logoUrl: row.logo_url || undefined,
+          logoX: Number(row.logo_x),
+          logoY: Number(row.logo_y),
+          logoWidth: Number(row.logo_width),
+          signatureUrl: row.signature_url || undefined,
+          secondarySignatureUrl: row.secondary_signature_url || undefined,
+          signatureX: Number(row.signature_x),
+          signatureY: Number(row.signature_y),
+          signatureWidth: Number(row.signature_width),
+          signatoryName: row.signatory_name || undefined,
+          signatoryTitle: row.signatory_title || undefined,
+          textElements: typeof row.text_elements === 'string' ? JSON.parse(row.text_elements) : (Array.isArray(row.text_elements) ? row.text_elements : []),
+          borderRadius: row.border_radius || undefined,
+          borderStyle: row.border_style || undefined,
+          backgroundGradient: row.background_gradient || undefined,
+          decorFlourish: row.decor_flourish || undefined,
+          logoIconType: row.logo_icon_type || undefined,
+          signatureStyle: row.signature_style || undefined,
+          showSecondarySignatory: row.show_secondary_signatory || undefined,
+          secondarySignatoryName: row.secondary_signatory_name || undefined,
+          secondarySignatoryTitle: row.secondary_signatory_title || undefined,
+          secondarySignatureX: row.secondary_signature_x ? Number(row.secondary_signature_x) : undefined,
+          secondarySignatureY: row.secondary_signature_y ? Number(row.secondary_signature_y) : undefined,
+          secondarySignatureWidth: row.secondary_signature_width ? Number(row.secondary_signature_width) : undefined,
+          backgroundImageUrl: row.background_image_url || undefined,
+          qrCodeCustomUrl: row.qr_code_custom_url || undefined
+        }));
+        return res.json(templates);
+      } catch (err: any) {
+        logger.error('Error fetching templates', err);
+        return res.status(500).json({ error: 'Database error fetching templates' });
+      }
     }
-    wsId = req.user.workspaceId;
   }
   try {
     let query = 'SELECT * FROM templates';
@@ -1104,9 +1210,7 @@ app.post('/api/templates', authenticateToken, async (req: any, res) => {
     return res.status(400).json({ error: 'workspaceId and name are required' });
   }
 
-  if (req.user.email !== 'admin@gmail.com' && req.user.workspaceId !== workspaceId) {
-    return res.status(403).json({ error: 'Forbidden: Workspace access denied' });
-  }
+  if (!(await enforceWorkspaceAccess(req, workspaceId, res))) return;
 
   const id = `temp-${Math.random().toString(36).substring(2, 9)}`;
   const t: CertificateTemplate = {
@@ -1162,11 +1266,8 @@ app.put('/api/templates/:id', authenticateToken, async (req: any, res) => {
   try {
     const result = await pool.query('SELECT * FROM templates WHERE id = $1', [req.params.id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Template not found' });
-    
     const current = result.rows[0];
-    if (req.user.email !== 'admin@gmail.com' && req.user.workspaceId !== current.workspace_id) {
-      return res.status(403).json({ error: 'Forbidden: Workspace access denied' });
-    }
+    if (!(await enforceWorkspaceAccess(req, current.workspace_id, res))) return;
     
     // Map database snake_case keys to camelCase keys for merge safety
     const currentCamel = {
@@ -1608,6 +1709,68 @@ app.post('/api/certificates/:id/status', authenticateToken, async (req, res) => 
   }
 });
 
+// Resend Certificate Email
+app.post('/api/certificates/:id/resend', authenticateToken, async (req: any, res) => {
+  try {
+    const certResult = await pool.query('SELECT * FROM certificates WHERE id = $1', [req.params.id]);
+    if (certResult.rows.length === 0) return res.status(404).json({ error: 'Certificate not found' });
+    const cert = certResult.rows[0];
+
+    // Enforce workspace access
+    if (!(await enforceWorkspaceAccess(req, cert.workspace_id, res))) return;
+
+    // Fetch workspace to get brand name
+    const wsResult = await pool.query('SELECT brand_name FROM workspaces WHERE id = $1', [cert.workspace_id]);
+    const brandName = wsResult.rows.length > 0 ? wsResult.rows[0].brand_name : 'CertOps';
+
+    const appUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+    const emailLogId = `eml-${Math.random().toString(36).substring(2, 9)}`;
+    const emailLogBody = `Hello ${cert.recipient_name},\n\nCongratulations! Your official credential for completing "${cert.program_name}" has been registered and verified.\n\nCertificate ID: ${cert.id}\nVerification Link: ${appUrl}/#credential=${cert.id}\n\nYou can view, download, print, or share your digital certificate directly to LinkedIn.\n\nWarm regards,\n${brandName} Team`;
+
+    // Insert email log
+    await pool.query(
+      `INSERT INTO email_logs (id, workspace_id, recipient_email, recipient_name, subject, body, certificate_id, sent_time)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        emailLogId, cert.workspace_id, cert.recipient_email, cert.recipient_name,
+        `Your official credential for ${cert.program_name} is ready! (Resent)`,
+        emailLogBody, cert.id, new Date().toISOString()
+      ]
+    );
+
+    // Send the email
+    await sendVerificationEmail({
+      recipientEmail: cert.recipient_email,
+      recipientName: cert.recipient_name,
+      subject: `Your official credential for ${cert.program_name} is ready! (Resent)`,
+      body: emailLogBody,
+      workspaceId: cert.workspace_id,
+      programName: cert.program_name,
+      certId: cert.id,
+      verificationUrl: `${appUrl}/#credential=${cert.id}`
+    });
+
+    // Update audit trail
+    const auditTrail = Array.isArray(cert.audit_trail) ? cert.audit_trail : JSON.parse(JSON.stringify(cert.audit_trail || []));
+    auditTrail.push({
+      timestamp: new Date().toISOString(),
+      event: 'EMAIL_DISPATCHED',
+      performedBy: 'Workspace Operator',
+      details: `Verification email resent to ${cert.recipient_email}`
+    });
+
+    await pool.query(
+      `UPDATE certificates SET audit_trail = $1 WHERE id = $2`,
+      [JSON.stringify(auditTrail), cert.id]
+    );
+
+    res.json({ success: true, message: 'Email resent successfully' });
+  } catch (err: any) {
+    logger.error('Error resending certificate email:', err);
+    res.status(500).json({ error: 'Database error resending certificate email' });
+  }
+});
+
 // Real-time Ledger Verification Audit
 app.post('/api/certificates/:id/verify', async (req, res) => {
   try {
@@ -1661,11 +1824,42 @@ app.post('/api/certificates/:id/verify', async (req, res) => {
 // List certificates with workspace filtering
 app.get('/api/certificates', authenticateToken, async (req: any, res) => {
   let wsId = req.query.workspaceId as string;
-  if (req.user.email !== 'admin@gmail.com') {
-    if (wsId && wsId !== req.user.workspaceId) {
-      return res.status(403).json({ error: 'Forbidden: Workspace access denied' });
+  if (wsId) {
+    if (!(await enforceWorkspaceAccess(req, wsId, res))) return;
+  } else {
+    if (req.user.email !== 'admin@gmail.com') {
+      try {
+        const wsResult = await pool.query('SELECT id FROM workspaces WHERE id = $1 OR created_by_email = $2', [req.user.workspaceId, req.user.email]);
+        const allowedWsIds = wsResult.rows.map(row => row.id);
+        if (allowedWsIds.length === 0) {
+          return res.json([]);
+        }
+        const result = await pool.query('SELECT * FROM certificates WHERE workspace_id = ANY($1)', [allowedWsIds]);
+        const certificates = result.rows.map(cert => ({
+          id: cert.id,
+          workspaceId: cert.workspace_id,
+          programId: cert.program_id,
+          programName: cert.program_name,
+          recipientName: cert.recipient_name,
+          recipientEmail: cert.recipient_email,
+          customFields: cert.custom_fields,
+          issueDate: cert.issue_date ? cert.issue_date.toISOString().split('T')[0] : '',
+          expiryDate: cert.expiry_date ? cert.expiry_date.toISOString().split('T')[0] : undefined,
+          status: cert.status,
+          revocationReason: cert.revocation_reason || undefined,
+          securityHash: cert.security_hash,
+          viewCount: cert.view_count,
+          downloadCount: cert.download_count,
+          shareCount: cert.share_count,
+          lastViewed: cert.last_viewed ? cert.last_viewed.toISOString() : undefined,
+          auditTrail: Array.isArray(cert.audit_trail) ? cert.audit_trail : JSON.parse(JSON.stringify(cert.audit_trail || []))
+        }));
+        return res.json(certificates);
+      } catch (err: any) {
+        logger.error('Error fetching certificates', err);
+        return res.status(500).json({ error: 'Database error fetching certificates' });
+      }
     }
-    wsId = req.user.workspaceId;
   }
   const programId = req.query.programId as string;
   
@@ -1717,11 +1911,33 @@ app.get('/api/certificates', authenticateToken, async (req: any, res) => {
 // Get email dispatch logs for a workspace
 app.get('/api/email-logs', authenticateToken, async (req: any, res) => {
   let wsId = req.query.workspaceId as string;
-  if (req.user.email !== 'admin@gmail.com') {
-    if (wsId && wsId !== req.user.workspaceId) {
-      return res.status(403).json({ error: 'Forbidden: Workspace access denied' });
+  if (wsId) {
+    if (!(await enforceWorkspaceAccess(req, wsId, res))) return;
+  } else {
+    if (req.user.email !== 'admin@gmail.com') {
+      try {
+        const wsResult = await pool.query('SELECT id FROM workspaces WHERE id = $1 OR created_by_email = $2', [req.user.workspaceId, req.user.email]);
+        const allowedWsIds = wsResult.rows.map(row => row.id);
+        if (allowedWsIds.length === 0) {
+          return res.json([]);
+        }
+        const result = await pool.query('SELECT * FROM email_logs WHERE workspace_id = ANY($1) ORDER BY sent_time DESC', [allowedWsIds]);
+        const logs = result.rows.map(e => ({
+          id: e.id,
+          workspaceId: e.workspace_id,
+          recipientEmail: e.recipient_email,
+          recipientName: e.recipient_name,
+          subject: e.subject,
+          body: e.body,
+          certificateId: e.certificate_id,
+          sentTime: e.sent_time
+        }));
+        return res.json(logs);
+      } catch (err: any) {
+        logger.error('Error fetching email logs', err);
+        return res.status(500).json({ error: 'Database error fetching email logs' });
+      }
     }
-    wsId = req.user.workspaceId;
   }
   if (!wsId) return res.status(400).json({ error: 'WorkspaceId query is required' });
   try {
@@ -1759,9 +1975,9 @@ app.delete('/api/programs/:id', authenticateToken, async (req: any, res) => {
       return res.status(404).json({ error: 'Program not found' });
     }
     const current = indexResult.rows[0];
-    if (req.user.email !== 'admin@gmail.com' && req.user.workspaceId !== current.workspace_id) {
+    if (!(await enforceWorkspaceAccess(req, current.workspace_id, res))) {
       await safeRollback(client);
-      return res.status(403).json({ error: 'Forbidden: Workspace access denied' });
+      return;
     }
 
     // Deleting the program will trigger CASCADE deletes on certificates and email_logs
@@ -1788,9 +2004,7 @@ app.delete('/api/templates/:id', authenticateToken, async (req: any, res) => {
       return res.status(404).json({ error: 'Template not found' });
     }
     const current = checkResult.rows[0];
-    if (req.user.email !== 'admin@gmail.com' && req.user.workspaceId !== current.workspace_id) {
-      return res.status(403).json({ error: 'Forbidden: Workspace access denied' });
-    }
+    if (!(await enforceWorkspaceAccess(req, current.workspace_id, res))) return;
 
     await pool.query('DELETE FROM templates WHERE id = $1', [req.params.id]);
     res.json({ message: 'Template deleted successfully' });
@@ -1803,11 +2017,12 @@ app.delete('/api/templates/:id', authenticateToken, async (req: any, res) => {
 // 6. Aggregated Workspace Analytics
 app.get('/api/analytics', authenticateToken, async (req: any, res) => {
   let wsId = req.query.workspaceId as string;
-  if (req.user.email !== 'admin@gmail.com') {
-    if (wsId && wsId !== req.user.workspaceId) {
-      return res.status(403).json({ error: 'Forbidden: Workspace access denied' });
+  if (wsId) {
+    if (!(await enforceWorkspaceAccess(req, wsId, res))) return;
+  } else {
+    if (req.user.email !== 'admin@gmail.com') {
+      wsId = req.user.workspaceId;
     }
-    wsId = req.user.workspaceId;
   }
   if (!wsId) return res.status(400).json({ error: 'WorkspaceId query is required' });
 
