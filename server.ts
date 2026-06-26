@@ -499,12 +499,13 @@ app.post('/api/auth/register', async (req, res) => {
     const workspaceSlug = workspaceName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
     
     await client.query(
-      `INSERT INTO workspaces (id, name, slug, plan, brand_name, primary_color, accent_color, sender_name, sender_email, white_label, footer_text) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      `INSERT INTO workspaces (id, name, slug, created_time, plan, brand_name, primary_color, accent_color, sender_name, sender_email, white_label, footer_text, created_by_email) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
       [
         workspaceId,
         workspaceName,
         workspaceSlug,
+        new Date().toISOString(), // created_time
         'free', // Default registration plan
         workspaceName, // brand_name
         '#0F172A', // default primaryColor
@@ -512,7 +513,8 @@ app.post('/api/auth/register', async (req, res) => {
         `${workspaceName} Dispatch`, // default senderName
         `noreply@glint.io`, // default senderEmail
         false, // default whiteLabel
-        `Secured credential system by ${workspaceName}` // default footerText
+        `Secured credential system by ${workspaceName}`, // default footerText
+        email.toLowerCase().trim() // created_by_email — ties workspace to registering user
       ]
     );
 

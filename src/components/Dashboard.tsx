@@ -140,7 +140,7 @@ export function Dashboard({
   const loadWorkspaces = async () => {
     try {
       const res = await fetch('/api/workspaces', { headers: authHeaders });
-      if (res.status === 401 || res.status === 403) {
+      if (res.status === 401) {
         toast.error('Session expired. Please log in again.');
         onLogout();
         return;
@@ -174,9 +174,14 @@ export function Dashboard({
         fetch(`/api/workspaces/${currentWorkspaceId}`, { headers: authHeaders })
       ]);
 
-      if (programsRes.status === 401 || programsRes.status === 403) {
+      if (programsRes.status === 401) {
         toast.error('Session expired. Please log in again.');
         onLogout();
+        return;
+      }
+      if (programsRes.status === 403) {
+        // Workspace access denied — don't logout, just show error
+        toast.error('Workspace access denied. You may not have access to this workspace.');
         return;
       }
       if (programsRes.ok) setPrograms(await programsRes.json());
@@ -230,11 +235,18 @@ export function Dashboard({
         setShowWorkspaceModal(false);
         setNewWsName('');
         setNewWsBrandName('');
+        setNewWsColor('#1a73e8');
+        setNewWsAccent('#22c55e');
+        toast.success(`Organization "${created.name}" onboarded successfully!`);
         // Switch to new
         onWorkspaceChange(created.id);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.error || 'Failed to create workspace.');
       }
     } catch (err) {
       console.error('Failed to register workspace', err);
+      toast.error('Network error creating workspace. Please try again.');
     }
   };
 
@@ -802,7 +814,16 @@ export function Dashboard({
         .join(', ')
     );
     setShowProgramForm(true);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setSelectedProgramDetails(null);
+    // Scroll the inner content container to top, not the window
+    setTimeout(() => {
+      const contentArea = document.getElementById('dashboard-content-area');
+      if (contentArea) {
+        contentArea.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }, 50);
   };
 
   const [candidateSearchQuery, setCandidateSearchQuery] = useState('');
@@ -1462,7 +1483,7 @@ export function Dashboard({
         </header>
 
         {/* Inner Content Area */}
-        <div className={`flex-1 min-w-0 ${editingTemplate ? 'p-0 overflow-hidden' : 'p-4 sm:p-6 md:p-8 overflow-y-auto'}`}>
+        <div id="dashboard-content-area" className={`flex-1 min-w-0 ${editingTemplate ? 'p-0 overflow-hidden' : 'p-4 sm:p-6 md:p-8 overflow-y-auto'}`}>
           
           {loading ? (
             <div className="h-full flex flex-col items-center justify-center text-slate-500">
@@ -2731,7 +2752,8 @@ export function Dashboard({
                       <h2 className="font-serif text-3xl italic text-slate-950">Email Dispatch Simulator Logs</h2>
                       <p className="text-slate-500 text-sm">Verify email notification delivery events, recipient claim links, and custom SMTP body wrappers.</p>
                     </div>
-                            {/* Table Card */}
+                  </div>
+                  {/* Table Card */}
                   <div className="bg-white border border-[#E9ECEF] rounded-2xl shadow-sm overflow-hidden card-shadow">
                     {emailLogs.length === 0 ? (
                       <div className="p-16 text-center text-slate-400 space-y-4">
@@ -2836,7 +2858,7 @@ export function Dashboard({
                         </div>
                       </>
                     )}
-                  </div>              </div>
+                  </div>
                 </div>
               )}
             </>
