@@ -225,7 +225,7 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
               hidden: { y: 25, opacity: 0 },
               visible: { y: 0, opacity: 1, transition: { type: "spring", stiffness: 80, damping: 14 } }
             }}
-            className="font-serif text-5xl md:text-6.5xl italic text-slate-950 leading-[1.12]"
+            className="font-serif text-4xl sm:text-5xl md:text-6.5xl italic text-slate-950 leading-[1.12]"
           >
             Credential trust is <br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 via-indigo-500 to-indigo-750 font-sans tracking-tight font-extrabold not-italic">
@@ -306,7 +306,7 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
                 : 'rotateY(0deg) rotateX(0deg) scale(1)',
               transition: hoverCard.hover ? 'none' : 'all 0.5s cubic-bezier(0.16, 1, 0.3, 1)'
             }}
-            className="w-full max-w-xl bg-white border border-[#E9ECEF] rounded-2xl p-6 shadow-2xl relative overflow-hidden group cursor-pointer"
+            className="w-full max-w-xl bg-white border border-[#E9ECEF] rounded-2xl p-4 sm:p-6 shadow-2xl relative overflow-hidden group cursor-pointer"
           >
             {/* Top Editor controls on preview */}
             <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-6">
@@ -545,7 +545,7 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
                   </span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 py-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-4">
                   {[
                     { name: 'Tokyo Registry Node', latency: '14ms', icon: Cpu },
                     { name: 'Frankfurt Ledger Node', latency: '28ms', icon: Server },

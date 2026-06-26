@@ -17,9 +17,9 @@ export function HeroScrollDemo() {
             <span className="text-xs font-bold uppercase tracking-widest text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-full border border-indigo-100">
               Interactive Builder Showcase
             </span>
-            <h1 className="text-3xl md:text-5xl font-serif italic text-slate-950 mt-4 leading-tight">
+            <h1 className="text-2xl sm:text-3xl md:text-5xl font-serif italic text-slate-950 mt-4 leading-tight">
               Design and issue with <br />
-              <span className="text-4xl md:text-[5.5rem] font-sans tracking-tight font-extrabold not-italic text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 via-indigo-500 to-indigo-700 leading-none">
+              <span className="text-3xl sm:text-5xl md:text-[5.5rem] font-sans tracking-tight font-extrabold not-italic text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 via-indigo-500 to-indigo-700 leading-none">
                 Fluid Canvas Motion
               </span>
             </h1>

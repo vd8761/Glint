@@ -738,9 +738,17 @@ app.get('/api/admin/certificates', authenticateToken, requireAdmin, async (req, 
 });
 
 // 1. Workspace endpoints
-app.get('/api/workspaces', async (req, res) => {
+app.get('/api/workspaces', authenticateToken, async (req: any, res) => {
   try {
-    const result = await pool.query('SELECT * FROM workspaces');
+    let result;
+    if (req.user && req.user.email === 'admin@gmail.com') {
+      result = await pool.query('SELECT * FROM workspaces');
+    } else if (req.user && req.user.workspaceId) {
+      result = await pool.query('SELECT * FROM workspaces WHERE id = $1', [req.user.workspaceId]);
+    } else {
+      return res.status(403).json({ error: 'Access denied: No workspace associated with user' });
+    }
+
     const workspaces = result.rows.map(row => ({
       id: row.id,
       name: row.name,
@@ -766,8 +774,12 @@ app.get('/api/workspaces', async (req, res) => {
   }
 });
 
-app.get('/api/workspaces/:id', async (req, res) => {
+app.get('/api/workspaces/:id', authenticateToken, async (req: any, res) => {
   try {
+    if (req.user.email !== 'admin@gmail.com' && req.user.workspaceId !== req.params.id) {
+      return res.status(403).json({ error: 'Forbidden: Workspace access denied' });
+    }
+
     const result = await pool.query('SELECT * FROM workspaces WHERE id = $1', [req.params.id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Workspace not found' });
     const row = result.rows[0];
@@ -795,7 +807,7 @@ app.get('/api/workspaces/:id', async (req, res) => {
   }
 });
 
-app.post('/api/workspaces', async (req, res) => {
+app.post('/api/workspaces', authenticateToken, async (req: any, res) => {
   const { name, brandName, primaryColor, accentColor, senderEmail } = req.body;
   if (!name || !brandName) {
     return res.status(400).json({ error: 'Workspace name and brandName are required' });
@@ -836,8 +848,12 @@ app.post('/api/workspaces', async (req, res) => {
   }
 });
 
-app.put('/api/workspaces/:id', authenticateToken, async (req, res) => {
+app.put('/api/workspaces/:id', authenticateToken, async (req: any, res) => {
   try {
+    if (req.user.email !== 'admin@gmail.com' && req.user.workspaceId !== req.params.id) {
+      return res.status(403).json({ error: 'Forbidden: Workspace access denied' });
+    }
+
     const result = await pool.query('SELECT * FROM workspaces WHERE id = $1', [req.params.id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Workspace not found' });
     
@@ -879,9 +895,16 @@ app.put('/api/workspaces/:id', authenticateToken, async (req, res) => {
   }
 });
 
+
 // 2. Program endpoints
-app.get('/api/programs', async (req, res) => {
-  const wsId = req.query.workspaceId as string;
+app.get('/api/programs', authenticateToken, async (req: any, res) => {
+  let wsId = req.query.workspaceId as string;
+  if (req.user.email !== 'admin@gmail.com') {
+    if (wsId && wsId !== req.user.workspaceId) {
+      return res.status(403).json({ error: 'Forbidden: Workspace access denied' });
+    }
+    wsId = req.user.workspaceId;
+  }
   try {
     let query = 'SELECT * FROM programs';
     const params: any[] = [];
@@ -1010,8 +1033,14 @@ app.put('/api/programs/:id', authenticateToken, async (req, res) => {
 });
 
 // 3. Templates endpoints
-app.get('/api/templates', async (req, res) => {
-  const wsId = req.query.workspaceId as string;
+app.get('/api/templates', authenticateToken, async (req: any, res) => {
+  let wsId = req.query.workspaceId as string;
+  if (req.user.email !== 'admin@gmail.com') {
+    if (wsId && wsId !== req.user.workspaceId) {
+      return res.status(403).json({ error: 'Forbidden: Workspace access denied' });
+    }
+    wsId = req.user.workspaceId;
+  }
   try {
     let query = 'SELECT * FROM templates';
     const params: any[] = [];
@@ -1069,10 +1098,14 @@ app.get('/api/templates', async (req, res) => {
   }
 });
 
-app.post('/api/templates', authenticateToken, async (req, res) => {
+app.post('/api/templates', authenticateToken, async (req: any, res) => {
   const { workspaceId, name } = req.body;
   if (!workspaceId || !name) {
     return res.status(400).json({ error: 'workspaceId and name are required' });
+  }
+
+  if (req.user.email !== 'admin@gmail.com' && req.user.workspaceId !== workspaceId) {
+    return res.status(403).json({ error: 'Forbidden: Workspace access denied' });
   }
 
   const id = `temp-${Math.random().toString(36).substring(2, 9)}`;
@@ -1125,12 +1158,15 @@ app.post('/api/templates', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/templates/:id', authenticateToken, async (req, res) => {
+app.put('/api/templates/:id', authenticateToken, async (req: any, res) => {
   try {
     const result = await pool.query('SELECT * FROM templates WHERE id = $1', [req.params.id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Template not found' });
     
     const current = result.rows[0];
+    if (req.user.email !== 'admin@gmail.com' && req.user.workspaceId !== current.workspace_id) {
+      return res.status(403).json({ error: 'Forbidden: Workspace access denied' });
+    }
     
     // Map database snake_case keys to camelCase keys for merge safety
     const currentCamel = {
@@ -1623,8 +1659,14 @@ app.post('/api/certificates/:id/verify', async (req, res) => {
 });
 
 // List certificates with workspace filtering
-app.get('/api/certificates', async (req, res) => {
-  const wsId = req.query.workspaceId as string;
+app.get('/api/certificates', authenticateToken, async (req: any, res) => {
+  let wsId = req.query.workspaceId as string;
+  if (req.user.email !== 'admin@gmail.com') {
+    if (wsId && wsId !== req.user.workspaceId) {
+      return res.status(403).json({ error: 'Forbidden: Workspace access denied' });
+    }
+    wsId = req.user.workspaceId;
+  }
   const programId = req.query.programId as string;
   
   try {
@@ -1673,8 +1715,14 @@ app.get('/api/certificates', async (req, res) => {
 });
 
 // Get email dispatch logs for a workspace
-app.get('/api/email-logs', async (req, res) => {
-  const wsId = req.query.workspaceId as string;
+app.get('/api/email-logs', authenticateToken, async (req: any, res) => {
+  let wsId = req.query.workspaceId as string;
+  if (req.user.email !== 'admin@gmail.com') {
+    if (wsId && wsId !== req.user.workspaceId) {
+      return res.status(403).json({ error: 'Forbidden: Workspace access denied' });
+    }
+    wsId = req.user.workspaceId;
+  }
   if (!wsId) return res.status(400).json({ error: 'WorkspaceId query is required' });
   try {
     const result = await pool.query(
@@ -1699,7 +1747,7 @@ app.get('/api/email-logs', async (req, res) => {
 });
 
 // Delete program
-app.delete('/api/programs/:id', authenticateToken, async (req, res) => {
+app.delete('/api/programs/:id', authenticateToken, async (req: any, res) => {
   let client;
   try {
     client = await pool.connect();
@@ -1709,6 +1757,11 @@ app.delete('/api/programs/:id', authenticateToken, async (req, res) => {
     if (indexResult.rows.length === 0) {
       await safeRollback(client);
       return res.status(404).json({ error: 'Program not found' });
+    }
+    const current = indexResult.rows[0];
+    if (req.user.email !== 'admin@gmail.com' && req.user.workspaceId !== current.workspace_id) {
+      await safeRollback(client);
+      return res.status(403).json({ error: 'Forbidden: Workspace access denied' });
     }
 
     // Deleting the program will trigger CASCADE deletes on certificates and email_logs
@@ -1728,12 +1781,18 @@ app.delete('/api/programs/:id', authenticateToken, async (req, res) => {
 });
 
 // Delete template
-app.delete('/api/templates/:id', authenticateToken, async (req, res) => {
+app.delete('/api/templates/:id', authenticateToken, async (req: any, res) => {
   try {
-    const result = await pool.query('DELETE FROM templates WHERE id = $1', [req.params.id]);
-    if (result.rowCount === 0) {
+    const checkResult = await pool.query('SELECT * FROM templates WHERE id = $1', [req.params.id]);
+    if (checkResult.rows.length === 0) {
       return res.status(404).json({ error: 'Template not found' });
     }
+    const current = checkResult.rows[0];
+    if (req.user.email !== 'admin@gmail.com' && req.user.workspaceId !== current.workspace_id) {
+      return res.status(403).json({ error: 'Forbidden: Workspace access denied' });
+    }
+
+    await pool.query('DELETE FROM templates WHERE id = $1', [req.params.id]);
     res.json({ message: 'Template deleted successfully' });
   } catch (err: any) {
     logger.error('Error deleting template', err);
@@ -1742,8 +1801,14 @@ app.delete('/api/templates/:id', authenticateToken, async (req, res) => {
 });
 
 // 6. Aggregated Workspace Analytics
-app.get('/api/analytics', async (req, res) => {
-  const wsId = req.query.workspaceId as string;
+app.get('/api/analytics', authenticateToken, async (req: any, res) => {
+  let wsId = req.query.workspaceId as string;
+  if (req.user.email !== 'admin@gmail.com') {
+    if (wsId && wsId !== req.user.workspaceId) {
+      return res.status(403).json({ error: 'Forbidden: Workspace access denied' });
+    }
+    wsId = req.user.workspaceId;
+  }
   if (!wsId) return res.status(400).json({ error: 'WorkspaceId query is required' });
 
   try {

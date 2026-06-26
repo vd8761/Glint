@@ -389,7 +389,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
       </header>
 
       {/* Main layout container (Grid) */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-16 pt-6 sm:pt-10 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-10 print:block print:p-0 print:m-0 print:max-w-none">
+      <div className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-16 pt-4 sm:pt-10 grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-10 print:block print:p-0 print:m-0 print:max-w-none">
         
         {/* Left Side: Proof verification details & high trust signals */}
         <div className="lg:col-span-4 space-y-6 lg:space-y-8 order-2 lg:order-1 print:hidden">
@@ -561,7 +561,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
           <div className="space-y-3 print:space-y-0">
             <p className="text-[10px] uppercase tracking-widest text-[#9CA3AF] font-bold print:hidden">Authorized Proof Credential (HQ Resolution)</p>
             
-            <div className="bg-white border border-[#E9ECEF] rounded-2xl p-2.5 sm:p-6 md:p-10 shadow-2xl overflow-hidden print:p-0 print:border-none print:shadow-none printable-certificate-outer">
+            <div className="bg-white border border-[#E9ECEF] rounded-2xl p-1 sm:p-6 md:p-10 shadow-2xl overflow-hidden print:p-0 print:border-none print:shadow-none printable-certificate-outer">
               <div 
                 ref={printRef}
                 style={{
