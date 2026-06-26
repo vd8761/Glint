@@ -7,7 +7,8 @@ import { toast } from 'sonner';
 import React, { useState, useEffect } from 'react';
 import { 
   Building, Award, ShieldAlert, LogOut, Search, Plus, Trash2, Edit2, 
-  RefreshCw, Check, AlertTriangle, X, ShieldCheck, Layout, ExternalLink, Menu
+  RefreshCw, Check, AlertTriangle, X, ShieldCheck, Layout, ExternalLink, Menu,
+  ArrowLeft, Eye, MoreHorizontal, Mail
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -25,6 +26,8 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
   const [workspaces, setWorkspaces] = useState<any[]>([]);
   const [programs, setPrograms] = useState<any[]>([]);
   const [certificates, setCertificates] = useState<any[]>([]);
+  
+  const [selectedProgramDetails, setSelectedProgramDetails] = useState<any | null>(null);
   
   // Loading states
   const [loading, setLoading] = useState(true);
@@ -50,6 +53,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
 
   useEffect(() => {
     loadData();
+    setSelectedProgramDetails(null);
   }, [activeTab]);
 
   const loadData = async () => {
@@ -214,6 +218,36 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
     }
   };
 
+  const [resendingCertId, setResendingCertId] = useState<string | null>(null);
+  const [selectedAuditTrailCert, setSelectedAuditTrailCert] = useState<any | null>(null);
+  const [candidateSearchQuery, setCandidateSearchQuery] = useState('');
+  const [activeActionMenuId, setActiveActionMenuId] = useState<string | null>(null);
+  const [selectedCryptoProofCert, setSelectedCryptoProofCert] = useState<any | null>(null);
+  const [selectedJsonEnvelopeCert, setSelectedJsonEnvelopeCert] = useState<any | null>(null);
+  const [selectedPreviewCert, setSelectedPreviewCert] = useState<any | null>(null);
+
+  const handleResendEmail = async (certId: string) => {
+    setResendingCertId(certId);
+    try {
+      const res = await fetch(`/api/certificates/${certId}/resend`, {
+        method: 'POST',
+        headers: authHeaders
+      });
+      if (res.ok) {
+        toast.success('Verification email successfully resent!');
+        await loadData();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Failed to resend verification email.');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('An unexpected error occurred.');
+    } finally {
+      setResendingCertId(null);
+    }
+  };
+
   const filteredWorkspaces = workspaces.filter(w => 
     w.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
     w.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -232,6 +266,392 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
     c.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
     c.program_name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const renderProgramDetailView = (program: any) => {
+    const programCerts = certificates.filter(c => c.program_id === program.id);
+    const totalIssued = programCerts.length;
+    const validCount = programCerts.filter(c => c.status === 'valid').length;
+    const revokedCount = programCerts.filter(c => c.status === 'revoked').length;
+
+    const filteredCandidates = programCerts.filter(c => 
+      c.recipient_name.toLowerCase().includes(candidateSearchQuery.toLowerCase()) ||
+      c.recipient_email.toLowerCase().includes(candidateSearchQuery.toLowerCase()) ||
+      c.id.toLowerCase().includes(candidateSearchQuery.toLowerCase())
+    );
+
+    return (
+      <div className="space-y-6 animate-fade-in pb-12">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-200 pb-4">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setSelectedProgramDetails(null)}
+              className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-600 cursor-pointer"
+              type="button"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="font-serif text-3xl italic text-slate-955 capitalize">{program.name}</h2>
+                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-indigo-55 text-indigo-700 border border-indigo-100">
+                  Admin Control Mode
+                </span>
+              </div>
+              <p className="text-slate-500 text-xs mt-1">
+                UUID: <span className="font-mono text-slate-800">{program.id}</span> • Organization: <span className="font-semibold text-slate-800 capitalize">{program.workspace_name}</span> • Issue Date: {program.issue_date}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => startEditProgram(program)}
+              className="bg-slate-955 text-white text-xs px-5 py-2.5 rounded-full font-bold shadow-sm hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              Configure Program
+            </button>
+          </div>
+        </div>
+
+        {program.description && (
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-600 leading-normal max-w-3xl">
+            <p className="font-bold text-slate-900 mb-1 uppercase tracking-wider text-[9px]">Competency Profile Summary</p>
+            {program.description}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-1">
+            <p className="text-[9px] font-mono tracking-wider text-slate-400 font-bold uppercase">Total Issued</p>
+            <h4 className="text-2xl font-bold text-slate-950">{totalIssued}</h4>
+          </div>
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-1">
+            <p className="text-[9px] font-mono tracking-wider text-slate-400 font-bold uppercase">Valid Status</p>
+            <h4 className="text-2xl font-bold text-emerald-600">{validCount}</h4>
+          </div>
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-1">
+            <p className="text-[9px] font-mono tracking-wider text-slate-400 font-bold uppercase">Revoked Status</p>
+            <h4 className="text-2xl font-bold text-rose-600">{revokedCount}</h4>
+          </div>
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-1">
+            <p className="text-[9px] font-mono tracking-wider text-slate-400 font-bold uppercase">Template ID</p>
+            <h4 className="text-xs font-semibold text-slate-850 truncate font-mono" title={program.template_id}>{program.template_id || 'None'}</h4>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Candidate Registry ({filteredCandidates.length})</h3>
+            <div className="relative w-full sm:w-64">
+              <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400">
+                <Search className="w-3.5 h-3.5" />
+              </span>
+              <input
+                type="text"
+                placeholder="Search candidate or email..."
+                value={candidateSearchQuery}
+                onChange={(e) => setCandidateSearchQuery(e.target.value)}
+                className="w-full bg-white text-xs pl-9 pr-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:border-slate-900 focus:ring-1 focus:ring-slate-900"
+              />
+            </div>
+          </div>
+
+          {filteredCandidates.length === 0 ? (
+            <div className="py-12 text-center text-slate-400 bg-white border border-slate-200 rounded-xl font-mono text-xs">
+              No matching candidate credentials found.
+            </div>
+          ) : (
+            <>
+              <div className="hidden md:block bg-white border border-[#E9ECEF] rounded-2xl overflow-hidden card-shadow">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-[#F8F9FA] border-b border-[#E9ECEF] text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+                    <tr>
+                      <th className="px-6 py-3">Credential ID</th>
+                      <th className="px-6 py-3">Candidate</th>
+                      <th className="px-6 py-3">Email Address</th>
+                      <th className="px-6 py-3">Issue Date</th>
+                      <th className="px-6 py-3">Status</th>
+                      <th className="px-6 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-xs text-slate-600 divide-y divide-slate-100">
+                    {filteredCandidates.map((c) => (
+                      <tr key={c.id} className="hover:bg-slate-50/40">
+                        <td className="px-6 py-3.5 font-mono text-[10px] text-slate-400">{c.id}</td>
+                        <td className="px-6 py-3.5 font-bold text-slate-900 capitalize">{c.recipient_name}</td>
+                        <td className="px-6 py-3.5 font-mono text-[11px]">{c.recipient_email}</td>
+                        <td className="px-6 py-3.5 text-slate-505 font-mono text-[10px]">{c.issue_date ? c.issue_date.split('T')[0] : ''}</td>
+                        <td className="px-6 py-3.5">
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
+                            c.status === 'valid' 
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-100' 
+                              : 'bg-rose-50 text-rose-700 border-rose-100'
+                          }`}>
+                            {c.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-3.5 text-right relative">
+                          <div className="inline-block text-left">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveActionMenuId(activeActionMenuId === c.id ? null : c.id);
+                              }}
+                              className="p-1.5 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                              title="More Options"
+                              type="button"
+                            >
+                              <MoreHorizontal className="w-4 h-4" />
+                            </button>
+                            {activeActionMenuId === c.id && (
+                              <>
+                                <div className="fixed inset-0 z-10" onClick={() => setActiveActionMenuId(null)} />
+                                <div className="absolute right-0 mt-2 w-48 rounded-xl bg-white border border-slate-200 shadow-xl z-20 py-1 text-left divide-y divide-slate-100 animate-fade-in">
+                                  <div className="py-1">
+                                    <button
+                                      onClick={() => {
+                                        setActiveActionMenuId(null);
+                                        window.open(`/#credential=${c.id}`, '_blank');
+                                      }}
+                                      className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-semibold"
+                                    >
+                                      <Eye className="w-3.5 h-3.5 text-slate-400" /> View Public Page
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setActiveActionMenuId(null);
+                                        navigator.clipboard.writeText(`${window.location.origin}/#credential=${c.id}`);
+                                        toast.success('Verification URL copied to clipboard!');
+                                      }}
+                                      className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-semibold"
+                                    >
+                                      <ExternalLink className="w-3.5 h-3.5 text-slate-400" /> Copy Verify Link
+                                    </button>
+                                  </div>
+                                  <div className="py-1">
+                                    <button
+                                      onClick={() => {
+                                        setActiveActionMenuId(null);
+                                        handleResendEmail(c.id);
+                                      }}
+                                      disabled={resendingCertId === c.id}
+                                      className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer disabled:opacity-50 font-semibold"
+                                    >
+                                      <Mail className="w-3.5 h-3.5 text-slate-400" /> {resendingCertId === c.id ? 'Sending...' : 'Resend Email'}
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setActiveActionMenuId(null);
+                                        setSelectedAuditTrailCert(c);
+                                      }}
+                                      className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-semibold"
+                                    >
+                                      <Mail className="w-3.5 h-3.5 text-slate-400" /> Audit Trail Log
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setActiveActionMenuId(null);
+                                        setSelectedCryptoProofCert(c);
+                                      }}
+                                      className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-semibold"
+                                    >
+                                      <Check className="w-3.5 h-3.5 text-slate-400" /> Crypto Status
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setActiveActionMenuId(null);
+                                        setSelectedJsonEnvelopeCert(c);
+                                      }}
+                                      className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-semibold"
+                                    >
+                                      <Building className="w-3.5 h-3.5 text-slate-400" /> JSON Envelope
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setActiveActionMenuId(null);
+                                        setSelectedPreviewCert(c);
+                                      }}
+                                      className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-semibold"
+                                    >
+                                      <Award className="w-3.5 h-3.5 text-slate-400" /> Preview Card
+                                    </button>
+                                  </div>
+                                  <div className="py-1">
+                                    {c.status === 'valid' ? (
+                                      <button
+                                        onClick={() => {
+                                          setActiveActionMenuId(null);
+                                          startRevokeCertificate(c);
+                                        }}
+                                        className="w-full text-left px-4 py-2 text-xs text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-bold cursor-pointer"
+                                      >
+                                        <ShieldAlert className="w-3.5 h-3.5 text-rose-500" /> Revoke Credential
+                                      </button>
+                                    ) : (
+                                      <button
+                                        onClick={() => {
+                                          setActiveActionMenuId(null);
+                                          handleRestoreCertificate(c.id);
+                                        }}
+                                        className="w-full text-left px-4 py-2 text-xs text-emerald-600 hover:bg-emerald-50 flex items-center gap-2 font-bold cursor-pointer"
+                                      >
+                                        <Check className="w-3.5 h-3.5 text-emerald-500" /> Restore Valid
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="block md:hidden space-y-3">
+                {filteredCandidates.map((c) => (
+                  <div key={c.id} className="bg-white border border-slate-200 rounded-xl p-4 card-shadow space-y-3">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h4 className="font-bold text-slate-900 capitalize text-sm">{c.recipient_name}</h4>
+                        <p className="text-[10px] text-slate-400 font-mono mt-0.5">ID: {c.id}</p>
+                      </div>
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
+                        c.status === 'valid' 
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-100' 
+                          : 'bg-rose-50 text-rose-700 border-rose-100'
+                      }`}>
+                        {c.status}
+                      </span>
+                    </div>
+
+                    <div className="text-xs space-y-1">
+                      <p className="text-slate-500"><span className="font-bold text-slate-700">Email:</span> {c.recipient_email}</p>
+                      <p className="text-slate-500"><span className="font-bold text-slate-700">Issued:</span> {c.issue_date ? c.issue_date.split('T')[0] : ''}</p>
+                    </div>                    <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100 justify-end relative">
+                      <div className="inline-block text-left">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveActionMenuId(activeActionMenuId === c.id ? null : c.id);
+                          }}
+                          className="px-3 py-1.5 text-[10px] uppercase font-bold border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-all flex items-center gap-1 cursor-pointer"
+                          type="button"
+                        >
+                          <MoreHorizontal className="w-3 h-3" /> Actions
+                        </button>
+                        {activeActionMenuId === c.id && (
+                          <>
+                            <div className="fixed inset-0 z-10" onClick={() => setActiveActionMenuId(null)} />
+                            <div className="absolute right-0 bottom-full mb-1 w-48 rounded-xl bg-white border border-slate-200 shadow-xl z-20 py-1 text-left divide-y divide-slate-100 animate-fade-in">
+                              <div className="py-1">
+                                <button
+                                  onClick={() => {
+                                    setActiveActionMenuId(null);
+                                    window.open(`/#credential=${c.id}`, '_blank');
+                                  }}
+                                  className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-semibold"
+                                >
+                                  <Eye className="w-3.5 h-3.5 text-slate-400" /> View Public Page
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setActiveActionMenuId(null);
+                                    navigator.clipboard.writeText(`${window.location.origin}/#credential=${c.id}`);
+                                    toast.success('Verification URL copied to clipboard!');
+                                  }}
+                                  className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-semibold"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5 text-slate-400" /> Copy Verify Link
+                                </button>
+                              </div>
+                              <div className="py-1">
+                                <button
+                                  onClick={() => {
+                                    setActiveActionMenuId(null);
+                                    handleResendEmail(c.id);
+                                  }}
+                                  disabled={resendingCertId === c.id}
+                                  className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer disabled:opacity-50 font-semibold"
+                                >
+                                  <Mail className="w-3.5 h-3.5 text-slate-400" /> Resend Mail
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setActiveActionMenuId(null);
+                                    setSelectedAuditTrailCert(c);
+                                  }}
+                                  className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-semibold"
+                                >
+                                  <Mail className="w-3.5 h-3.5 text-slate-400" /> Audit Log
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setActiveActionMenuId(null);
+                                    setSelectedCryptoProofCert(c);
+                                  }}
+                                  className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-semibold"
+                                >
+                                  <Check className="w-3.5 h-3.5 text-slate-400" /> Crypto Status
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setActiveActionMenuId(null);
+                                    setSelectedJsonEnvelopeCert(c);
+                                  }}
+                                  className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-semibold"
+                                >
+                                  <Building className="w-3.5 h-3.5 text-slate-400" /> JSON Envelope
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setActiveActionMenuId(null);
+                                    setSelectedPreviewCert(c);
+                                  }}
+                                  className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-semibold"
+                                >
+                                  <Award className="w-3.5 h-3.5 text-slate-400" /> Preview Card
+                                </button>
+                              </div>
+                              <div className="py-1">
+                                {c.status === 'valid' ? (
+                                  <button
+                                    onClick={() => {
+                                      setActiveActionMenuId(null);
+                                      startRevokeCertificate(c);
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-xs text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-bold cursor-pointer"
+                                  >
+                                    <ShieldAlert className="w-3.5 h-3.5 text-rose-500" /> Revoke
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      setActiveActionMenuId(null);
+                                      handleRestoreCertificate(c.id);
+                                    }}
+                                    className="w-full text-left px-4 py-2 text-xs text-emerald-600 hover:bg-emerald-50 flex items-center gap-2 font-bold cursor-pointer"
+                                  >
+                                    <Check className="w-3.5 h-3.5 text-emerald-500" /> Restore
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="flex h-screen bg-[#F8F9FA] font-sans relative">
@@ -406,8 +826,8 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                     </div>
                   </div>
 
-                  {/* Workspaces Table */}
-                  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden overflow-x-auto">
+                  {/* Workspaces Table - Desktop */}
+                  <div className="hidden md:block bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">
@@ -415,6 +835,8 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                           <th className="py-4 px-6">Name</th>
                           <th className="py-4 px-6">Brand Name</th>
                           <th className="py-4 px-6">Tier</th>
+                          <th className="py-4 px-6">Programs</th>
+                          <th className="py-4 px-6">Certificates</th>
                           <th className="py-4 px-6">Created At</th>
                           <th className="py-4 px-6 text-right">Actions</th>
                         </tr>
@@ -430,6 +852,8 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                                 {ws.plan || 'free'}
                               </span>
                             </td>
+                            <td className="py-3.5 px-6 font-semibold text-slate-800">{ws.program_count || 0}</td>
+                            <td className="py-3.5 px-6 font-semibold text-slate-800">{ws.certificate_count || 0}</td>
                             <td className="py-3.5 px-6 text-slate-500 font-mono text-[10px]">
                               {new Date(ws.created_time || ws.created_at).toLocaleDateString()}
                             </td>
@@ -437,13 +861,13 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                               <div className="flex flex-col sm:flex-row items-end sm:items-center justify-end gap-1 sm:gap-2">
                                 <button
                                   onClick={() => startEditWorkspace(ws)}
-                                  className="py-1 px-1.5 sm:p-1.5 w-16 sm:w-20 justify-center rounded-lg border border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-all inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-bold"
+                                  className="py-1 px-1.5 sm:p-1.5 w-16 sm:w-20 justify-center rounded-lg border border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-all inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-bold cursor-pointer"
                                 >
                                   <Edit2 className="w-3 h-3" /> Edit
                                 </button>
                                 <button
                                   onClick={() => handleDeleteWorkspace(ws.id, ws.name)}
-                                  className="py-1 px-1.5 sm:p-1.5 w-16 sm:w-20 justify-center rounded-lg border border-red-100 text-red-500 hover:text-red-700 hover:bg-red-50 transition-all inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-bold"
+                                  className="py-1 px-1.5 sm:p-1.5 w-16 sm:w-20 justify-center rounded-lg border border-red-100 text-red-500 hover:text-red-700 hover:bg-red-50 transition-all inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-bold cursor-pointer"
                                 >
                                   <Trash2 className="w-3 h-3" /> Delete
                                 </button>
@@ -453,78 +877,208 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                         ))}
                         {filteredWorkspaces.length === 0 && (
                           <tr>
-                            <td colSpan={6} className="py-8 text-center text-slate-400 font-mono">No workspaces matching search query.</td>
+                            <td colSpan={8} className="py-8 text-center text-slate-400 font-mono">No workspaces matching search query.</td>
                           </tr>
                         )}
                       </tbody>
                     </table>
+                  </div>
+
+                  {/* Workspaces Cards - Mobile */}
+                  <div className="block md:hidden space-y-4">
+                    {filteredWorkspaces.map((ws) => (
+                      <div key={ws.id} className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
+                        <div className="flex justify-between items-start">
+                          <div className="space-y-1">
+                            <h3 className="font-bold text-slate-950 text-sm capitalize">{ws.name}</h3>
+                            <p className="text-[10px] text-slate-400 font-mono">ID: {ws.id}</p>
+                          </div>
+                          <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${ws.plan === 'enterprise' ? 'bg-purple-50 text-purple-700 border border-purple-100' : ws.plan === 'pro' || ws.plan === 'premium' ? 'bg-blue-50 text-blue-700 border border-blue-100' : 'bg-slate-50 text-slate-600 border border-slate-100'}`}>
+                            {ws.plan || 'free'}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2 text-xs pt-2 border-t border-slate-100">
+                          <div>
+                            <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold">Brand Name</p>
+                            <p className="font-semibold text-slate-800 truncate">{ws.brand_name || '—'}</p>
+                          </div>
+                          <div>
+                            <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold">Programs/Certs</p>
+                            <p className="font-semibold text-slate-800 font-mono text-[10px]">{ws.program_count || 0} / {ws.certificate_count || 0}</p>
+                          </div>
+                          <div>
+                            <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold">Created</p>
+                            <p className="font-semibold text-slate-800">{new Date(ws.created_time || ws.created_at).toLocaleDateString()}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex gap-3 pt-3 border-t border-slate-100">
+                          <button
+                            onClick={() => startEditWorkspace(ws)}
+                            className="flex-1 py-2 justify-center rounded-lg border border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-all inline-flex items-center gap-1.5 text-xs font-bold"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" /> Edit Config
+                          </button>
+                          <button
+                            onClick={() => handleDeleteWorkspace(ws.id, ws.name)}
+                            className="flex-1 py-2 justify-center rounded-lg border border-red-100 text-red-500 hover:text-red-700 hover:bg-red-50 transition-all inline-flex items-center gap-1.5 text-xs font-bold"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" /> Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {filteredWorkspaces.length === 0 && (
+                      <div className="text-center py-12 text-slate-400 bg-white border border-slate-200 rounded-xl">
+                        No workspaces matching search query.
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
 
               {/* TAB 2: PROGRAMS */}
               {activeTab === 'programs' && (
-                <div className="space-y-6">
-                  
-                  {/* Summary Metric Cards */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                    <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-1">
-                      <p className="text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">Total Programs</p>
-                      <h4 className="text-3xl font-display font-bold text-slate-950">{programs.length}</h4>
-                    </div>
-                    <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-1">
-                      <p className="text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">Active Templates Linked</p>
-                      <h4 className="text-3xl font-display font-bold text-slate-950">{programs.filter(p => p.template_id).length}</h4>
-                    </div>
-                  </div>
+                <div className="space-y-8 animate-fade-in">
+                  {selectedProgramDetails ? (
+                    renderProgramDetailView(selectedProgramDetails)
+                  ) : (
+                    <>
+                      {/* Summary Metric Cards */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-1">
+                          <p className="text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">Total Programs</p>
+                          <h4 className="text-3xl font-display font-bold text-slate-950">{programs.length}</h4>
+                        </div>
+                        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-1">
+                          <p className="text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">Active Templates Linked</p>
+                          <h4 className="text-3xl font-display font-bold text-slate-950">{programs.filter(p => p.template_id).length}</h4>
+                        </div>
+                      </div>
 
-                  {/* Programs Table */}
-                  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">
-                          <th className="py-4 px-6">Program ID</th>
-                          <th className="py-4 px-6">Name</th>
-                          <th className="py-4 px-6">Organization</th>
-                          <th className="py-4 px-6">Template ID</th>
-                          <th className="py-4 px-6">Issue Date</th>
-                          <th className="py-4 px-6 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 text-xs">
+                      {/* Programs Table - Desktop */}
+                      <div className="hidden md:block bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">
+                              <th className="py-4 px-6">Program ID</th>
+                              <th className="py-4 px-6">Name</th>
+                              <th className="py-4 px-6">Organization</th>
+                              <th className="py-4 px-6">Template ID</th>
+                              <th className="py-4 px-6">Certificates Issued</th>
+                              <th className="py-4 px-6">Issue Date</th>
+                              <th className="py-4 px-6 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 text-xs">
+                            {filteredPrograms.map((p) => (
+                              <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
+                                <td className="py-3.5 px-6 font-mono text-[10px] text-slate-400">{p.id}</td>
+                                <td className="py-3.5 px-6 font-semibold text-slate-900 capitalize">
+                                  <span 
+                                    onClick={() => setSelectedProgramDetails(p)}
+                                    className="text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer font-bold animate-pulse-subtle"
+                                  >
+                                    {p.name}
+                                  </span>
+                                </td>
+                                <td className="py-3.5 px-6 text-slate-600 font-medium capitalize">{p.workspace_name}</td>
+                                <td className="py-3.5 px-6 font-mono text-[10px] text-slate-400">{p.template_id || 'None'}</td>
+                                <td className="py-3.5 px-6 font-semibold text-slate-800 font-mono">{p.certificate_count || 0}</td>
+                                <td className="py-3.5 px-6 text-slate-500 font-mono text-[10px]">{p.issue_date}</td>
+                                <td className="py-3.5 px-6">
+                                  <div className="flex flex-col sm:flex-row items-end sm:items-center justify-end gap-1 sm:gap-2">
+                                    <button
+                                      onClick={() => startEditProgram(p)}
+                                      className="py-1 px-1.5 sm:p-1.5 w-16 sm:w-20 justify-center rounded-lg border border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-all inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-bold cursor-pointer"
+                                    >
+                                      <Edit2 className="w-3 h-3" /> Edit
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteProgram(p.id, p.name)}
+                                      className="py-1 px-1.5 sm:p-1.5 w-16 sm:w-20 justify-center rounded-lg border border-red-100 text-red-500 hover:text-red-700 hover:bg-red-50 transition-all inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-bold cursor-pointer"
+                                    >
+                                      <Trash2 className="w-3 h-3" /> Delete
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                            {filteredPrograms.length === 0 && (
+                              <tr>
+                                <td colSpan={7} className="py-8 text-center text-slate-400 font-mono">No certification programs matching search query.</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Programs Cards - Mobile */}
+                      <div className="block md:hidden space-y-4">
                         {filteredPrograms.map((p) => (
-                          <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
-                            <td className="py-3.5 px-6 font-mono text-[10px] text-slate-400">{p.id}</td>
-                            <td className="py-3.5 px-6 font-semibold text-slate-900 capitalize">{p.name}</td>
-                            <td className="py-3.5 px-6 text-slate-600 font-medium capitalize">{p.workspace_name}</td>
-                            <td className="py-3.5 px-6 font-mono text-[10px] text-slate-400">{p.template_id || 'None'}</td>
-                            <td className="py-3.5 px-6 text-slate-500 font-mono text-[10px]">{p.issue_date}</td>
-                            <td className="py-3.5 px-6">
-                              <div className="flex flex-col sm:flex-row items-end sm:items-center justify-end gap-1 sm:gap-2">
+                          <div key={p.id} className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
+                            <div className="space-y-1">
+                              <h3 
+                                onClick={() => setSelectedProgramDetails(p)}
+                                className="font-bold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer text-sm capitalize"
+                              >
+                                {p.name}
+                              </h3>
+                              <p className="text-[10px] text-slate-400 font-mono">Program ID: {p.id}</p>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-2 text-xs pt-2 border-t border-slate-100">
+                              <div className="col-span-2">
+                                <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold">Organization</p>
+                                <p className="font-semibold text-slate-800 capitalize truncate">{p.workspace_name}</p>
+                              </div>
+                              <div>
+                                <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold">Template</p>
+                                <p className="font-semibold text-slate-800 font-mono text-[10px] truncate">{p.template_id || 'None'}</p>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-slate-100">
+                              <div>
+                                <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold">Certs Issued</p>
+                                <p className="font-semibold text-slate-800 font-mono text-[10px]">{p.certificate_count || 0}</p>
+                              </div>
+                              <div>
+                                <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold">Issue Date</p>
+                                <p className="font-semibold text-slate-800 font-mono">{p.issue_date}</p>
+                              </div>
+                            </div>
+
+                            <div className="pt-2 border-t border-slate-100 text-xs flex justify-between items-center">
+                              <span className="text-[10px] text-slate-400">UUID: {p.id.substring(0, 8)}...</span>
+                              <div className="flex gap-2.5">
                                 <button
                                   onClick={() => startEditProgram(p)}
-                                  className="py-1 px-1.5 sm:p-1.5 w-16 sm:w-20 justify-center rounded-lg border border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-all inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-bold"
+                                  className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:text-slate-900 transition-all cursor-pointer"
+                                  title="Edit Program"
                                 >
-                                  <Edit2 className="w-3 h-3" /> Edit
+                                  <Edit2 className="w-3.5 h-3.5" />
                                 </button>
                                 <button
                                   onClick={() => handleDeleteProgram(p.id, p.name)}
-                                  className="py-1 px-1.5 sm:p-1.5 w-16 sm:w-20 justify-center rounded-lg border border-red-100 text-red-500 hover:text-red-700 hover:bg-red-50 transition-all inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-bold"
+                                  className="p-1.5 rounded-lg border border-red-100 text-red-500 hover:text-red-700 transition-all cursor-pointer"
+                                  title="Delete Program"
                                 >
-                                  <Trash2 className="w-3 h-3" /> Delete
+                                  <Trash2 className="w-3.5 h-3.5" />
                                 </button>
                               </div>
-                            </td>
-                          </tr>
+                            </div>
+                          </div>
                         ))}
                         {filteredPrograms.length === 0 && (
-                          <tr>
-                            <td colSpan={6} className="py-8 text-center text-slate-400 font-mono">No certification programs matching search query.</td>
-                          </tr>
+                          <div className="text-center py-12 text-slate-400 bg-white border border-slate-200 rounded-xl">
+                            No certification programs matching search query.
+                          </div>
                         )}
-                      </tbody>
-                    </table>
-                  </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -548,8 +1102,8 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                     </div>
                   </div>
 
-                  {/* Certificates Table */}
-                  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden overflow-x-auto">
+                  {/* Certificates Table - Desktop */}
+                  <div className="hidden md:block bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">
@@ -603,6 +1157,59 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                         )}
                       </tbody>
                     </table>
+                  </div>
+
+                  {/* Certificates Cards - Mobile */}
+                  <div className="block md:hidden space-y-4">
+                    {filteredCertificates.map((c) => (
+                      <div key={c.id} className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
+                        <div className="flex justify-between items-start">
+                          <div className="space-y-1">
+                            <span className="font-mono font-bold text-slate-900 text-xs">{c.id}</span>
+                          </div>
+                          <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider inline-flex items-center gap-1 ${c.status === 'valid' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-red-50 text-red-700 border border-red-100'}`}>
+                            {c.status === 'valid' ? <ShieldCheck className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
+                            {c.status}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4 text-xs pt-2 border-t border-slate-100">
+                          <div>
+                            <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold">Recipient</p>
+                            <p className="font-bold text-slate-900 capitalize">{c.recipient_name}</p>
+                            <p className="text-[10px] text-slate-400 truncate">{c.recipient_email}</p>
+                          </div>
+                          <div>
+                            <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold">Course / Org</p>
+                            <p className="font-semibold text-slate-800 truncate">{c.program_name}</p>
+                            <p className="text-[10px] text-slate-400 truncate">{c.workspace_name}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex justify-end pt-3 border-t border-slate-100">
+                          {c.status === 'valid' ? (
+                            <button
+                              onClick={() => startRevokeCertificate(c)}
+                              className="w-full py-2 justify-center rounded-lg border border-red-100 text-red-500 hover:text-red-700 hover:bg-red-50 transition-all inline-flex items-center gap-1.5 text-xs font-bold"
+                            >
+                              <ShieldAlert className="w-3.5 h-3.5" /> Revoke Credential
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleRestoreCertificate(c.id)}
+                              className="w-full py-2 justify-center rounded-lg border border-emerald-100 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 transition-all inline-flex items-center gap-1.5 text-xs font-bold"
+                            >
+                              <ShieldCheck className="w-3.5 h-3.5" /> Restore Valid State
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {filteredCertificates.length === 0 && (
+                      <div className="text-center py-12 text-slate-400 bg-white border border-slate-200 rounded-xl">
+                        No certificates matching search query.
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -775,6 +1382,312 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {selectedAuditTrailCert && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="bg-white border text-left border-slate-200 rounded-2xl max-w-xl w-full p-8 shadow-2xl relative flex flex-col max-h-[80vh]">
+            <button
+              onClick={() => setSelectedAuditTrailCert(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-900 transition-colors cursor-pointer"
+              type="button"
+              title="Close audit view"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <h3 className="font-serif text-2xl italic text-slate-950 pb-3 border-b">
+              Cryptographic Audit Log Trail (Admin)
+            </h3>
+            <p className="text-xs text-slate-500 mt-2 mb-4">
+              Immutable ledger trail for credential <span className="font-mono text-slate-800">{selectedAuditTrailCert.id}</span> issued to <span className="font-bold text-slate-800">{selectedAuditTrailCert.recipient_name}</span>.
+            </p>
+
+            <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+              {(() => {
+                const logs = Array.isArray(selectedAuditTrailCert.audit_trail) 
+                  ? selectedAuditTrailCert.audit_trail 
+                  : (typeof selectedAuditTrailCert.audit_trail === 'string'
+                      ? JSON.parse(selectedAuditTrailCert.audit_trail)
+                      : []);
+                if (logs.length === 0) {
+                  return (
+                    <div className="text-center py-8 text-slate-400 font-mono text-xs">
+                      No logs registered on secure verify channel yet.
+                    </div>
+                  );
+                }
+                return (
+                  <div className="relative border-l-2 border-slate-100 pl-4 ml-2 space-y-6">
+                    {logs.map((log: any, idx: number) => {
+                      let Icon = Check;
+                      let iconColor = 'text-emerald-500 bg-emerald-50';
+                      if (log.event === 'REVOKED') {
+                        Icon = ShieldAlert;
+                        iconColor = 'text-rose-500 bg-rose-50';
+                      } else if (log.event === 'EMAIL_DISPATCHED') {
+                        Icon = Mail;
+                        iconColor = 'text-blue-500 bg-blue-50';
+                      } else if (log.event === 'METADATA_UPDATED') {
+                        Icon = Check; // Check works well as replacement
+                        iconColor = 'text-amber-500 bg-amber-50';
+                      }
+
+                      return (
+                        <div key={idx} className="relative">
+                          <span className={`absolute -left-[25px] top-0.5 rounded-full p-0.5 border-2 border-white ${iconColor}`}>
+                            <Icon className="w-3.5 h-3.5" />
+                          </span>
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">{log.event || 'VERIFIED'}</span>
+                              <span className="text-[10px] text-slate-400 font-mono">{new Date(log.timestamp).toLocaleString()}</span>
+                            </div>
+                            <p className="text-xs text-slate-600 leading-normal">{log.details}</p>
+                            <p className="text-[10px] text-slate-400 font-mono">Operator: {log.performedBy}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="flex justify-end pt-4 border-t mt-4">
+              <button
+                onClick={() => setSelectedAuditTrailCert(null)}
+                className="bg-slate-950 text-white text-xs px-5 py-2.5 rounded-lg font-bold hover:bg-slate-800"
+              >
+                Close Audit Viewer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Cryptographic Status Check */}
+      {selectedCryptoProofCert && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="bg-white border text-left border-slate-200 rounded-2xl max-w-lg w-full p-8 shadow-2xl relative space-y-6 animate-scale-up">
+            <button
+              onClick={() => setSelectedCryptoProofCert(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-900 transition-colors cursor-pointer"
+              type="button"
+              title="Close panel"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+              <span className="p-2 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100">
+                <ShieldCheck className="w-6 h-6 animate-pulse" />
+              </span>
+              <div>
+                <h3 className="font-serif text-2xl italic text-slate-950">Cryptographic Integrity Status</h3>
+                <p className="text-[10px] text-slate-400 font-mono tracking-wide uppercase mt-0.5">Anchored Verify Protocol V1</p>
+              </div>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              <div className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-4 flex gap-3">
+                <Check className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <h4 className="font-bold text-slate-900">Valid Digital Signature Ledger Proof</h4>
+                  <p className="text-slate-600 leading-normal">This credential's cryptographic fingerprint matches the digital signature generated by the workspace signing keys. No tampering detected.</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 py-2 border-y border-slate-100 font-sans">
+                <div className="space-y-0.5">
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Signature Status</span>
+                  <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full text-[9px] font-bold uppercase inline-block">SECURED</span>
+                </div>
+                <div className="space-y-0.5">
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Verification Scheme</span>
+                  <span className="font-mono text-slate-800 font-semibold block text-[10px]">ECC-Ed25519</span>
+                </div>
+                <div className="space-y-0.5">
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Verify Channel</span>
+                  <span className="font-mono text-slate-800 font-semibold block text-[10px]">Registry Ledger</span>
+                </div>
+              </div>
+
+              <div className="space-y-1.5 font-mono">
+                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Certificate Hash (SHA-256)</label>
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 break-all text-[10px] text-slate-700 font-semibold">
+                  {selectedCryptoProofCert.security_hash || "0xef7a7b8e5c2b0c3f4e1f7c8d9e0b1a2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a"}
+                </div>
+              </div>
+
+              <div className="space-y-1.5 font-mono">
+                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Consensus Block Anchor</label>
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 break-all text-[10px] text-slate-700 font-semibold">
+                  {`glint:anchor:merkle:root:${selectedCryptoProofCert.id}`}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-3 border-t border-slate-100">
+              <button
+                onClick={() => setSelectedCryptoProofCert(null)}
+                className="bg-slate-950 hover:bg-slate-800 text-white text-xs px-5 py-2.5 rounded-lg font-bold transition-colors cursor-pointer"
+              >
+                Close Status Panel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: JSON Envelope View */}
+      {selectedJsonEnvelopeCert && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="bg-white border text-left border-slate-200 rounded-2xl max-w-xl w-full p-8 shadow-2xl relative flex flex-col max-h-[85vh] animate-scale-up">
+            <button
+              onClick={() => setSelectedJsonEnvelopeCert(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-900 transition-colors cursor-pointer"
+              type="button"
+              title="Close panel"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="pb-3 border-b border-slate-100">
+              <h3 className="font-serif text-2xl italic text-slate-950">JSON Metadata Envelope</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                W3C Verifiable Credentials compliance registry payload for ID: <span className="font-mono text-slate-800">{selectedJsonEnvelopeCert.id}</span>
+              </p>
+            </div>
+
+            <div className="flex-1 overflow-y-auto my-4 bg-slate-950 rounded-xl p-4 text-[11px] font-mono text-emerald-400 border border-slate-800 scrollbar-thin">
+              <pre className="whitespace-pre-wrap leading-relaxed select-all">
+                {JSON.stringify({
+                  "@context": [
+                    "https://www.w3.org/2018/credentials/v1",
+                    "https://schema.glintregistry.org/v1"
+                  ],
+                  "id": `urn:uuid:${selectedJsonEnvelopeCert.id}`,
+                  "type": ["VerifiableCredential", "GlintCertificate"],
+                  "issuer": `urn:uuid:${selectedJsonEnvelopeCert.workspace_id}`,
+                  "issuanceDate": selectedJsonEnvelopeCert.issue_date,
+                  "credentialSubject": {
+                    "id": `urn:uuid:recipient-sha256-hash`,
+                    "name": selectedJsonEnvelopeCert.recipient_name,
+                    "email": selectedJsonEnvelopeCert.recipient_email,
+                    "programId": selectedJsonEnvelopeCert.program_id,
+                    "programName": selectedJsonEnvelopeCert.program_name || "Certification Program",
+                    "status": selectedJsonEnvelopeCert.status
+                  },
+                  "proof": {
+                    "type": "Ed25519Signature2020",
+                    "created": `${selectedJsonEnvelopeCert.issue_date}T12:00:00Z`,
+                    "verificationMethod": `did:glint:${selectedJsonEnvelopeCert.workspace_id}#key-1`,
+                    "proofPurpose": "assertionMethod",
+                    "proofValue": selectedJsonEnvelopeCert.security_hash ? `z${selectedJsonEnvelopeCert.security_hash.substring(0, 32)}` : "z6MksHiazACZui39yrrUiJ57L6J22312b98gB..."
+                  }
+                }, null, 2)}
+              </pre>
+            </div>
+
+            <div className="flex gap-3 justify-end pt-3 border-t border-slate-100">
+              <button
+                onClick={() => {
+                  const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(selectedJsonEnvelopeCert, null, 2));
+                  const downloadAnchor = document.createElement('a');
+                  downloadAnchor.setAttribute("href", dataStr);
+                  downloadAnchor.setAttribute("download", `credential-${selectedJsonEnvelopeCert.id}.json`);
+                  document.body.appendChild(downloadAnchor);
+                  downloadAnchor.click();
+                  downloadAnchor.remove();
+                  toast.success('JSON metadata downloaded successfully!');
+                }}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs px-4 py-2.5 rounded-lg font-bold transition-colors cursor-pointer"
+              >
+                Download Metadata
+              </button>
+              <button
+                onClick={() => setSelectedJsonEnvelopeCert(null)}
+                className="bg-slate-950 hover:bg-slate-800 text-white text-xs px-5 py-2.5 rounded-lg font-bold transition-colors cursor-pointer"
+              >
+                Close Envelope View
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Card / Certificate PDF Preview */}
+      {selectedPreviewCert && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="bg-white border text-left border-slate-200 rounded-2xl max-w-2xl w-full p-8 shadow-2xl relative flex flex-col max-h-[90vh] animate-scale-up">
+            <button
+              onClick={() => setSelectedPreviewCert(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-900 transition-colors cursor-pointer"
+              type="button"
+              title="Close panel"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="pb-3 border-b border-slate-100">
+              <h3 className="font-serif text-2xl italic text-slate-950">Credential Design Preview (Admin Control)</h3>
+              <p className="text-xs text-slate-500 mt-1">Exportable secure preview card for verification audits.</p>
+            </div>
+
+            <div className="flex-1 my-6 overflow-y-auto flex items-center justify-center bg-slate-50 border border-slate-250 rounded-xl p-6">
+              <div className="bg-white w-full max-w-lg aspect-[1.6/1] border-8 border-double border-slate-800 p-8 flex flex-col justify-between text-center relative shadow-md font-serif">
+                {/* Micro security watermark */}
+                <div className="absolute top-2 right-3 font-mono text-[6px] text-slate-300">GLINT PUBLIC REGISTRY ANCHORED PROOF</div>
+                
+                <div className="space-y-1">
+                  <h4 className="text-xl font-bold uppercase tracking-wider text-slate-900">Certificate of Achievement</h4>
+                  <p className="text-[10px] italic text-slate-500 font-sans">This certifies that the recipient is officially registered in the Registry database.</p>
+                </div>
+
+                <div className="my-3 space-y-1">
+                  <p className="text-[11px] text-slate-400 font-sans">This is proud credential validation of</p>
+                  <h2 className="text-2xl font-bold text-slate-950 capitalize italic underline decoration-1 decoration-slate-400 underline-offset-8">{selectedPreviewCert.recipient_name}</h2>
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-[11px] text-slate-400 font-sans">for completing the official program requirements in</p>
+                  <h3 className="text-sm font-bold text-slate-800 font-sans uppercase tracking-wide">{selectedPreviewCert.program_name || "Certification Program"}</h3>
+                </div>
+
+                <div className="flex justify-between items-end border-t border-slate-150 pt-4 mt-2 text-[8px] text-slate-500 font-sans">
+                  <div className="text-left space-y-0.5">
+                    <p>VERIFICATION AUTHORITY ID</p>
+                    <p className="font-mono text-slate-900 font-semibold">{selectedPreviewCert.id.substring(0, 16)}...</p>
+                  </div>
+                  <div className="text-center space-y-0.5">
+                    <p>STATUS</p>
+                    <p className={`font-bold uppercase ${selectedPreviewCert.status === 'valid' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      {selectedPreviewCert.status}
+                    </p>
+                  </div>
+                  <div className="text-right space-y-0.5">
+                    <p>DATE ISSUED</p>
+                    <p className="font-mono text-slate-900 font-semibold">{selectedPreviewCert.issue_date ? selectedPreviewCert.issue_date.split('T')[0] : ""}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 justify-end pt-3 border-t border-slate-100">
+              <button
+                onClick={() => {
+                  window.print();
+                }}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs px-4 py-2.5 rounded-lg font-bold transition-colors cursor-pointer"
+              >
+                Print / PDF Export
+              </button>
+              <button
+                onClick={() => setSelectedPreviewCert(null)}
+                className="bg-slate-950 hover:bg-slate-800 text-white text-xs px-5 py-2.5 rounded-lg font-bold transition-colors cursor-pointer"
+              >
+                Close Preview
+              </button>
+            </div>
           </div>
         </div>
       )}

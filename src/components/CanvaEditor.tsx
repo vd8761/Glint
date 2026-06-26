@@ -62,7 +62,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
   const [historyIndex, setHistoryIndex] = useState<number>(0);
   
   // Active Sidebar Nav Tab inside Canva Editor
-  const [activeSideTab, setActiveSideTab] = useState<'templates' | 'text' | 'borders' | 'backdrop' | 'seals' | 'sign' | 'layers' | 'ai' | 'uploads'>('templates');
+  const [activeSideTab, setActiveSideTab] = useState<'templates' | 'text' | 'borders' | 'backdrop' | 'seals' | 'sign' | 'layers' | 'ai' | 'uploads' | null>('templates');
   
   // Currently highlighted / selected element ID on visual canvas
   const [selectedElId, setSelectedElId] = useState<string | null>(null);
@@ -1456,27 +1456,27 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
       
       {/* Editor Action Top bar */}
       <div className="h-14 bg-white border-b border-slate-200 px-6 flex justify-between items-center z-20 shrink-0 shadow-sm">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-4">
           <button
             onClick={onCancel}
-            className="text-xs hover:bg-slate-100 text-slate-500 hover:text-slate-900 px-3 py-1.5 rounded transition-all flex items-center gap-1.5 font-semibold"
+            className="text-xs hover:bg-slate-100 text-slate-500 hover:text-slate-900 px-2 py-1.5 rounded transition-all flex items-center gap-1 sm:gap-1.5 font-semibold"
           >
-            <ArrowLeft className="w-4 h-4" /> Exit Editor
+            <ArrowLeft className="w-4 h-4" /> <span className="hidden sm:inline">Exit Editor</span>
           </button>
-          <span className="text-slate-200 font-mono">/</span>
+          <span className="text-slate-200 font-mono hidden sm:inline">/</span>
           <div className="flex items-center gap-2">
             <input 
               type="text"
               value={currentTemplate.name}
               onChange={(e) => updateTemplateProperty('name', capitalizeWords(e.target.value))}
-              className="bg-slate-50 text-sm font-bold text-slate-900 max-w-sm border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:bg-white rounded py-1 px-2.5 transition-all"
+              className="bg-slate-50 text-xs sm:text-sm font-bold text-slate-900 max-w-[80px] sm:max-w-sm border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:bg-white rounded py-1 px-1.5 sm:px-2.5 transition-all"
               placeholder="Enter Template Title..."
             />
           </div>
         </div>
 
         {/* Undo, Redo, Save Deck */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-4">
           <div className="flex items-center bg-slate-50 border border-slate-200 rounded p-0.5 shadow-inner">
             <button
               onClick={handleUndo}
@@ -1497,11 +1497,11 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
           </div>
  
           {/* Layout Guides & Snapping Tools */}
-          <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded p-0.5 shadow-inner">
+          <div className="flex items-center gap-1 sm:gap-1.5 bg-slate-50 border border-slate-200 rounded p-0.5 shadow-inner">
             <button
               type="button"
               onClick={() => setGridVisible(!gridVisible)}
-              className={`p-1.5 rounded transition-all text-xs font-bold flex items-center gap-1 cursor-pointer ${gridVisible ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-555 hover:bg-slate-200 hover:text-slate-900'}`}
+              className={`p-1 rounded sm:p-1.5 transition-all text-xs font-bold flex items-center gap-1 cursor-pointer ${gridVisible ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-555 hover:bg-slate-200 hover:text-slate-900'}`}
               title="Toggle Alignment Grid Dots"
             >
               <Grid className="w-3.5 h-3.5" />
@@ -1510,7 +1510,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
             <button
               type="button"
               onClick={() => setSnapToGrid(!snapToGrid)}
-              className={`p-1.5 rounded transition-all text-xs font-bold flex items-center gap-1 cursor-pointer ${snapToGrid ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-555 hover:bg-slate-200 hover:text-slate-900'}`}
+              className={`p-1 rounded sm:p-1.5 transition-all text-xs font-bold flex items-center gap-1 cursor-pointer ${snapToGrid ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-555 hover:bg-slate-200 hover:text-slate-900'}`}
               title="Snap to Grid increments (2.5%)"
             >
               <MousePointerClick className="w-3.5 h-3.5" />
@@ -1519,8 +1519,8 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
             <button
               type="button"
               onClick={() => directSampleUploadRef.current?.click()}
-              className="p-1.5 rounded transition-all text-xs font-bold flex items-center gap-1 cursor-pointer text-slate-555 hover:bg-slate-200 hover:text-slate-900"
-              title="Upload Sample Certificate (Parses layout & covers hardcoded fields dynamically)"
+              className="p-1 rounded sm:p-1.5 transition-all text-xs font-bold flex items-center gap-1 cursor-pointer text-slate-555 hover:bg-slate-200 hover:text-slate-900"
+              title="Upload Sample Certificate"
             >
               <Upload className="w-3.5 h-3.5 text-emerald-600" />
               <span className="hidden sm:inline text-[10px] text-emerald-650">Upload Sample</span>
@@ -1529,9 +1529,9 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
  
           <button
             onClick={() => onSave(currentTemplate)}
-            className="bg-slate-950 hover:bg-slate-850 text-white text-xs px-5 py-2 rounded font-bold shadow transition-all flex items-center gap-1.5"
+            className="bg-slate-950 hover:bg-slate-850 text-white text-xs px-2.5 sm:px-5 py-2 rounded font-bold shadow transition-all flex items-center gap-1 sm:gap-1.5"
           >
-            <Save className="w-3.5 h-3.5" /> Save Canva Slate
+            <Save className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Save Canva Slate</span><span className="inline sm:hidden">Save</span>
           </button>
         </div>
       </div>
@@ -1574,7 +1574,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveSideTab(tab.id as any)}
+                  onClick={() => setActiveSideTab(activeSideTab === tab.id ? null : (tab.id as any))}
                   className={`flex-1 md:w-full flex flex-col items-center justify-center py-2 px-1 md:py-3 transition-all outline-none border-t-2 md:border-t-0 md:border-l-2 relative ${
                     isActive ? 'border-indigo-650 text-indigo-650 bg-white font-bold' : 'border-transparent text-slate-400 hover:text-slate-800'
                   }`}
@@ -1593,7 +1593,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
         </div>
 
         {/* Floating properties drawer specific to the active side tab */}
-        <div className="w-full h-48 md:w-80 md:h-full bg-white border-b md:border-b-0 md:border-r border-slate-200 flex flex-col overflow-y-auto shrink-0 z-10 shadow-sm text-xs leading-normal text-slate-700 font-sans">
+        <div className={`w-full h-48 md:w-80 md:h-full bg-white border-b md:border-b-0 md:border-r border-slate-200 flex flex-col overflow-y-auto shrink-0 z-10 shadow-sm text-xs leading-normal text-slate-700 font-sans ${activeSideTab ? 'block' : 'hidden'}`}>
           <div className="p-5 space-y-6">
             
             {/* TAB: TEMPLATES */}
@@ -2999,10 +2999,10 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
         </div>
 
         {/* Outer Designer Stage canvas container */}
-        <div className="flex-1 bg-[#E2E8F0] p-4 sm:p-12 flex flex-col items-center justify-center overflow-y-auto selection:bg-slate-200 relative">
+        <div className="flex-1 bg-[#E2E8F0] p-2 sm:p-12 flex flex-col items-center justify-center overflow-y-auto selection:bg-slate-200 relative">
           
           {showCanvaTip && (
-            <div className="hidden md:block absolute top-4 left-4 bg-white border border-slate-200 p-3 rounded-lg text-[10px] text-slate-500 max-w-sm space-y-1.5 shadow-md z-10 transition-all duration-300">
+            <div className="hidden md:block absolute top-4 left-4 bg-white border border-slate-205 p-3 rounded-lg text-[10px] text-slate-500 max-w-sm space-y-1.5 shadow-md z-10 transition-all duration-300">
               <div className="flex justify-between items-start gap-3">
                 <h4 className="font-bold text-slate-800 flex items-center gap-1.5">
                   <MousePointerClick className="w-3.5 h-3.5 text-indigo-600" /> Interactive Canva Workspace
@@ -3012,7 +3012,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                     setShowCanvaTip(false);
                     localStorage.setItem('glint_canva_tip_dismissed', 'true');
                   }}
-                  className="text-slate-400 hover:text-slate-600 transition-colors p-0.5"
+                  className="text-slate-400 hover:text-slate-650 transition-colors p-0.5"
                   title="Dismiss Tip"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -3029,7 +3029,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
           </div> */}
 
           {/* Core Interactive visual frame */}
-          <div className="w-full max-w-4xl bg-white/80 border border-slate-250 rounded-xl p-8 shadow-sm flex items-center justify-center">
+          <div className="w-full max-w-4xl bg-white/80 border border-slate-250 rounded-xl p-2 sm:p-8 shadow-sm flex items-center justify-center">
             
             <div 
               ref={canvasRef}
