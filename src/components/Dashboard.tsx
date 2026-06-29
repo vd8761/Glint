@@ -2747,12 +2747,11 @@ export function Dashboard({
                 <div className="space-y-8 animate-fade-in">
                   
                   {/* Title Bar */}
-                  <div className="border-b border-slate-200 pb-3 flex justify-between items-end">
-                    <div>
-                      <h2 className="font-serif text-3xl italic text-slate-950">Email Dispatch Simulator Logs</h2>
-                      <p className="text-slate-500 text-sm">Verify email notification delivery events, recipient claim links, and custom SMTP body wrappers.</p>
-                    </div>
+                  <div className="border-b border-slate-200 pb-3">
+                    <h2 className="font-serif text-3xl italic text-slate-950">Email Dispatch Simulator Logs</h2>
+                    <p className="text-slate-500 text-sm mt-1">Verify email notification delivery events, recipient claim links, and custom SMTP body wrappers.</p>
                   </div>
+
                   {/* Table Card */}
                   <div className="bg-white border border-[#E9ECEF] rounded-2xl shadow-sm overflow-hidden card-shadow">
                     {emailLogs.length === 0 ? (
