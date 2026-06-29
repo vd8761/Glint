@@ -59,16 +59,16 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
   const loadData = async () => {
     setLoading(true);
     try {
-      if (activeTab === 'workspaces') {
-        const res = await fetch('/api/admin/workspaces', { headers: authHeaders });
-        if (res.ok) setWorkspaces(await res.json());
-      } else if (activeTab === 'programs') {
-        const res = await fetch('/api/admin/programs', { headers: authHeaders });
-        if (res.ok) setPrograms(await res.json());
-      } else if (activeTab === 'certificates') {
-        const res = await fetch('/api/admin/certificates', { headers: authHeaders });
-        if (res.ok) setCertificates(await res.json());
-      }
+      // Always fetch all three datasets so counts and detail views work correctly
+      const [wsRes, progRes, certRes] = await Promise.all([
+        fetch('/api/admin/workspaces', { headers: authHeaders }),
+        fetch('/api/admin/programs', { headers: authHeaders }),
+        fetch('/api/admin/certificates', { headers: authHeaders })
+      ]);
+      
+      if (wsRes.ok) setWorkspaces(await wsRes.json());
+      if (progRes.ok) setPrograms(await progRes.json());
+      if (certRes.ok) setCertificates(await certRes.json());
     } catch (err) {
       console.error('Error loading admin data:', err);
     } finally {
@@ -545,7 +545,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                         {activeActionMenuId === c.id && (
                           <>
                             <div className="fixed inset-0 z-10" onClick={() => setActiveActionMenuId(null)} />
-                            <div className="absolute right-0 bottom-full mb-1 w-48 rounded-xl bg-white border border-slate-200 shadow-xl z-20 py-1 text-left divide-y divide-slate-100 animate-fade-in">
+                            <div className="absolute right-0 mt-1 w-48 rounded-xl bg-white border border-slate-200 shadow-xl z-20 py-1 text-left divide-y divide-slate-100 animate-fade-in max-h-64 overflow-y-auto">
                               <div className="py-1">
                                 <button
                                   onClick={() => {
@@ -1220,8 +1220,8 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
 
       {/* Edit Workspace Modal */}
       {editingWorkspace && (
-        <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-          <div className="bg-white border border-slate-200 shadow-2xl rounded-2xl w-full max-w-md p-6 space-y-6">
+        <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in p-4">
+          <div className="bg-white border border-slate-200 shadow-2xl rounded-2xl w-full max-w-md p-6 space-y-6 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-slate-100 pb-3">
               <h3 className="font-display text-base font-bold text-slate-900">Modify Workspace Configuration</h3>
               <button onClick={() => setEditingWorkspace(null)} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-50 transition-all">
@@ -1287,8 +1287,8 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
 
       {/* Edit Program Modal */}
       {editingProgram && (
-        <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-          <div className="bg-white border border-slate-200 shadow-2xl rounded-2xl w-full max-w-md p-6 space-y-6">
+        <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in p-4">
+          <div className="bg-white border border-slate-200 shadow-2xl rounded-2xl w-full max-w-md p-6 space-y-6 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-slate-100 pb-3">
               <h3 className="font-display text-base font-bold text-slate-900">Modify Certification Program</h3>
               <button onClick={() => setEditingProgram(null)} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-50 transition-all">
@@ -1340,8 +1340,8 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
 
       {/* Revocation Reason Modal */}
       {revokingCert && (
-        <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-          <div className="bg-white border border-slate-200 shadow-2xl rounded-2xl w-full max-w-md p-6 space-y-6">
+        <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in p-4">
+          <div className="bg-white border border-slate-200 shadow-2xl rounded-2xl w-full max-w-md p-6 space-y-6 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-slate-100 pb-3">
               <h3 className="font-display text-base font-bold text-red-600 flex items-center gap-1.5"><ShieldAlert className="w-5 h-5" /> Revoke Certification</h3>
               <button onClick={() => setRevokingCert(null)} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-50 transition-all">

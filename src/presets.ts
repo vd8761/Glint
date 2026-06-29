@@ -59,7 +59,7 @@ const mkText = (
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PRESET DEFINITIONS — 53 unique professional designs
+// PRESET DEFINITIONS — 73 unique professional designs
 // ─────────────────────────────────────────────────────────────────────────────
 const PRESET_DEFINITIONS: PresetDef[] = [
 
@@ -1143,6 +1143,415 @@ const PRESET_DEFINITIONS: PresetDef[] = [
       mkText('t7', 'Awarded: {{date}}', 8, 'Lora', 'normal', '#A0A8D8', 12, 88, 'left'),
       mkText('t8', 'Charterholder: {{id}}', 8, 'JetBrains Mono', 'normal', '#A0A8D8', 88, 88, 'right'),
     ]
+  },
+
+  // ════════════════════════════════════════
+  // MORE PROFESSIONAL CERTIFICATIONS (20)
+  // ════════════════════════════════════════
+  {
+    id: 'p-54', name: 'Six Sigma Black Belt', programName: 'Lean Six Sigma Black Belt Certification (LSSBB)',
+    category: 'Professional Certifications',
+    backgroundColor: '#FFFFFF', backgroundGradient: 'linear-gradient(135deg, #FFFFFF 0%, #F0F0F0 50%, #F8F8FF 100%)',
+    borderColor: '#1B1B1B', borderWidth: 7, borderStyle: 'double', decorFlourish: 'classic',
+    sealType: 'gold_medallion', sealWidth: 44, showQrCode: true, qrCodeX: 50, qrCodeY: 87, qrCodeWidth: 28,
+    logoIconType: 'corporate', logoX: 50, logoY: 11, logoWidth: 72,
+    signatory1: 'Dr. Mikel J. Harry', title1: 'Founder, Six Sigma Academy', signX1: 27, signY1: 77, signWidth1: 90,
+    signatory2: 'Anthony Manos', title2: 'Chief Quality Officer', signX2: 73, signY2: 77, signWidth2: 90,
+    texts: [
+      mkText('t1', 'SIX SIGMA ACADEMY', 13, 'Montserrat', 'bold', '#1B1B1B', 50, 21, 'center', { letterSpacing: 4 }),
+      mkText('t2', '━━━ Professional Black Belt Certification ━━━', 8.5, 'Inter', 'normal', '#C8A951', 50, 27, 'center'),
+      mkText('t3', 'This certifies that', 9, 'Lora', 'normal', '#666', 50, 34, 'center'),
+      mkText('t4', '{{name}}', 34, 'Playfair Display', 'bold', '#0F0F0F', 50, 44, 'center', { isPlaceholder: true }),
+      mkText('t5', 'has mastered the DMAIC methodology and is hereby certified as', 8.5, 'Inter', 'normal', '#888', 50, 53, 'center'),
+      mkText('t6', '{{program}}', 15, 'Montserrat', 'bold', '#1B1B1B', 50, 61, 'center', { isPlaceholder: true }),
+      mkText('t7', 'Certified: {{date}}', 7.5, 'JetBrains Mono', 'normal', '#BBBBBB', 12, 88, 'left'),
+      mkText('t8', 'Belt ID: {{id}}', 7.5, 'JetBrains Mono', 'normal', '#BBBBBB', 88, 88, 'right'),
+    ]
+  },
+
+  {
+    id: 'p-55', name: 'SHRM Senior Certified Professional', programName: 'SHRM Senior Certified Professional (SHRM-SCP)',
+    category: 'Professional Certifications',
+    backgroundColor: '#002855', backgroundGradient: 'linear-gradient(160deg, #002855 0%, #003D7A 50%, #001F44 100%)',
+    borderColor: '#F0C75E', borderWidth: 5, borderStyle: 'solid', decorFlourish: 'ornate',
+    sealType: 'classic', sealWidth: 42, showQrCode: true, qrCodeX: 50, qrCodeY: 87, qrCodeWidth: 28,
+    logoIconType: 'corporate', logoX: 50, logoY: 12, logoWidth: 70,
+    signatory1: 'Johnny C. Taylor Jr.', title1: 'President & CEO, SHRM', signX1: 27, signY1: 77, signWidth1: 88,
+    texts: [
+      mkText('t1', 'SHRM', 22, 'Montserrat', 'bold', '#F0C75E', 50, 21, 'center', { letterSpacing: 6 }),
+      mkText('t2', 'Society for Human Resource Management', 8.5, 'Inter', 'normal', '#8CB4E1', 50, 27, 'center'),
+      mkText('t3', 'This credential is awarded to', 8.5, 'Inter', 'normal', '#7AA3D0', 50, 34, 'center'),
+      mkText('t4', '{{name}}', 33, 'Playfair Display', 'bold', '#FFFFFF', 50, 44, 'center', { isPlaceholder: true }),
+      mkText('t5', 'in recognition of advanced HR competencies and strategic leadership as', 8, 'Inter', 'normal', '#8CB4E1', 50, 53, 'center'),
+      mkText('t6', '{{program}}', 15, 'Montserrat', 'bold', '#F0C75E', 50, 61, 'center', { isPlaceholder: true }),
+      mkText('t7', 'Conferred: {{date}}', 7.5, 'JetBrains Mono', 'normal', '#4A6E8F', 12, 88, 'left'),
+      mkText('t8', 'SHRM ID: {{id}}', 7.5, 'JetBrains Mono', 'normal', '#4A6E8F', 88, 88, 'right'),
+    ]
+  },
+
+  {
+    id: 'p-56', name: 'CompTIA Security+ Professional', programName: 'CompTIA Security+ Certification (SY0-701)',
+    category: 'Professional Certifications',
+    backgroundColor: '#FFFFFF', backgroundGradient: 'linear-gradient(145deg, #FFFFFF 0%, #FFF5F5 60%, #FFF0F0 100%)',
+    borderColor: '#C8102E', borderWidth: 5, borderStyle: 'solid', borderRadius: 4, decorFlourish: 'minimal',
+    sealType: 'stellar', sealWidth: 42, showQrCode: true, qrCodeX: 88, qrCodeY: 85, qrCodeWidth: 26,
+    logoIconType: 'corporate', logoX: 50, logoY: 12, logoWidth: 70,
+    signatory1: 'Todd Thibodeaux', title1: 'President & CEO, CompTIA', signX1: 30, signY1: 78, signWidth1: 92,
+    texts: [
+      mkText('t1', 'CompTIA', 18, 'Space Grotesk', 'bold', '#C8102E', 50, 21, 'center', { letterSpacing: 2 }),
+      mkText('t2', 'Information Technology Certification', 9, 'Inter', 'normal', '#888', 50, 27, 'center'),
+      mkText('t3', 'This certifies that', 8.5, 'Inter', 'normal', '#888', 50, 34, 'center'),
+      mkText('t4', '{{name}}', 34, 'Poppins', 'bold', '#1A1A2E', 50, 44, 'center', { isPlaceholder: true }),
+      mkText('t5', 'has demonstrated cybersecurity knowledge and has earned the', 8.5, 'Inter', 'normal', '#888', 50, 53, 'center'),
+      mkText('t6', '{{program}}', 15, 'Space Grotesk', 'bold', '#C8102E', 50, 61, 'center', { isPlaceholder: true }),
+      mkText('t7', 'Issue Date: {{date}}', 7.5, 'JetBrains Mono', 'normal', '#CCC', 12, 88, 'left'),
+      mkText('t8', 'CompTIA ID: {{id}}', 7.5, 'JetBrains Mono', 'normal', '#CCC', 88, 88, 'right'),
+    ]
+  },
+
+  {
+    id: 'p-57', name: 'ITIL 4 Foundation Expert', programName: 'ITIL 4 Foundation Certification in IT Service Management',
+    category: 'Professional Certifications',
+    backgroundColor: '#2D1B69', backgroundGradient: 'linear-gradient(145deg, #2D1B69 0%, #3E2580 50%, #1A0E42 100%)',
+    borderColor: '#7B68EE', borderWidth: 4, borderStyle: 'solid', decorFlourish: 'modern',
+    sealType: 'gold_medallion', sealWidth: 42, showQrCode: true, qrCodeX: 50, qrCodeY: 87, qrCodeWidth: 28,
+    logoIconType: 'corporate', logoX: 50, logoY: 12, logoWidth: 68,
+    signatory1: 'Mark Smalley', title1: 'ITIL Practice Lead, PeopleCert', signX1: 27, signY1: 77, signWidth1: 90,
+    texts: [
+      mkText('t1', 'ITIL® 4', 20, 'Space Grotesk', 'bold', '#A78BFA', 50, 21, 'center', { letterSpacing: 3 }),
+      mkText('t2', 'IT Service Management Certification', 9, 'Inter', 'normal', '#B8A9E8', 50, 27, 'center'),
+      mkText('t3', 'This is to certify that', 8.5, 'Inter', 'normal', '#9B8DD6', 50, 34, 'center'),
+      mkText('t4', '{{name}}', 33, 'Montserrat', 'bold', '#FFFFFF', 50, 44, 'center', { isPlaceholder: true }),
+      mkText('t5', 'has satisfied all examination requirements and is now certified in', 8.5, 'Inter', 'normal', '#B8A9E8', 50, 53, 'center'),
+      mkText('t6', '{{program}}', 14, 'Space Grotesk', 'bold', '#A78BFA', 50, 61, 'center', { isPlaceholder: true }),
+      mkText('t7', 'Issued: {{date}}', 7.5, 'JetBrains Mono', 'normal', '#6B5BA7', 12, 88, 'left'),
+      mkText('t8', 'ITIL ID: {{id}}', 7.5, 'JetBrains Mono', 'normal', '#6B5BA7', 88, 88, 'right'),
+    ]
+  },
+
+  {
+    id: 'p-58', name: 'Certified Ethical Hacker (CEH)', programName: 'EC-Council Certified Ethical Hacker (CEH) v12',
+    category: 'Professional Certifications',
+    backgroundColor: '#0A0A0A', backgroundGradient: 'radial-gradient(ellipse at 50% 30%, #1A1A2E 0%, #0A0A0A 70%, #000000 100%)',
+    borderColor: '#00FF41', borderWidth: 3, borderStyle: 'solid', decorFlourish: 'none',
+    sealType: 'emerald_shield', sealWidth: 44, showQrCode: true, qrCodeX: 88, qrCodeY: 85, qrCodeWidth: 26,
+    logoIconType: 'tech', logoX: 50, logoY: 12, logoWidth: 72,
+    signatory1: 'Jay Bavisi', title1: 'President & CEO, EC-Council', signX1: 30, signY1: 78, signWidth1: 92,
+    texts: [
+      mkText('t1', 'EC-COUNCIL', 14, 'Space Grotesk', 'bold', '#00FF41', 50, 21, 'center', { letterSpacing: 5 }),
+      mkText('t2', '// ETHICAL HACKING CERTIFICATION //', 8.5, 'JetBrains Mono', 'normal', '#00CC33', 50, 27, 'center'),
+      mkText('t3', '> credential.verify(candidate) =', 8, 'JetBrains Mono', 'normal', '#555', 50, 34, 'center'),
+      mkText('t4', '{{name}}', 32, 'Montserrat', 'bold', '#00FF41', 50, 44, 'center', { isPlaceholder: true }),
+      mkText('t5', 'has demonstrated advanced penetration testing expertise and is certified as', 8, 'Inter', 'normal', '#666', 50, 53, 'center'),
+      mkText('t6', '{{program}}', 14, 'Space Grotesk', 'bold', '#00FF41', 50, 61, 'center', { isPlaceholder: true }),
+      mkText('t7', 'timestamp: {{date}}', 7.5, 'JetBrains Mono', 'normal', '#333', 12, 88, 'left'),
+      mkText('t8', 'hash: {{id}}', 7.5, 'JetBrains Mono', 'normal', '#333', 88, 88, 'right'),
+    ]
+  },
+
+  {
+    id: 'p-59', name: 'TOGAF Enterprise Architect', programName: 'TOGAF 10 Certified Enterprise Architecture Professional',
+    category: 'Professional Certifications',
+    backgroundColor: '#FAFAFA', backgroundGradient: 'linear-gradient(155deg, #FAFAFA 0%, #F0F0FF 50%, #E8E8F8 100%)',
+    borderColor: '#2C3E50', borderWidth: 6, borderStyle: 'double', decorFlourish: 'classic',
+    sealType: 'classic', sealWidth: 44, showQrCode: true, qrCodeX: 50, qrCodeY: 87, qrCodeWidth: 28,
+    logoIconType: 'corporate', logoX: 50, logoY: 12, logoWidth: 70,
+    signatory1: 'Steve Nunn', title1: 'President & CEO, The Open Group', signX1: 27, signY1: 77, signWidth1: 90,
+    signatory2: 'Chris Forde', title2: 'VP, Certification', signX2: 73, signY2: 77, signWidth2: 90,
+    texts: [
+      mkText('t1', 'THE OPEN GROUP', 12, 'Montserrat', 'bold', '#2C3E50', 50, 21, 'center', { letterSpacing: 3 }),
+      mkText('t2', 'Enterprise Architecture Framework Certification', 8.5, 'Inter', 'normal', '#7F8C8D', 50, 27, 'center'),
+      mkText('t3', 'This is to certify that', 8.5, 'Lora', 'normal', '#888', 50, 34, 'center'),
+      mkText('t4', '{{name}}', 33, 'Playfair Display', 'bold', '#2C3E50', 50, 44, 'center', { isPlaceholder: true }),
+      mkText('t5', 'has demonstrated mastery in enterprise architecture and has been recognized as', 8, 'Inter', 'normal', '#888', 50, 53, 'center'),
+      mkText('t6', '{{program}}', 14, 'Montserrat', 'bold', '#2980B9', 50, 61, 'center', { isPlaceholder: true }),
+      mkText('t7', 'Certified: {{date}}', 7.5, 'JetBrains Mono', 'normal', '#BDC3C7', 12, 88, 'left'),
+      mkText('t8', 'TOGAF ID: {{id}}', 7.5, 'JetBrains Mono', 'normal', '#BDC3C7', 88, 88, 'right'),
+    ]
+  },
+
+  {
+    id: 'p-60', name: 'Kubernetes Administrator (CKA)', programName: 'Certified Kubernetes Administrator (CKA)',
+    category: 'Technology & MNC',
+    backgroundColor: '#0D1117', backgroundGradient: 'linear-gradient(145deg, #0D1117 0%, #161B22 50%, #0D1117 100%)',
+    borderColor: '#326CE5', borderWidth: 4, borderStyle: 'solid', borderRadius: 8, decorFlourish: 'none',
+    sealType: 'stellar', sealWidth: 40, showQrCode: true, qrCodeX: 88, qrCodeY: 85, qrCodeWidth: 26,
+    logoIconType: 'tech', logoX: 50, logoY: 12, logoWidth: 70,
+    signatory1: 'Priyanka Sharma', title1: 'Executive Director, CNCF', signX1: 27, signY1: 77, signWidth1: 90,
+    texts: [
+      mkText('t1', 'CLOUD NATIVE COMPUTING FOUNDATION', 9, 'Space Grotesk', 'bold', '#326CE5', 50, 21, 'center', { letterSpacing: 3 }),
+      mkText('t2', '☸ Kubernetes Certification Program', 9, 'Inter', 'normal', '#58A6FF', 50, 27, 'center'),
+      mkText('t3', 'This certifies that', 8.5, 'Inter', 'normal', '#8B949E', 50, 34, 'center'),
+      mkText('t4', '{{name}}', 33, 'Montserrat', 'bold', '#FFFFFF', 50, 44, 'center', { isPlaceholder: true }),
+      mkText('t5', 'has demonstrated hands-on Kubernetes expertise and is certified as', 8.5, 'Inter', 'normal', '#8B949E', 50, 53, 'center'),
+      mkText('t6', '{{program}}', 15, 'Space Grotesk', 'bold', '#326CE5', 50, 61, 'center', { isPlaceholder: true }),
+      mkText('t7', 'Valid From: {{date}}', 7.5, 'JetBrains Mono', 'normal', '#30363D', 12, 88, 'left'),
+      mkText('t8', 'CKA-{{id}}', 7.5, 'JetBrains Mono', 'normal', '#30363D', 88, 88, 'right'),
+    ]
+  },
+
+  {
+    id: 'p-61', name: 'Tableau Desktop Specialist', programName: 'Tableau Certified Desktop Specialist & Data Analyst',
+    category: 'Technology & MNC',
+    backgroundColor: '#FFFFFF', backgroundGradient: 'linear-gradient(135deg, #FFFFFF 0%, #F5FCFF 50%, #E6F7FF 100%)',
+    borderColor: '#E97627', borderWidth: 5, borderStyle: 'solid', decorFlourish: 'minimal',
+    sealType: 'gold_medallion', sealWidth: 40, showQrCode: true, qrCodeX: 50, qrCodeY: 87, qrCodeWidth: 28,
+    logoIconType: 'tech', logoX: 50, logoY: 11, logoWidth: 68,
+    signatory1: 'Mark Nelson', title1: 'President & CEO, Tableau / Salesforce', signX1: 27, signY1: 77, signWidth1: 90,
+    texts: [
+      mkText('t1', 'TABLEAU', 20, 'Montserrat', 'bold', '#E97627', 50, 21, 'center', { letterSpacing: 3 }),
+      mkText('t2', 'Data Visualization Certification', 9.5, 'Inter', 'normal', '#003D79', 50, 27, 'center'),
+      mkText('t3', 'This certifies that', 8.5, 'Inter', 'normal', '#888', 50, 34, 'center'),
+      mkText('t4', '{{name}}', 34, 'Poppins', 'bold', '#003D79', 50, 44, 'center', { isPlaceholder: true }),
+      mkText('t5', 'has demonstrated data visualization expertise and is certified as', 8.5, 'Inter', 'normal', '#888', 50, 53, 'center'),
+      mkText('t6', '{{program}}', 14, 'Space Grotesk', 'bold', '#E97627', 50, 61, 'center', { isPlaceholder: true }),
+      mkText('t7', 'Issued: {{date}}', 7.5, 'JetBrains Mono', 'normal', '#CCC', 12, 88, 'left'),
+      mkText('t8', 'Tableau ID: {{id}}', 7.5, 'JetBrains Mono', 'normal', '#CCC', 88, 88, 'right'),
+    ]
+  },
+
+  {
+    id: 'p-62', name: 'HubSpot Inbound Marketing', programName: 'HubSpot Inbound Marketing Certification',
+    category: 'Professional Certifications',
+    backgroundColor: '#FFFFFF', backgroundGradient: 'linear-gradient(145deg, #FFF5EE 0%, #FFFFFF 50%, #FFF0E6 100%)',
+    borderColor: '#FF7A59', borderWidth: 5, borderStyle: 'solid', borderRadius: 10, decorFlourish: 'none',
+    sealType: 'modern', sealWidth: 40, showQrCode: true, qrCodeX: 88, qrCodeY: 85, qrCodeWidth: 26,
+    logoIconType: 'corporate', logoX: 50, logoY: 11, logoWidth: 66,
+    signatory1: 'Yamini Rangan', title1: 'CEO, HubSpot', signX1: 30, signY1: 78, signWidth1: 92,
+    texts: [
+      mkText('t1', 'HubSpot Academy', 16, 'Poppins', 'bold', '#FF7A59', 50, 21, 'center'),
+      mkText('t2', 'Digital Marketing Certification', 9, 'Inter', 'normal', '#33475B', 50, 27, 'center'),
+      mkText('t3', 'This certifies that', 8.5, 'Inter', 'normal', '#888', 50, 34, 'center'),
+      mkText('t4', '{{name}}', 33, 'Poppins', 'bold', '#33475B', 50, 44, 'center', { isPlaceholder: true }),
+      mkText('t5', 'has completed the inbound methodology coursework and is certified in', 8.5, 'Inter', 'normal', '#888', 50, 53, 'center'),
+      mkText('t6', '{{program}}', 14, 'Poppins', 'bold', '#FF7A59', 50, 61, 'center', { isPlaceholder: true }),
+      mkText('t7', 'Awarded: {{date}}', 7.5, 'JetBrains Mono', 'normal', '#CCC', 12, 88, 'left'),
+      mkText('t8', 'HubSpot ID: {{id}}', 7.5, 'JetBrains Mono', 'normal', '#CCC', 88, 88, 'right'),
+    ]
+  },
+
+  {
+    id: 'p-63', name: 'Terraform Associate Engineer', programName: 'HashiCorp Certified Terraform Associate (003)',
+    category: 'Technology & MNC',
+    backgroundColor: '#0E0E2C', backgroundGradient: 'radial-gradient(ellipse at 40% 25%, #1A1A44 0%, #0E0E2C 70%, #050515 100%)',
+    borderColor: '#7B42BC', borderWidth: 4, borderStyle: 'solid', decorFlourish: 'none',
+    sealType: 'stellar', sealWidth: 40, showQrCode: true, qrCodeX: 50, qrCodeY: 87, qrCodeWidth: 28,
+    logoIconType: 'tech', logoX: 50, logoY: 12, logoWidth: 70,
+    signatory1: 'Armon Dadgar', title1: 'Co-Founder & CTO, HashiCorp', signX1: 27, signY1: 77, signWidth1: 90,
+    texts: [
+      mkText('t1', 'HASHICORP', 16, 'Space Grotesk', 'bold', '#7B42BC', 50, 21, 'center', { letterSpacing: 4 }),
+      mkText('t2', 'Infrastructure as Code Certification', 9, 'Inter', 'normal', '#A78BFA', 50, 27, 'center'),
+      mkText('t3', 'This acknowledges that', 8.5, 'Inter', 'normal', '#888', 50, 34, 'center'),
+      mkText('t4', '{{name}}', 33, 'Montserrat', 'bold', '#FFFFFF', 50, 44, 'center', { isPlaceholder: true }),
+      mkText('t5', 'has validated expertise in infrastructure automation and is certified as', 8.5, 'Inter', 'normal', '#888', 50, 53, 'center'),
+      mkText('t6', '{{program}}', 14, 'Space Grotesk', 'bold', '#7B42BC', 50, 61, 'center', { isPlaceholder: true }),
+      mkText('t7', 'Certified: {{date}}', 7.5, 'JetBrains Mono', 'normal', '#4A3D6B', 12, 88, 'left'),
+      mkText('t8', 'HC-{{id}}', 7.5, 'JetBrains Mono', 'normal', '#4A3D6B', 88, 88, 'right'),
+    ]
+  },
+
+  {
+    id: 'p-64', name: 'PRINCE2 Practitioner', programName: 'PRINCE2 Practitioner Project Management Certification',
+    category: 'Professional Certifications',
+    backgroundColor: '#FFFFFF', backgroundGradient: 'linear-gradient(150deg, #FFFFFF 0%, #F8F4FF 50%, #F0EAFF 100%)',
+    borderColor: '#4A148C', borderWidth: 6, borderStyle: 'solid', decorFlourish: 'classic',
+    sealType: 'crimson_wax', sealWidth: 44, showQrCode: true, qrCodeX: 50, qrCodeY: 87, qrCodeWidth: 28,
+    logoIconType: 'corporate', logoX: 50, logoY: 12, logoWidth: 70,
+    signatory1: 'Peter Hepworth', title1: 'CEO, Axelos Global', signX1: 27, signY1: 77, signWidth1: 88,
+    texts: [
+      mkText('t1', 'AXELOS GLOBAL', 12, 'Montserrat', 'bold', '#4A148C', 50, 21, 'center', { letterSpacing: 3 }),
+      mkText('t2', '── PRINCE2® Practitioner Level ──', 9, 'Lora', 'normal', '#7C4DFF', 50, 27, 'center'),
+      mkText('t3', 'This is to certify that', 8.5, 'Lora', 'normal', '#888', 50, 34, 'center'),
+      mkText('t4', '{{name}}', 34, 'Playfair Display', 'bold', '#1A0533', 50, 44, 'center', { isPlaceholder: true }),
+      mkText('t5', 'has demonstrated advanced project management competence and earned the', 8, 'Inter', 'normal', '#888', 50, 53, 'center'),
+      mkText('t6', '{{program}}', 14, 'Montserrat', 'bold', '#4A148C', 50, 61, 'center', { isPlaceholder: true }),
+      mkText('t7', 'Conferred: {{date}}', 7.5, 'JetBrains Mono', 'normal', '#D1C4E9', 12, 88, 'left'),
+      mkText('t8', 'PRINCE2-{{id}}', 7.5, 'JetBrains Mono', 'normal', '#D1C4E9', 88, 88, 'right'),
+    ]
+  },
+
+  {
+    id: 'p-65', name: 'Certified Data Professional (CDP)', programName: 'DAMA International Certified Data Management Professional',
+    category: 'Professional Certifications',
+    backgroundColor: '#0F2439', backgroundGradient: 'linear-gradient(145deg, #0F2439 0%, #1A3A5C 50%, #0A1929 100%)',
+    borderColor: '#00BCD4', borderWidth: 4, borderStyle: 'solid', decorFlourish: 'modern',
+    sealType: 'stellar', sealWidth: 42, showQrCode: true, qrCodeX: 50, qrCodeY: 87, qrCodeWidth: 28,
+    logoIconType: 'corporate', logoX: 50, logoY: 12, logoWidth: 70,
+    signatory1: 'Deborah Henderson', title1: 'President, DAMA International', signX1: 27, signY1: 77, signWidth1: 90,
+    texts: [
+      mkText('t1', 'DAMA INTERNATIONAL', 12, 'Space Grotesk', 'bold', '#00BCD4', 50, 21, 'center', { letterSpacing: 3 }),
+      mkText('t2', 'Data Management Body of Knowledge Certification', 8.5, 'Inter', 'normal', '#4DD0E1', 50, 27, 'center'),
+      mkText('t3', 'This credential verifies that', 8.5, 'Inter', 'normal', '#78909C', 50, 34, 'center'),
+      mkText('t4', '{{name}}', 33, 'Montserrat', 'bold', '#FFFFFF', 50, 44, 'center', { isPlaceholder: true }),
+      mkText('t5', 'possesses comprehensive data management expertise and is designated', 8, 'Inter', 'normal', '#78909C', 50, 53, 'center'),
+      mkText('t6', '{{program}}', 14, 'Space Grotesk', 'bold', '#00BCD4', 50, 61, 'center', { isPlaceholder: true }),
+      mkText('t7', 'Awarded: {{date}}', 7.5, 'JetBrains Mono', 'normal', '#37474F', 12, 88, 'left'),
+      mkText('t8', 'CDP-{{id}}', 7.5, 'JetBrains Mono', 'normal', '#37474F', 88, 88, 'right'),
+    ]
+  },
+
+  {
+    id: 'p-66', name: 'Certified Blockchain Expert', programName: 'Blockchain Council Certified Blockchain Expert (CBE)',
+    category: 'Technology & MNC',
+    backgroundColor: '#0B0B1A', backgroundGradient: 'linear-gradient(160deg, #0B0B1A 0%, #141430 40%, #1A0530 70%, #0B0B1A 100%)',
+    borderColor: '#F7931A', borderWidth: 3, borderStyle: 'solid', borderRadius: 6, decorFlourish: 'none',
+    sealType: 'gold_medallion', sealWidth: 42, showQrCode: true, qrCodeX: 88, qrCodeY: 85, qrCodeWidth: 26,
+    logoIconType: 'tech', logoX: 50, logoY: 12, logoWidth: 72,
+    signatory1: 'Toshendra K. Sharma', title1: 'Founder, Blockchain Council', signX1: 30, signY1: 78, signWidth1: 92,
+    texts: [
+      mkText('t1', 'BLOCKCHAIN COUNCIL', 12, 'Space Grotesk', 'bold', '#F7931A', 50, 21, 'center', { letterSpacing: 4 }),
+      mkText('t2', '◆ Distributed Ledger Technology Certification ◆', 8, 'Inter', 'normal', '#8A7BFF', 50, 27, 'center'),
+      mkText('t3', 'This credential is awarded to', 8.5, 'Inter', 'normal', '#666', 50, 34, 'center'),
+      mkText('t4', '{{name}}', 32, 'Montserrat', 'bold', '#FFFFFF', 50, 44, 'center', { isPlaceholder: true }),
+      mkText('t5', 'for demonstrating blockchain development expertise and completing the', 8, 'Inter', 'normal', '#666', 50, 53, 'center'),
+      mkText('t6', '{{program}}', 14, 'Space Grotesk', 'bold', '#F7931A', 50, 61, 'center', { isPlaceholder: true }),
+      mkText('t7', 'Minted: {{date}}', 7.5, 'JetBrains Mono', 'normal', '#333', 12, 88, 'left'),
+      mkText('t8', 'Token: {{id}}', 7.5, 'JetBrains Mono', 'normal', '#333', 88, 88, 'right'),
+    ]
+  },
+
+  {
+    id: 'p-67', name: 'Certified Scrum Product Owner', programName: 'Scrum Alliance Certified Scrum Product Owner (CSPO)',
+    category: 'Professional Certifications',
+    backgroundColor: '#FFFFFF', backgroundGradient: 'linear-gradient(135deg, #FFFFFF 0%, #F5FFF5 50%, #EEFFEE 100%)',
+    borderColor: '#2E7D32', borderWidth: 5, borderStyle: 'solid', borderRadius: 6, decorFlourish: 'minimal',
+    sealType: 'emerald_shield', sealWidth: 42, showQrCode: true, qrCodeX: 50, qrCodeY: 87, qrCodeWidth: 28,
+    logoIconType: 'corporate', logoX: 50, logoY: 12, logoWidth: 68,
+    signatory1: 'Howard Sublett', title1: 'Chief Product Owner, Scrum Alliance', signX1: 25, signY1: 77, signWidth1: 90,
+    signatory2: 'Ken Schwaber', title2: 'Co-creator of Scrum', signX2: 75, signY2: 77, signWidth2: 90,
+    texts: [
+      mkText('t1', 'SCRUM ALLIANCE', 14, 'Montserrat', 'bold', '#2E7D32', 50, 21, 'center', { letterSpacing: 2 }),
+      mkText('t2', 'Agile Product Ownership Certification', 9, 'Inter', 'normal', '#4CAF50', 50, 27, 'center'),
+      mkText('t3', 'This is to certify that', 8.5, 'Inter', 'normal', '#888', 50, 34, 'center'),
+      mkText('t4', '{{name}}', 33, 'Poppins', 'bold', '#1B5E20', 50, 44, 'center', { isPlaceholder: true }),
+      mkText('t5', 'has completed all requirements and is awarded the credential of', 8.5, 'Inter', 'normal', '#888', 50, 53, 'center'),
+      mkText('t6', '{{program}}', 15, 'Montserrat', 'bold', '#2E7D32', 50, 61, 'center', { isPlaceholder: true }),
+      mkText('t7', 'Issued: {{date}}', 7.5, 'JetBrains Mono', 'normal', '#A5D6A7', 12, 88, 'left'),
+      mkText('t8', 'CSPO-{{id}}', 7.5, 'JetBrains Mono', 'normal', '#A5D6A7', 88, 88, 'right'),
+    ]
+  },
+
+  {
+    id: 'p-68', name: 'Google Analytics Professional', programName: 'Google Analytics Individual Qualification (GAIQ)',
+    category: 'Technology & MNC',
+    backgroundColor: '#FFFFFF', backgroundGradient: 'linear-gradient(145deg, #FFFFFF 0%, #FFF8E1 50%, #FFF3CD 100%)',
+    borderColor: '#F9AB00', borderWidth: 5, borderStyle: 'solid', decorFlourish: 'minimal',
+    sealType: 'gold_medallion', sealWidth: 40, showQrCode: true, qrCodeX: 88, qrCodeY: 85, qrCodeWidth: 26,
+    logoIconType: 'tech', logoX: 50, logoY: 11, logoWidth: 68,
+    signatory1: 'Vidhya Srinivasan', title1: 'VP/GM, Google Analytics', signX1: 30, signY1: 78, signWidth1: 92,
+    texts: [
+      mkText('t1', 'Google Analytics', 16, 'Poppins', 'bold', '#E37400', 50, 21, 'center'),
+      mkText('t2', 'Individual Qualification Program', 9, 'Inter', 'normal', '#5F6368', 50, 27, 'center'),
+      mkText('t3', 'This certifies that', 8.5, 'Inter', 'normal', '#888', 50, 34, 'center'),
+      mkText('t4', '{{name}}', 34, 'Poppins', 'bold', '#202124', 50, 44, 'center', { isPlaceholder: true }),
+      mkText('t5', 'has demonstrated proficiency in analytics implementation and data analysis for', 8, 'Inter', 'normal', '#888', 50, 53, 'center'),
+      mkText('t6', '{{program}}', 14, 'Poppins', 'bold', '#E37400', 50, 61, 'center', { isPlaceholder: true }),
+      mkText('t7', 'Valid: {{date}}', 7.5, 'JetBrains Mono', 'normal', '#CCC', 12, 88, 'left'),
+      mkText('t8', 'GAIQ-{{id}}', 7.5, 'JetBrains Mono', 'normal', '#CCC', 88, 88, 'right'),
+    ]
+  },
+
+  {
+    id: 'p-69', name: 'Certified Information Auditor', programName: 'ISACA Certified Information Systems Auditor (CISA)',
+    category: 'Professional Certifications',
+    backgroundColor: '#1A1A2E', backgroundGradient: 'linear-gradient(145deg, #1A1A2E 0%, #16213E 60%, #0F3460 100%)',
+    borderColor: '#E94560', borderWidth: 4, borderStyle: 'solid', decorFlourish: 'modern',
+    sealType: 'crimson_wax', sealWidth: 44, showQrCode: true, qrCodeX: 50, qrCodeY: 87, qrCodeWidth: 28,
+    logoIconType: 'corporate', logoX: 50, logoY: 12, logoWidth: 70,
+    signatory1: 'Brennan P. Baybeck', title1: 'Chairman, ISACA Board', signX1: 27, signY1: 77, signWidth1: 90,
+    texts: [
+      mkText('t1', 'ISACA', 22, 'Montserrat', 'bold', '#E94560', 50, 21, 'center', { letterSpacing: 5 }),
+      mkText('t2', 'Information Systems Audit & Control Association', 8, 'Inter', 'normal', '#E94560', 50, 27, 'center'),
+      mkText('t3', 'This credential is awarded to', 8.5, 'Inter', 'normal', '#78909C', 50, 34, 'center'),
+      mkText('t4', '{{name}}', 33, 'Montserrat', 'bold', '#FFFFFF', 50, 44, 'center', { isPlaceholder: true }),
+      mkText('t5', 'having met all professional experience and examination requirements for', 8, 'Inter', 'normal', '#78909C', 50, 53, 'center'),
+      mkText('t6', '{{program}}', 14, 'Montserrat', 'bold', '#E94560', 50, 61, 'center', { isPlaceholder: true }),
+      mkText('t7', 'Certified: {{date}}', 7.5, 'JetBrains Mono', 'normal', '#2C394B', 12, 88, 'left'),
+      mkText('t8', 'CISA-{{id}}', 7.5, 'JetBrains Mono', 'normal', '#2C394B', 88, 88, 'right'),
+    ]
+  },
+
+  {
+    id: 'p-70', name: 'SAFe Agilist (SA)', programName: 'SAFe 6.0 Certified SAFe Agilist (SA)',
+    category: 'Professional Certifications',
+    backgroundColor: '#FFFFFF', backgroundGradient: 'linear-gradient(155deg, #F0F8FF 0%, #FFFFFF 50%, #E8F4FD 100%)',
+    borderColor: '#0073E6', borderWidth: 5, borderStyle: 'solid', decorFlourish: 'minimal',
+    sealType: 'modern', sealWidth: 42, showQrCode: true, qrCodeX: 50, qrCodeY: 87, qrCodeWidth: 28,
+    logoIconType: 'corporate', logoX: 50, logoY: 12, logoWidth: 68,
+    signatory1: 'Dean Leffingwell', title1: 'Creator of SAFe & Chief Methodologist', signX1: 27, signY1: 77, signWidth1: 90,
+    signatory2: 'Chris James', title2: 'CEO, Scaled Agile Inc.', signX2: 73, signY2: 77, signWidth2: 90,
+    texts: [
+      mkText('t1', 'SCALED AGILE', 14, 'Space Grotesk', 'bold', '#0073E6', 50, 21, 'center', { letterSpacing: 3 }),
+      mkText('t2', 'SAFe® 6.0 Enterprise Agility Certification', 9, 'Inter', 'normal', '#4DA3E8', 50, 27, 'center'),
+      mkText('t3', 'This is to certify that', 8.5, 'Inter', 'normal', '#888', 50, 34, 'center'),
+      mkText('t4', '{{name}}', 33, 'Poppins', 'bold', '#0D2137', 50, 44, 'center', { isPlaceholder: true }),
+      mkText('t5', 'has completed the leadership curriculum and is recognized as', 8.5, 'Inter', 'normal', '#888', 50, 53, 'center'),
+      mkText('t6', '{{program}}', 15, 'Space Grotesk', 'bold', '#0073E6', 50, 61, 'center', { isPlaceholder: true }),
+      mkText('t7', 'Effective: {{date}}', 7.5, 'JetBrains Mono', 'normal', '#B0D4F1', 12, 88, 'left'),
+      mkText('t8', 'SA-{{id}}', 7.5, 'JetBrains Mono', 'normal', '#B0D4F1', 88, 88, 'right'),
+    ]
+  },
+
+  {
+    id: 'p-71', name: 'Docker Certified Associate', programName: 'Docker Certified Associate (DCA) Engineer',
+    category: 'Technology & MNC',
+    backgroundColor: '#FFFFFF', backgroundGradient: 'linear-gradient(145deg, #FFFFFF 0%, #F0F8FF 50%, #E3F2FD 100%)',
+    borderColor: '#2496ED', borderWidth: 5, borderStyle: 'solid', borderRadius: 8, decorFlourish: 'none',
+    sealType: 'stellar', sealWidth: 40, showQrCode: true, qrCodeX: 88, qrCodeY: 85, qrCodeWidth: 26,
+    logoIconType: 'tech', logoX: 50, logoY: 11, logoWidth: 70,
+    signatory1: 'Scott Johnston', title1: 'CEO, Docker Inc.', signX1: 30, signY1: 78, signWidth1: 92,
+    texts: [
+      mkText('t1', 'DOCKER', 22, 'Montserrat', 'bold', '#2496ED', 50, 21, 'center', { letterSpacing: 4 }),
+      mkText('t2', 'Container Platform Certification', 9, 'Inter', 'normal', '#0D47A1', 50, 27, 'center'),
+      mkText('t3', 'This certifies that', 8.5, 'Inter', 'normal', '#888', 50, 34, 'center'),
+      mkText('t4', '{{name}}', 34, 'Poppins', 'bold', '#0D47A1', 50, 44, 'center', { isPlaceholder: true }),
+      mkText('t5', 'has demonstrated proficiency in containerization and is certified as', 8.5, 'Inter', 'normal', '#888', 50, 53, 'center'),
+      mkText('t6', '{{program}}', 14, 'Montserrat', 'bold', '#2496ED', 50, 61, 'center', { isPlaceholder: true }),
+      mkText('t7', 'Certified: {{date}}', 7.5, 'JetBrains Mono', 'normal', '#CCC', 12, 88, 'left'),
+      mkText('t8', 'DCA-{{id}}', 7.5, 'JetBrains Mono', 'normal', '#CCC', 88, 88, 'right'),
+    ]
+  },
+
+  {
+    id: 'p-72', name: 'Certified Cloud Security (CCSP)', programName: 'ISC2 Certified Cloud Security Professional (CCSP)',
+    category: 'Professional Certifications',
+    backgroundColor: '#050A18', backgroundGradient: 'radial-gradient(ellipse at 50% 40%, #0D1B2A 0%, #050A18 70%, #020510 100%)',
+    borderColor: '#00E5FF', borderWidth: 3, borderStyle: 'solid', decorFlourish: 'modern',
+    sealType: 'emerald_shield', sealWidth: 44, showQrCode: true, qrCodeX: 50, qrCodeY: 87, qrCodeWidth: 28,
+    logoIconType: 'corporate', logoX: 50, logoY: 12, logoWidth: 72,
+    signatory1: 'Clar Rosso', title1: 'CEO, ISC2 Organization', signX1: 27, signY1: 77, signWidth1: 90,
+    signatory2: 'Diana Kelley', title2: 'CTO, Cloud Security', signX2: 73, signY2: 77, signWidth2: 90,
+    texts: [
+      mkText('t1', 'ISC² CLOUD SECURITY', 11, 'Space Grotesk', 'bold', '#00E5FF', 50, 21, 'center', { letterSpacing: 3 }),
+      mkText('t2', '◈ Certified Cloud Security Professional ◈', 8, 'Inter', 'normal', '#0097A7', 50, 27, 'center'),
+      mkText('t3', 'This credential verifies that', 8.5, 'Inter', 'normal', '#607D8B', 50, 34, 'center'),
+      mkText('t4', '{{name}}', 33, 'Montserrat', 'bold', '#FFFFFF', 50, 44, 'center', { isPlaceholder: true }),
+      mkText('t5', 'has met rigorous cloud security standards and is designated as', 8, 'Inter', 'normal', '#607D8B', 50, 53, 'center'),
+      mkText('t6', '{{program}}', 14, 'Space Grotesk', 'bold', '#00E5FF', 50, 61, 'center', { isPlaceholder: true }),
+      mkText('t7', 'Certified: {{date}}', 7.5, 'JetBrains Mono', 'normal', '#1A3A4A', 12, 88, 'left'),
+      mkText('t8', 'CCSP-{{id}}', 7.5, 'JetBrains Mono', 'normal', '#1A3A4A', 88, 88, 'right'),
+    ]
+  },
+
+  {
+    id: 'p-73', name: 'PMI Agile Certified Practitioner', programName: 'PMI Agile Certified Practitioner (PMI-ACP)',
+    category: 'Professional Certifications',
+    backgroundColor: '#FAFAF5', backgroundGradient: 'linear-gradient(145deg, #FAFAF5 0%, #F5F0E8 50%, #EDE8DC 100%)',
+    borderColor: '#BF8C30', borderWidth: 6, borderStyle: 'double', decorFlourish: 'ornate',
+    sealType: 'classic', sealWidth: 46, showQrCode: true, qrCodeX: 50, qrCodeY: 87, qrCodeWidth: 28,
+    logoIconType: 'corporate', logoX: 50, logoY: 12, logoWidth: 70,
+    signatory1: 'Pierre Le Manh', title1: 'President & CEO, PMI', signX1: 27, signY1: 77, signWidth1: 88,
+    signatory2: 'Dr. Harold Kerzner', title2: 'Distinguished Fellow, PMI', signX2: 73, signY2: 77, signWidth2: 88,
+    texts: [
+      mkText('t1', 'PROJECT MANAGEMENT INSTITUTE', 10, 'Montserrat', 'bold', '#6B4C1E', 50, 21, 'center', { letterSpacing: 3 }),
+      mkText('t2', '━━ Agile Certified Practitioner ━━', 9, 'Lora', 'normal', '#BF8C30', 50, 27, 'center'),
+      mkText('t3', 'The Institute hereby certifies that', 8.5, 'Lora', 'normal', '#888', 50, 34, 'center'),
+      mkText('t4', '{{name}}', 34, 'Playfair Display', 'bold', '#3E2A0E', 50, 44, 'center', { isPlaceholder: true }),
+      mkText('t5', 'has fulfilled all eligibility requirements and examination standards for', 8, 'Lora', 'normal', '#888', 50, 53, 'center'),
+      mkText('t6', '{{program}}', 14, 'Playfair Display', 'bold', '#6B4C1E', 50, 61, 'center', { isPlaceholder: true }),
+      mkText('t7', 'Conferred: {{date}}', 7.5, 'JetBrains Mono', 'normal', '#C4B896', 12, 88, 'left'),
+      mkText('t8', 'PMI-ACP: {{id}}', 7.5, 'JetBrains Mono', 'normal', '#C4B896', 88, 88, 'right'),
+    ]
   }
 ];
 
@@ -1190,7 +1599,7 @@ const buildTemplate = (def: PresetDef): CertificateTemplate => ({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Export: 53 fully-specified, professional certificate templates
+// Export: 73 fully-specified, professional certificate templates
 // ─────────────────────────────────────────────────────────────────────────────
 export const BEAUTIFUL_PRESETS: (CertificateTemplate & { category: string; programName: string })[] =
   PRESET_DEFINITIONS.map(def => ({
