@@ -157,6 +157,19 @@ export function Dashboard({
       setPendingAction(null);
     }
   };
+  const readApiError = async (res: Response, fallback: string) => {
+    try {
+      const data = await res.json();
+      return data.error || fallback;
+    } catch {
+      try {
+        const text = await res.text();
+        return text || fallback;
+      } catch {
+        return fallback;
+      }
+    }
+  };
 
   // 1. Initial Load & Dynamic Synchronization
   useEffect(() => {
@@ -483,8 +496,13 @@ export function Dashboard({
         body: JSON.stringify(editingTemplate)
       });
       if (res.ok) {
+        const saved = await res.json();
+        setTemplates((items) => items.map((item) => (item.id === saved.id ? saved : item)));
         setEditingTemplate(null);
         await triggerDataRefresh();
+        toast.success('Template saved.');
+      } else {
+        toast.error(await readApiError(res, 'Failed to save template changes.'));
       }
     } catch (err) {
       console.error('Failed saving template edits', err);
@@ -507,8 +525,13 @@ export function Dashboard({
         body: JSON.stringify(updated)
       });
       if (res.ok) {
+        const saved = await res.json();
+        setTemplates((items) => items.map((item) => (item.id === saved.id ? saved : item)));
         setEditingTemplate(null);
         await triggerDataRefresh();
+        toast.success('Canva template saved.');
+      } else {
+        toast.error(await readApiError(res, 'Failed to save Canva template.'));
       }
     } catch (err) {
       console.error('Failed saving template edits', err);
@@ -2201,6 +2224,7 @@ export function Dashboard({
                     template={editingTemplate} 
                     onSave={handleSaveCanvaTemplate} 
                     onCancel={() => setEditingTemplate(null)} 
+                    isSaving={isActionPending('template:save')}
                     brandName={currentWorkspace?.branding?.brandName || currentWorkspace?.name} 
                     primaryColor={currentWorkspace?.branding?.primaryColor || '#000000'}
                     token={token}
