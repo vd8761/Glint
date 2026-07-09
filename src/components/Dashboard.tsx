@@ -1455,6 +1455,23 @@ export function Dashboard({
     );
   });
 
+  // A template open in the editor takes over the entire screen — no dashboard
+  // sidebar or header — for a distraction-free, Figma-style editing surface.
+  if (editingTemplate) {
+    return (
+      <CanvaEditor
+        template={editingTemplate}
+        onSave={handleSaveCanvaTemplate}
+        onCancel={() => setEditingTemplate(null)}
+        isSaving={isActionPending('template:save')}
+        brandName={currentWorkspace?.branding?.brandName || currentWorkspace?.name}
+        primaryColor={currentWorkspace?.branding?.primaryColor || '#000000'}
+        token={token}
+        programs={programs}
+      />
+    );
+  }
+
   return (
     <div className="flex h-screen w-screen bg-[#F8F9FA] overflow-hidden font-sans relative" aria-busy={pendingAction ? true : undefined}>
       {pendingActionLabel && (
@@ -2235,20 +2252,8 @@ export function Dashboard({
                 </div>
               )}
 
-              {/* TAB 3: LAYOUT TEMPLATES */}
+              {/* TAB 3: LAYOUT TEMPLATES (editing takes over the full screen above) */}
               {activeTab === 'templates' && (
-                editingTemplate ? (
-                  <CanvaEditor 
-                    template={editingTemplate} 
-                    onSave={handleSaveCanvaTemplate} 
-                    onCancel={() => setEditingTemplate(null)} 
-                    isSaving={isActionPending('template:save')}
-                    brandName={currentWorkspace?.branding?.brandName || currentWorkspace?.name} 
-                    primaryColor={currentWorkspace?.branding?.primaryColor || '#000000'}
-                    token={token}
-                    programs={programs}
-                  />
-                ) : (
                   <div className="space-y-8 animate-fade-in">
                     <div className="space-y-6">
                       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200">
@@ -2336,7 +2341,6 @@ export function Dashboard({
                       </div>
                     </div>
                   </div>
-                )
               )}
 
               {/* TAB 4: BULK CSV RECIPIENT IMPORT */}
