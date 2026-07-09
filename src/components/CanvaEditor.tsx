@@ -285,6 +285,7 @@ interface CanvaEditorProps {
   template: CertificateTemplate;
   onSave: (updatedTemplate: CertificateTemplate) => void;
   onCancel: () => void;
+  isSaving?: boolean;
   brandName?: string;
   primaryColor?: string;
   token?: string | null;
@@ -363,7 +364,7 @@ const uniqueFontFamily = (baseName: string, existing: Set<string>) => {
   return family;
 };
 
-export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace', primaryColor = '#0F172A', token, programs = [] }: CanvaEditorProps) {
+export function CanvaEditor({ template, onSave, onCancel, isSaving = false, brandName = 'Workspace', primaryColor = '#0F172A', token, programs = [] }: CanvaEditorProps) {
   // Current active template editing state
   const [currentTemplate, setCurrentTemplate] = useState<CertificateTemplate>(JSON.parse(JSON.stringify(template)));
   
@@ -2547,10 +2548,13 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
           </div>
  
           <button
+            type="button"
             onClick={() => onSave(prepareTemplateForSave())}
-            className="bg-slate-950 hover:bg-slate-850 text-white text-xs px-2.5 sm:px-5 py-2 rounded font-bold shadow transition-all flex items-center gap-1 sm:gap-1.5"
+            disabled={isSaving}
+            className="bg-slate-950 hover:bg-slate-850 text-white text-xs px-2.5 sm:px-5 py-2 rounded font-bold shadow transition-all flex items-center gap-1 sm:gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            <Save className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Save Canva Slate</span><span className="inline sm:hidden">Save</span>
+            {isSaving ? <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            <span className="hidden sm:inline">{isSaving ? 'Saving...' : 'Save Canva Slate'}</span><span className="inline sm:hidden">{isSaving ? 'Saving...' : 'Save'}</span>
           </button>
         </div>
       </div>

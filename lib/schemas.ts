@@ -51,7 +51,7 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD');
 const safeUrl = z
   .string()
   .trim()
-  .max(2_000_000) // logos arrive as base64 data URIs
+  .max(8_000_000) // certificate backgrounds/logos arrive as base64 data URIs
   .refine((v) => v === '' || /^https:\/\//i.test(v) || /^data:image\/(png|jpe?g|svg\+xml|webp|gif);base64,/i.test(v), {
     message: 'Must be an https URL or a base64 image data URI',
   })
@@ -187,10 +187,14 @@ export const templateBodySchema = z.object({
   signatureWidth: z.number().min(0).max(1000).optional(),
   signatoryName: optionalText(120),
   signatoryTitle: optionalText(120),
+  signatoryFontFamily: z.string().max(80).optional(),
+  signatoryFontSize: z.number().min(1).max(200).optional(),
   showSecondarySignatory: z.boolean().optional(),
   secondarySignatureUrl: safeUrl,
   secondarySignatoryName: optionalText(120),
   secondarySignatoryTitle: optionalText(120),
+  secondarySignatoryFontFamily: z.string().max(80).optional(),
+  secondarySignatoryFontSize: z.number().min(1).max(200).optional(),
   secondarySignatureX: z.number().min(-50).max(150).optional().nullable(),
   secondarySignatureY: z.number().min(-50).max(150).optional().nullable(),
   secondarySignatureWidth: z.number().min(0).max(1000).optional().nullable(),

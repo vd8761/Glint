@@ -55,4 +55,20 @@ describe('templateBodySchema', () => {
       },
     ]);
   });
+
+  it('accepts Canva signatory style fields', () => {
+    const parsed = templateBodySchema.parse({
+      workspaceId: 'ws_test',
+      name: 'Signatory Style Test',
+      signatoryFontFamily: 'Great Vibes',
+      signatoryFontSize: 28,
+      secondarySignatoryFontFamily: 'Playfair Display',
+      secondarySignatoryFontSize: 18,
+    });
+
+    expect(parsed.signatoryFontFamily).toBe('Great Vibes');
+    expect(parsed.signatoryFontSize).toBe(28);
+    expect(parsed.secondarySignatoryFontFamily).toBe('Playfair Display');
+    expect(parsed.secondarySignatoryFontSize).toBe(18);
+  });
 });
