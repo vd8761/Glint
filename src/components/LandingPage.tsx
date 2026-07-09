@@ -4,12 +4,13 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Award, ShieldAlert, CheckCircle, Search, ArrowRight, 
+import {
+  Award, ShieldAlert, CheckCircle, Search, ArrowRight,
   Check, Zap, Layers, Sparkles, Star, RefreshCw,
-  Terminal, Copy, Globe, Cpu, Server, Database, Activity
+  Terminal, Copy, Globe
 } from 'lucide-react';
 import { HeroScrollDemo } from './ui/demo';
+import { useQrDataUrl } from '../lib/qr';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface LandingPageProps {
@@ -25,20 +26,22 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
   const [hoverCard, setHoverCard] = useState({ x: 0, y: 0, hover: false });
   const [activeFeatureTab, setActiveFeatureTab] = useState(0);
 
-  // Cryptographic Trust Sandbox State
-  const [sandboxInput, setSandboxInput] = useState('Recipient: John Doe\nCredential: B.S. Cybersecurity\nSecurity Seal: VERIFIED\nPlatform: Glint Ledger');
+  // Decorative. Generated in the browser rather than fetched from api.qrserver.com.
+  const previewQrDataUrl = useQrDataUrl(`${window.location.origin}/`);
+
+  // SHA-256 hash explorer. This one is genuine — it is the browser's own
+  // SubtleCrypto, hashing whatever you type. It illustrates what a digest is;
+  // it is not what signs a certificate (that is a keyed HMAC, server-side).
+  const [sandboxInput, setSandboxInput] = useState(
+    'Recipient: John Doe\nProgram: B.S. Cybersecurity\nIssued: 2026-07-08',
+  );
   const [sandboxHash, setSandboxHash] = useState('');
   const [copied, setCopied] = useState(false);
-  const [ledgerLogs, setLedgerLogs] = useState([
-    { id: 894012, hash: 'a1b2c3d4e5f67890abcdef1234567890abcdef1234567890abcdef1234567890', node: 'Oregon', time: '16:56:12' },
-    { id: 894013, hash: 'f7e6d5c4b3a2918070605040302010abcdef0f1e2d3c4b5a69788796a5b4c3d2', node: 'Tokyo', time: '16:56:15' },
-    { id: 894014, hash: '3e4d5c6b7a892010f0e0d0c0b0a0908070605040302010abcdef0123456789ab', node: 'Frankfurt', time: '16:56:19' }
-  ]);
 
-  // SHA-256 Cryptographic Sandbox Calculator
   useEffect(() => {
     const calculateHash = async () => {
       if (!sandboxInput) {
+        // SHA-256 of the empty string.
         setSandboxHash('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
         return;
       }
@@ -46,48 +49,15 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
         const msgBuffer = new TextEncoder().encode(sandboxInput);
         const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
         const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-        setSandboxHash(hashHex);
-      } catch (err) {
-        let hash = 0;
-        for (let i = 0; i < sandboxInput.length; i++) {
-          hash = (hash << 5) - hash + sandboxInput.charCodeAt(i);
-          hash |= 0;
-        }
-        setSandboxHash('simulated_hash_' + Math.abs(hash).toString(16).padStart(16, '0'));
+        setSandboxHash(hashArray.map(b => b.toString(16).padStart(2, '0')).join(''));
+      } catch {
+        // SubtleCrypto requires a secure context. Say so rather than printing a
+        // made-up "simulated_hash_..." string that looks like a real digest.
+        setSandboxHash('unavailable — SHA-256 requires HTTPS or localhost');
       }
     };
     calculateHash();
   }, [sandboxInput]);
-
-  // Dynamic Ledger Log update
-  useEffect(() => {
-    const nodes = ['Oregon', 'Tokyo', 'Frankfurt', 'London'];
-    const interval = setInterval(() => {
-      setLedgerLogs(prev => {
-        const nextId = prev[prev.length - 1].id + 1;
-        const now = new Date();
-        const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-        const randomNode = nodes[Math.floor(Math.random() * nodes.length)];
-        
-        // Generate a random mock SHA-256 hex string
-        const chars = '0123456789abcdef';
-        let randomHash = '';
-        for (let i = 0; i < 64; i++) {
-          randomHash += chars[Math.floor(Math.random() * 16)];
-        }
-
-        const newLog = {
-          id: nextId,
-          hash: randomHash,
-          node: randomNode,
-          time: timeStr
-        };
-        return [...prev.slice(1), newLog];
-      });
-    }, 4500);
-    return () => clearInterval(interval);
-  }, []);
 
   const handleCopyHash = () => {
     navigator.clipboard.writeText(sandboxHash);
@@ -183,7 +153,7 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
 
         <div className="flex items-center gap-1.5 sm:gap-3">
           <button 
-            onClick={() => onSelectWorkspace('ws-google-infra')}
+            onClick={onStartFree}
             className="text-[10px] sm:text-xs font-semibold text-slate-700 hover:text-slate-950 px-2.5 sm:px-3.5 py-1.5 sm:py-2 transition-all border border-[#E9ECEF]/85 hover:bg-white rounded-lg shadow-[0_1px_2px_rgba(0,0,0,0.02)] whitespace-nowrap"
           >
             Sign In
@@ -267,26 +237,19 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
               className="group border border-slate-200 bg-white text-xs px-8 py-4 rounded-xl font-bold text-slate-700 hover:text-indigo-600 hover:bg-indigo-50/20 hover:border-indigo-200 transition-all flex items-center justify-center gap-2 shadow-sm"
             >
               <Award className="w-4 h-4 text-amber-500 group-hover:scale-110 transition-transform" />
-              Explore Ledger Verifier
+              See a sample certificate
             </button>
           </motion.div>
 
-          {/* Real Customer Trust Logos */}
-          <motion.div 
-            variants={{
-              hidden: { opacity: 0 },
-              visible: { opacity: 0.55, transition: { delay: 0.5 } }
-            }}
-            className="pt-6 space-y-3"
-          >
-            <p className="text-[10px] uppercase tracking-widest text-[#9CA3AF] font-bold">Trusted by verification authorities</p>
-            <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
-              <span className="font-display font-bold tracking-tight text-slate-950 text-sm">COLUMBIA UNIVERSITY</span>
-              <span className="font-display font-mono text-slate-950 text-xs tracking-widest">GOOGLE.CLOUD.SECURE</span>
-              <span className="font-sans font-semibold text-slate-950 text-sm italic">Stellar.Academy</span>
-              <span className="font-serif font-black text-slate-950 text-sm">MIT_COGNITIVE</span>
-            </div>
-          </motion.div>
+          {/*
+            A "Trusted by verification authorities" row listed COLUMBIA UNIVERSITY,
+            GOOGLE.CLOUD.SECURE, Stellar.Academy, and MIT_COGNITIVE. None of them
+            are customers. Naming a real university and a real company as endorsers
+            is a false-endorsement and trademark problem, not stray demo copy.
+
+            Restore this block when there are real logos to put in it, with
+            permission to use them.
+          */}
         </motion.div>
 
         {/* Hero Interactive Certificate Preview Card */}
@@ -348,7 +311,7 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
                   <p style={{ color: previewLayout === 'google' ? '#1a73e8' : '#ec4899' }} className="font-mono text-[1.8cqw] uppercase tracking-widest font-bold">
                     {previewLayout === 'google' ? 'Google Cloud Credentials' : 'Stellar Tech Academy'}
                   </p>
-                  <p className="text-[1.4cqw] text-[#9CA3AF] tracking-tight">VERIFIED ID: CERT-2026-XPREV</p>
+                  <p className="text-[1.4cqw] text-[#9CA3AF] tracking-tight">VERIFIED ID: GLNT-SAMPLE-PREVIEW</p>
                 </div>
                 <div className="w-[11cqw] h-[4.8cqw] border bg-white/60 p-[0.2cqw] rounded flex items-center justify-center text-[1.4cqw] font-bold border-slate-200 uppercase truncate">
                   {previewLayout === 'google' ? '★ GOOGLE' : 'STELLAR'}
@@ -379,7 +342,7 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
                 </div>
 
                 <p className="text-[1.4cqw] text-[#64748B] px-[0.5cqw] pt-[0.2cqw]">
-                  for expert architectural integration of the <span className="font-medium text-slate-900">Advanced API & Platform Ledger System</span>
+                  for help integrating the <span className="font-medium text-slate-900">issuance and verification API</span>
                 </p>
               </div>
 
@@ -391,16 +354,16 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
                 </div>
                 <div className="text-center">
                   <div className="h-[4.8cqw] w-[11cqw] border-b border-slate-900 mx-auto"></div>
-                  <p className="font-sans text-[1.2cqw] font-bold text-slate-700 mt-[0.2cqw]">Thomas Kurian</p>
-                  <p className="font-sans text-[1cqw] text-slate-400">Chief Authority Officer</p>
+                  {/* Was "Thomas Kurian / Chief Authority Officer" — the name of a
+                      real, identifiable executive, on a fabricated certificate. */}
+                  <p className="font-sans text-[1.2cqw] font-bold text-slate-700 mt-[0.2cqw]">Sample Signatory</p>
+                  <p className="font-sans text-[1cqw] text-slate-400">Programme Director</p>
                 </div>
                 <div className="text-right flex items-center gap-[0.2cqw]">
                   <div className="w-[4.8cqw] h-[4.8cqw] bg-white p-[0.1cqw] rounded-sm border border-slate-200 shadow-sm flex items-center justify-center">
-                    <img 
-                      src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://credentials.os/%23preview&color=0f172a" 
-                      alt="Verification QR"
-                      className="w-full h-full object-contain"
-                    />
+                    {previewQrDataUrl && (
+                      <img src={previewQrDataUrl} alt="Sample verification QR" className="w-full h-full object-contain" />
+                    )}
                   </div>
                 </div>
               </div>
@@ -439,13 +402,14 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
           {/* Header */}
           <div className="text-center max-w-2xl mx-auto space-y-4">
             <span className="text-xs font-bold uppercase tracking-widest text-indigo-600 bg-indigo-50 px-3.5 py-1.5 rounded-full border border-indigo-100">
-              Interactive Trust Ledger
+              How verification works
             </span>
             <h2 className="font-serif text-3xl md:text-4.5xl italic text-slate-950">
-              Cryptographic Sandbox & Node Explorer
+              Hash explorer
             </h2>
             <p className="text-slate-500 text-sm">
-              Type any credential data payload to see real-time SHA-256 integrity fingerprinting and visualize validation across global ledger registry nodes.
+              Type anything to see its SHA-256 digest, computed in your browser. Change one character and the whole
+              digest changes — that property is what makes a certificate's signature detect tampering.
             </p>
           </div>
 
@@ -518,86 +482,67 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
                     <span className="font-mono text-xs font-bold text-slate-300">256 Bits</span>
                   </div>
                   <div>
-                    <span className="block text-[8px] text-slate-500 uppercase font-mono">LATENCY</span>
-                    <span className="font-mono text-xs font-bold text-emerald-400 flex items-center justify-center gap-1">
-                      <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" /> &lt; 0.1ms
-                    </span>
+                    <span className="block text-[8px] text-slate-500 uppercase font-mono">COMPUTED</span>
+                    <span className="font-mono text-xs font-bold text-emerald-400">In your browser</span>
                   </div>
+                  {/* Said "SECURITY: AES-HMAC". This is an unkeyed SHA-256 digest. */}
                   <div>
-                    <span className="block text-[8px] text-slate-500 uppercase font-mono">SECURITY</span>
-                    <span className="font-mono text-xs font-bold text-indigo-400 font-bold">AES-HMAC</span>
+                    <span className="block text-[8px] text-slate-500 uppercase font-mono">ALGORITHM</span>
+                    <span className="font-mono text-xs font-bold text-indigo-400">SHA-256</span>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Right Column: Global Registry Explorer & Live Ledger */}
+            {/*
+              Right column: what Glint actually does.
+
+              This was a "Distributed Registry Nodes" panel — Tokyo 14ms,
+              Frankfurt 28ms, Oregon 42ms, London 21ms, "4 Nodes Connected" —
+              above a live feed of "BLOCK #894012" entries carrying randomly
+              generated 64-char hex strings, appended every 4.5 seconds by a
+              setInterval. There are no nodes, no blocks, and no ledger. It ran
+              on the front page of a product that issues credentials people are
+              asked to trust.
+            */}
             <div className="lg:col-span-6 flex flex-col justify-between space-y-6">
-              {/* Trust Nodes Status Dashboard */}
-              <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-6 shadow-sm flex flex-col justify-between flex-1">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                  <div className="flex items-center gap-2">
-                    <Globe className="w-4 h-4 text-indigo-600" />
-                    <span className="font-sans text-xs font-bold text-slate-900">Distributed Registry Nodes</span>
-                  </div>
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-100">
-                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" /> 4 Nodes Connected
-                  </span>
+              <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-6 shadow-sm flex flex-col flex-1">
+                <div className="flex items-center gap-2 pb-3 border-b border-slate-200">
+                  <Globe className="w-4 h-4 text-indigo-600" />
+                  <span className="font-sans text-xs font-bold text-slate-900">How a Glint certificate is signed</span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-4">
-                  {[
-                    { name: 'Tokyo Registry Node', latency: '14ms', icon: Cpu },
-                    { name: 'Frankfurt Ledger Node', latency: '28ms', icon: Server },
-                    { name: 'Oregon Validator Node', latency: '42ms', icon: Database },
-                    { name: 'London Authority Node', latency: '21ms', icon: Activity },
-                  ].map((node, i) => (
-                    <div key={i} className="bg-white border border-slate-100 p-3 rounded-xl shadow-xs flex items-center justify-between hover:shadow-sm transition-all duration-200">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
-                          <node.icon className="w-3.5 h-3.5" />
-                        </div>
-                        <div>
-                          <p className="text-[10px] font-bold text-slate-800 leading-none mb-0.5">{node.name}</p>
-                          <p className="text-[8px] text-slate-400 font-mono">Ping: {node.latency}</p>
-                        </div>
-                      </div>
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-                    </div>
-                  ))}
+                <div className="py-5 space-y-5 flex-1">
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono">1 · Sign at issuance</p>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      When a certificate is issued, Glint computes an <span className="font-mono text-slate-900">HMAC-SHA256</span> over
+                      its recipient, program, and dates, using a secret key that never leaves the server.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono">2 · Verify on request</p>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      Opening a certificate link and pressing <span className="font-medium text-slate-900">Verify</span> asks the registry to
+                      recompute that signature and compare it, in constant time, with the stored value. Changing any signed
+                      field — even directly in the database — makes the comparison fail.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono">3 · Revoke independently</p>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      Revocation is a separate, mutable status. It does not break the signature — an issuer can withdraw a
+                      genuine certificate. A verifier checks both.
+                    </p>
+                  </div>
                 </div>
 
-                {/* Ledger Activity Stream */}
-                <div className="flex-1 flex flex-col justify-end mt-2">
-                  <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 font-mono">
-                    <Activity className="w-3.5 h-3.5 text-indigo-500 animate-pulse" /> Live Trust Validation Feed
-                  </div>
-                  <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 font-mono text-[9px] text-slate-400 space-y-2 max-h-[140px] overflow-hidden shadow-inner flex flex-col justify-end">
-                    <AnimatePresence initial={false}>
-                      {ledgerLogs.map((log) => (
-                        <motion.div 
-                          key={log.id} 
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -10 }}
-                          transition={{ duration: 0.3 }}
-                          className="flex items-start justify-between border-b border-slate-800/40 pb-1.5 last:border-0 last:pb-0"
-                        >
-                          <div className="flex items-center gap-1.5 text-slate-300">
-                            <span className="text-emerald-500">✔</span>
-                            <span>BLOCK #{log.id}</span>
-                            <span className="text-indigo-400 font-bold">[{log.node}]</span>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <span className="text-slate-500 text-[8.5px] truncate max-w-[110px] xl:max-w-[180px]" title={log.hash}>
-                              {log.hash.substring(0, 8)}...{log.hash.substring(56)}
-                            </span>
-                            <span className="text-slate-600 text-[8px] font-medium">{log.time}</span>
-                          </div>
-                        </motion.div>
-                      ))}
-                    </AnimatePresence>
-                  </div>
+                <div className="bg-white border border-slate-200 rounded-xl p-4 text-[11px] text-slate-500 leading-relaxed">
+                  <span className="font-bold text-slate-700">What this does not do.</span>{' '}
+                  The key is symmetric, so only Glint can verify a signature. A third party cannot check one
+                  independently, and there is no blockchain or public ledger involved.
                 </div>
               </div>
             </div>
@@ -899,7 +844,7 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
               </ul>
             </div>
             <button 
-              onClick={() => onSelectWorkspace('ws-stellar')}
+              onClick={onStartFree}
               className="w-full bg-indigo-600 hover:bg-indigo-705 text-white py-3 rounded-xl text-xs font-bold transition-all text-center shadow-md shadow-indigo-100 cursor-pointer"
             >
               Upgrade & Onboard Workspace
@@ -921,7 +866,7 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
               </ul>
             </div>
             <button 
-              onClick={() => onSelectWorkspace('ws-google-infra')}
+              onClick={onStartFree}
               className="w-full bg-slate-50 text-slate-900 border border-[#E9ECEF] hover:bg-slate-100 py-3 rounded-xl text-xs font-bold transition-all text-center cursor-pointer"
             >
               Configure Enterprise

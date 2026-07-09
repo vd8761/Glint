@@ -1,16 +1,285 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { 
-  Undo2, Redo2, Sliders, Plus, Trash2, Save, ArrowLeft, Sparkles, 
+  Undo2, Redo2, Sliders, Plus, Trash2, Save, ArrowLeft, Sparkles,
   Layers, Type, QrCode, Award, Check, Grid, Image, Info, User,
-  MousePointerClick, AlignLeft, AlignCenter, AlignRight, Bold, Italic, Underline, HelpCircle, Eye, EyeOff, Upload
+  MousePointerClick, AlignLeft, AlignCenter, AlignRight, Bold, Italic, Underline, HelpCircle, Eye, EyeOff, Upload,
+  ZoomIn, ZoomOut, Maximize2, GripVertical, ChevronUp, ChevronDown
 } from 'lucide-react';
-import { CertificateTemplate, TextElement } from '../types';
+import type { CertificateTemplate, CustomFontAsset, RichTextRun, TextElement } from '../types';
 import { BEAUTIFUL_PRESETS } from '../presets';
+import { useQrDataUrl } from '../lib/qr';
+import { computeSnap, type Box, type Guide } from '../lib/canvasSnap';
+import {
+  applyRichTextStyleToRange,
+  normalizeRichTextRuns,
+  plainTextFromRuns,
+  remapRichTextRuns,
+  resolveRichTextRuns,
+  runHasStyle,
+  type RichTextStylePatch,
+} from '../lib/richText';
 
 const capitalizeWords = (str: string) => {
   return str.replace(/\b\w/g, char => char.toUpperCase());
 };
+
+export type HandlePos =
+  | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+  | 'left' | 'right' | 'top' | 'bottom';
+
+/**
+ * Placement and cursor for each resize handle, relative to the element box.
+ * Each handle is centred on its anchor point (a corner or an edge midpoint)
+ * with a translate, so the visible dot sits exactly on the box outline.
+ */
+const HANDLE_CURSORS: Record<HandlePos, string> = {
+  'top-left': 'cursor-nwse-resize',
+  'top-right': 'cursor-nesw-resize',
+  'bottom-left': 'cursor-nesw-resize',
+  'bottom-right': 'cursor-nwse-resize',
+  left: 'cursor-ew-resize',
+  right: 'cursor-ew-resize',
+  top: 'cursor-ns-resize',
+  bottom: 'cursor-ns-resize',
+};
+
+const HANDLE_ANCHORS: Record<HandlePos, { x: number; y: number }> = {
+  'top-left': { x: 0, y: 0 },
+  'top-right': { x: 1, y: 0 },
+  'bottom-left': { x: 0, y: 1 },
+  'bottom-right': { x: 1, y: 1 },
+  left: { x: 0, y: 0.5 },
+  right: { x: 1, y: 0.5 },
+  top: { x: 0.5, y: 0 },
+  bottom: { x: 0.5, y: 1 },
+};
+
+const handleAnchorValue = (ratio: number, outlineOffset: number) => {
+  if (ratio === 0) return `-${outlineOffset}px`;
+  if (ratio === 1) return `calc(100% + ${outlineOffset}px)`;
+  return '50%';
+};
+
+/**
+ * A resize handle.
+ *
+ * The hit area is an 18px transparent box; the visible dot is 9px inside it.
+ * The old handles were bare 8px dots, which is far below the ~24px touch target
+ * guidance and, on a mouse, easy to miss — a near miss landed on the element
+ * body and started a drag instead. This is why "I can't resize by the dots".
+ *
+ * `touch-none` sets `touch-action: none` so a touch/pen drag on the handle does
+ * not also scroll the page. Pointer capture (in the parent's onStart) does the
+ * rest: once the handle is pressed it receives every subsequent move until
+ * release, no matter how fast the pointer moves or what it passes over.
+ */
+function ResizeHandle({
+  pos,
+  onStart,
+  outlineOffset = 2,
+}: {
+  pos: HandlePos;
+  onStart: (e: React.PointerEvent, pos: HandlePos) => void;
+  outlineOffset?: number;
+}) {
+  const anchor = HANDLE_ANCHORS[pos];
+  return (
+    <div
+      onPointerDown={(e) => onStart(e, pos)}
+      className={`absolute ${HANDLE_CURSORS[pos]} z-[55] flex items-center justify-center touch-none`}
+      style={{
+        left: handleAnchorValue(anchor.x, outlineOffset),
+        top: handleAnchorValue(anchor.y, outlineOffset),
+        width: 18,
+        height: 18,
+        transform: 'translate(-50%, -50%)',
+      }}
+      title="Drag to resize"
+    >
+      <span className="w-[9px] h-[9px] bg-indigo-600 rounded-full border-2 border-white shadow-md pointer-events-none transition-transform hover:scale-125" />
+    </div>
+  );
+}
+
+const ALL_HANDLES: HandlePos[] = [
+  'top-left', 'top-right', 'bottom-left', 'bottom-right', 'left', 'right', 'top', 'bottom',
+];
+const CORNER_HANDLES: HandlePos[] = ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'left', 'right'];
+const PATCH_HANDLES: HandlePos[] = ['right', 'bottom', 'bottom-right'];
+
+type HorizontalAlign = 'left' | 'center' | 'right';
+type VerticalAlign = 'top' | 'middle' | 'bottom';
+
+const POSITION_ALIGNMENTS: Array<{
+  x: HorizontalAlign;
+  y: VerticalAlign;
+  title: string;
+}> = [
+  { x: 'left', y: 'top', title: 'Align top left' },
+  { x: 'center', y: 'top', title: 'Align top center' },
+  { x: 'right', y: 'top', title: 'Align top right' },
+  { x: 'left', y: 'middle', title: 'Align middle left' },
+  { x: 'center', y: 'middle', title: 'Align center' },
+  { x: 'right', y: 'middle', title: 'Align middle right' },
+  { x: 'left', y: 'bottom', title: 'Align bottom left' },
+  { x: 'center', y: 'bottom', title: 'Align bottom center' },
+  { x: 'right', y: 'bottom', title: 'Align bottom right' },
+];
+
+function PositionAlignmentGrid({
+  onAlign,
+}: {
+  onAlign: (x: HorizontalAlign, y: VerticalAlign) => void;
+}) {
+  const dotPosition = (value: HorizontalAlign | VerticalAlign) => {
+    if (value === 'left' || value === 'top') return '18%';
+    if (value === 'right' || value === 'bottom') return '82%';
+    return '50%';
+  };
+
+  return (
+    <div className="grid grid-cols-3 gap-1.5">
+      {POSITION_ALIGNMENTS.map((option) => (
+        <button
+          key={`${option.y}-${option.x}`}
+          type="button"
+          onClick={() => onAlign(option.x, option.y)}
+          className="grid h-8 place-items-center rounded border border-slate-200 bg-white text-slate-500 transition-colors hover:border-indigo-400 hover:bg-indigo-50 hover:text-indigo-600"
+          title={option.title}
+          aria-label={option.title}
+        >
+          <span className="relative block h-[18px] w-[18px] rounded-sm border border-current opacity-80">
+            <span
+              className="absolute h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-current"
+              style={{
+                left: dotPosition(option.x),
+                top: dotPosition(option.y),
+              }}
+            />
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Floating zoom cluster pinned to the bottom of the canvas viewport. Panning is
+ * space-drag or middle-mouse; ctrl/⌘ + wheel zooms. These buttons are the
+ * discoverable, mouse-only path to the same controls.
+ */
+function ViewportControls({
+  zoom,
+  onZoomIn,
+  onZoomOut,
+  onReset,
+}: {
+  zoom: number;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onReset: () => void;
+}) {
+  const btn =
+    'grid h-7 w-7 place-items-center rounded-md text-slate-600 hover:bg-slate-100 hover:text-indigo-600 transition-colors disabled:opacity-40 disabled:hover:bg-transparent';
+  return (
+    <div
+      onPointerDown={(e) => e.stopPropagation()}
+      className="absolute bottom-3 left-1/2 z-[60] flex -translate-x-1/2 items-center gap-0.5 rounded-lg border border-slate-200 bg-white/90 px-1 py-1 shadow-md backdrop-blur"
+      title="Zoom · ctrl/⌘ + scroll · hold space to pan"
+    >
+      <button type="button" onClick={onZoomOut} disabled={zoom <= 0.25} className={btn} title="Zoom out" aria-label="Zoom out">
+        <ZoomOut className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        onClick={onReset}
+        className="min-w-[3.25rem] rounded-md px-1.5 py-1 text-center text-xs font-semibold tabular-nums text-slate-700 hover:bg-slate-100"
+        title="Reset view to 100%"
+      >
+        {Math.round(zoom * 100)}%
+      </button>
+      <button type="button" onClick={onZoomIn} disabled={zoom >= 4} className={btn} title="Zoom in" aria-label="Zoom in">
+        <ZoomIn className="h-4 w-4" />
+      </button>
+      <span className="mx-0.5 h-5 w-px bg-slate-200" />
+      <button type="button" onClick={onReset} className={btn} title="Fit / reset view" aria-label="Fit view">
+        <Maximize2 className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
+/**
+ * In-place text editor mounted over a canvas text element on double-click.
+ *
+ * It edits *plain* text (styling isn't shown mid-edit) and inherits the host
+ * element's font/color/alignment, so what you type sits exactly where the text
+ * will render. Committing flows through the same path that re-maps rich-text
+ * runs, so inline colors/bold survive the edit. Keyed by the caller for a fresh
+ * mount per session, mirroring the contentEditable rebuild trick.
+ */
+function InlineTextEditor({
+  initialText,
+  onCommit,
+  onCancel,
+}: {
+  initialText: string;
+  onCommit: (text: string) => void;
+  onCancel: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const cancelled = useRef(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.innerText = initialText;
+    const frame = requestAnimationFrame(() => {
+      const cur = ref.current;
+      if (!cur) return;
+      cur.focus({ preventScroll: true });
+      const range = document.createRange();
+      range.selectNodeContents(cur);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    });
+    return () => cancelAnimationFrame(frame);
+    // Mount only — re-seeding each keystroke would fight the caret.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      contentEditable
+      suppressContentEditableWarning
+      spellCheck={false}
+      role="textbox"
+      tabIndex={0}
+      style={{ width: '100%', outline: 'none', cursor: 'text', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
+      className="ring-2 ring-indigo-500 rounded-[2px]"
+      // Keep pointer input inside the editor from starting a drag on the host.
+      onPointerDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      // Blur commits (unless Escape already cancelled). The editor opens from a
+      // double-click, so focus is settled — there is no spurious pre-focus blur.
+      onBlur={(e) => {
+        if (cancelled.current) return;
+        onCommit(e.currentTarget.innerText);
+      }}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          cancelled.current = true;
+          onCancel();
+        }
+      }}
+    />
+  );
+}
 
 interface CanvaEditorProps {
   template: CertificateTemplate;
@@ -53,6 +322,47 @@ const FONT_OPTIONS = [
   { value: 'Parisienne', label: 'Parisienne (Classic Script)' }
 ];
 
+const CUSTOM_FONT_MAX_BYTES = 5 * 1024 * 1024;
+const POSITION_MIN = -50;
+const POSITION_MAX = 150;
+
+/**
+ * Canvas-relative scale factors, shared with CertificateViewer so the editor is a
+ * true WYSIWYG preview. A stored size of `S` renders at `S * SCALE` cqw (i.e.
+ * `S * SCALE`% of the canvas width). Text and redaction boxes use TEXT_SCALE;
+ * logos, signatures and uploaded images use ASSET_SCALE.
+ */
+const TEXT_SCALE = 0.1125;
+const ASSET_SCALE = 0.125;
+
+/** Generous logical-unit caps (well within the schema's width/height/fontSize limits). */
+const RESIZE_MAX_WIDTH = 2400;
+const RESIZE_MIN_WIDTH = 20;
+const RESIZE_MAX_HEIGHT = 1600;
+const RESIZE_MIN_HEIGHT = 10;
+const RESIZE_MAX_FONT = 240;
+const RESIZE_MIN_FONT = 6;
+
+type ResizeKind = 'text' | 'redaction' | 'image' | 'asset';
+
+const sanitizeFontName = (name: string) =>
+  name
+    .replace(/\.[^.]+$/, '')
+    .replace(/[^a-zA-Z0-9 _-]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, 48) || 'Custom Font';
+
+const uniqueFontFamily = (baseName: string, existing: Set<string>) => {
+  let family = baseName;
+  let i = 2;
+  while (existing.has(family)) {
+    family = `${baseName} ${i}`;
+    i += 1;
+  }
+  return family;
+};
+
 export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace', primaryColor = '#0F172A', token, programs = [] }: CanvaEditorProps) {
   // Current active template editing state
   const [currentTemplate, setCurrentTemplate] = useState<CertificateTemplate>(JSON.parse(JSON.stringify(template)));
@@ -66,6 +376,9 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
   
   // Currently highlighted / selected element ID on visual canvas
   const [selectedElId, setSelectedElId] = useState<string | null>(null);
+  // Text element currently being edited *in place* on the canvas (double-click).
+  const [editingCanvasId, setEditingCanvasId] = useState<string | null>(null);
+  const [textSelection, setTextSelection] = useState<{ id: string; start: number; end: number } | null>(null);
 
   // Ref to scroll sidebar to selected element editor
   const selectedElementPanelRef = useRef<HTMLDivElement>(null);
@@ -129,6 +442,24 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
     return [...baseTags, ...selectedProg.recipientFields];
   };
 
+  /**
+   * What the QR will encode, with sample values substituted. Generated locally
+   * rather than fetched from api.qrserver.com — see src/lib/qr.ts.
+   */
+  const previewQrTarget = (currentTemplate.qrCodeCustomUrl || `${window.location.origin}/c/{{id}}`)
+    .replaceAll('{{id}}', 'GLNT-SAMPLE-PREVIEW-0000-0000')
+    .replaceAll('{{name}}', 'Alex Rivera')
+    .replaceAll('{{program}}', 'Sample Program')
+    .replaceAll('{{date}}', new Date().toISOString().slice(0, 10));
+  const previewQrDataUrl = useQrDataUrl(currentTemplate.showQrCode ? previewQrTarget : null);
+  const fontOptions = [
+    ...FONT_OPTIONS,
+    ...(currentTemplate.customFonts ?? []).map((font) => ({
+      value: font.family,
+      label: `${font.family} (Custom)`,
+    })),
+  ];
+
   const addUploadedImageToCanvas = (imageUrl: string) => {
     const id = `t-img-${Math.random().toString(36).substring(2, 7)}`;
     const newElement: TextElement = {
@@ -170,18 +501,279 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
     reader.readAsDataURL(file);
   };
 
-  // Drag and drop state manager
-  const [draggedItem, setDraggedItem] = useState<{
+  type DragSession = {
     id: string;
+    pointerId: number;
     startX: number;
     startY: number;
     startLeft: number;
     startTop: number;
-  } | null>(null);
+    canvasWidth: number;
+    canvasHeight: number;
+    movingHw: number;
+    movingHh: number;
+    snapBoxes: Box[];
+    element: HTMLElement;
+    focusOnClick: boolean;
+    moved: boolean;
+    previousTransition: string;
+    previousWillChange: string;
+    previousTransform: string;
+    rafId: number | null;
+    lastEvent: PointerEvent | null;
+  };
 
   const canvasRef = useRef<HTMLDivElement>(null);
+  const dragSessionRef = useRef<DragSession | null>(null);
   const sampleUploadRef = useRef<HTMLInputElement>(null);
   const directSampleUploadRef = useRef<HTMLInputElement>(null);
+  const customFontUploadRef = useRef<HTMLInputElement>(null);
+  const loadedCustomFontsRef = useRef<Set<string>>(new Set());
+
+  // --- Free-roam viewport: pan + zoom over the fixed page ---------------------
+  // Zoom scales the page; pan slides it in screen pixels. All drag/resize math
+  // reads the *live* canvas rect, so both stay pixel-accurate at any zoom.
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const zoomRef = useRef(1);
+  const spaceHeldRef = useRef(false);
+  const panSessionRef = useRef<{ pointerId: number; startX: number; startY: number; startPan: { x: number; y: number } } | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
+
+  // Largest A4-landscape (1.414:1) box that fits the stage, so the page uses the
+  // whole container instead of a small centred card. Recomputed on resize.
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [stageFit, setStageFit] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const PAGE_RATIO = 1.414;
+    const MARGIN = 24; // breathing room + drop shadow
+    const measure = () => {
+      const w = stage.clientWidth - MARGIN * 2;
+      const h = stage.clientHeight - MARGIN * 2;
+      if (w <= 0 || h <= 0) return;
+      const width = Math.min(w, h * PAGE_RATIO);
+      setStageFit({ width, height: width / PAGE_RATIO });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(stage);
+    return () => ro.disconnect();
+  }, []);
+
+  const clampZoom = (z: number) => Math.min(4, Math.max(0.25, z));
+  const resetView = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
+  const zoomByStep = (dir: 1 | -1) => setZoom((z) => clampZoom(Math.round((z + dir * 0.1) * 100) / 100));
+
+  // Ctrl/Cmd + wheel zooms. A native, non-passive listener is required so we can
+  // preventDefault the browser's own page-zoom.
+  useEffect(() => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.08 : 1 / 1.08;
+      setZoom((z) => clampZoom(z * factor));
+    };
+    vp.addEventListener('wheel', onWheel, { passive: false });
+    return () => vp.removeEventListener('wheel', onWheel);
+  }, []);
+
+  // Hold space to pan (grab cursor), like every canvas tool.
+  useEffect(() => {
+    const isTyping = (t: EventTarget | null) => {
+      const el = t as HTMLElement | null;
+      return !!el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
+    };
+    const down = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && !isTyping(e.target)) {
+        spaceHeldRef.current = true;
+        setSpaceHeld(true);
+        if (document.activeElement === document.body) e.preventDefault();
+      }
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.code === 'Space') { spaceHeldRef.current = false; setSpaceHeld(false); }
+    };
+    const blur = () => { spaceHeldRef.current = false; setSpaceHeld(false); };
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    window.addEventListener('blur', blur);
+    return () => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+      window.removeEventListener('blur', blur);
+    };
+  }, []);
+
+  // Pan starts on the viewport for middle-mouse anywhere, or space + left-drag.
+  // Element drag/resize bail out early when space is held (see beginDrag/beginResize),
+  // so a space-drag that begins over an element still bubbles here to pan.
+  const handleViewportPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    const wantPan = e.button === 1 || (e.button === 0 && spaceHeldRef.current);
+    if (!wantPan) return;
+    e.preventDefault();
+    panSessionRef.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, startPan: pan };
+    setIsPanning(true);
+    try { viewportRef.current?.setPointerCapture(e.pointerId); } catch { /* best-effort */ }
+  };
+  const handleViewportPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const s = panSessionRef.current;
+    if (!s || e.pointerId !== s.pointerId) return;
+    setPan({ x: s.startPan.x + (e.clientX - s.startX), y: s.startPan.y + (e.clientY - s.startY) });
+  };
+  const handleViewportPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const s = panSessionRef.current;
+    if (!s || e.pointerId !== s.pointerId) return;
+    panSessionRef.current = null;
+    setIsPanning(false);
+    try { viewportRef.current?.releasePointerCapture(e.pointerId); } catch { /* best-effort */ }
+  };
+
+  // Alignment guides. The two lines are always mounted and hidden; the drag
+  // handler shows and positions them directly on the DOM, so dragging never
+  // triggers a React re-render (which would stutter at 60fps).
+  const guideVRef = useRef<HTMLDivElement>(null);
+  const guideHRef = useRef<HTMLDivElement>(null);
+  // The last snap "key". When it changes to a new engagement we fire haptics.
+  const snapEngagedRef = useRef<string>('');
+
+  const renderGuides = (guideX: Guide | null, guideY: Guide | null) => {
+    const v = guideVRef.current;
+    const h = guideHRef.current;
+    if (v) {
+      if (guideX) {
+        v.style.display = 'block';
+        v.style.left = `${guideX.pos}%`;
+        v.style.top = `${guideX.start}%`;
+        v.style.height = `${guideX.end - guideX.start}%`;
+      } else {
+        v.style.display = 'none';
+      }
+    }
+    if (h) {
+      if (guideY) {
+        h.style.display = 'block';
+        h.style.top = `${guideY.pos}%`;
+        h.style.left = `${guideY.start}%`;
+        h.style.width = `${guideY.end - guideY.start}%`;
+      } else {
+        h.style.display = 'none';
+      }
+    }
+  };
+
+  const hideGuides = () => {
+    if (guideVRef.current) guideVRef.current.style.display = 'none';
+    if (guideHRef.current) guideHRef.current.style.display = 'none';
+    snapEngagedRef.current = '';
+  };
+
+  const loadCustomFont = async (font: CustomFontAsset) => {
+    const key = `${font.family}:${font.dataUrl.length}`;
+    if (loadedCustomFontsRef.current.has(key)) return;
+
+    const face = new FontFace(font.family, `url(${font.dataUrl}) format("truetype")`);
+    const loaded = await face.load();
+    document.fonts.add(loaded);
+    loadedCustomFontsRef.current.add(key);
+  };
+
+  useEffect(() => {
+    currentTemplate.customFonts?.forEach((font) => {
+      loadCustomFont(font).catch(() => {
+        toast.error(`Could not load font: ${font.fileName}`);
+      });
+    });
+  }, [currentTemplate.customFonts]);
+
+  const handleCustomFontUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.currentTarget.value = '';
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.ttf')) {
+      toast.error('Please upload a .ttf font file.');
+      return;
+    }
+    if (file.size > CUSTOM_FONT_MAX_BYTES) {
+      toast.error('Font is too large. Please choose a .ttf smaller than 5MB.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const dataUrl = event.target?.result as string | undefined;
+      if (!dataUrl) return;
+      const commaIndex = dataUrl.indexOf(',');
+      const normalizedDataUrl =
+        commaIndex >= 0 ? `data:font/ttf;base64,${dataUrl.slice(commaIndex + 1)}` : dataUrl;
+
+      const existingNames = new Set([
+        ...FONT_OPTIONS.map((font) => font.value),
+        ...(currentTemplate.customFonts ?? []).map((font) => font.family),
+      ]);
+      const family = uniqueFontFamily(sanitizeFontName(file.name), existingNames);
+      const fontAsset: CustomFontAsset = {
+        id: `font-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        family,
+        fileName: file.name,
+        dataUrl: normalizedDataUrl,
+        format: 'truetype',
+      };
+
+      try {
+        await loadCustomFont(fontAsset);
+      } catch {
+        toast.error('Could not load that font file.');
+        return;
+      }
+
+      const canApplyToSelected =
+        selectedElId &&
+        currentTemplate.textElements.some(
+          (el) => el.id === selectedElId && el.type !== 'image' && el.type !== 'redaction',
+        );
+
+      updateTemplateProperties({
+        customFonts: [...(currentTemplate.customFonts ?? []), fontAsset],
+        ...(canApplyToSelected
+          ? {
+              textElements: currentTemplate.textElements.map((el) =>
+                el.id === selectedElId ? { ...el, fontFamily: family } : el,
+              ),
+            }
+          : {}),
+      });
+      toast.success(`Imported ${family}`);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const snapshotSnapBoxes = (excludeId: string, canvasRect: DOMRect): Box[] => {
+    if (canvasRect.width === 0 || canvasRect.height === 0) return [];
+
+    const boxes: Box[] = [];
+    canvasRef.current?.querySelectorAll<HTMLElement>('[id^="canvas-item-"]').forEach((node) => {
+      const id = node.id.slice('canvas-item-'.length);
+      if (id === excludeId) return;
+
+      const rect = node.getBoundingClientRect();
+      boxes.push({
+        id,
+        cx: ((rect.left + rect.width / 2 - canvasRect.left) / canvasRect.width) * 100,
+        cy: ((rect.top + rect.height / 2 - canvasRect.top) / canvasRect.height) * 100,
+        hw: (rect.width / 2 / canvasRect.width) * 100,
+        hh: (rect.height / 2 / canvasRect.height) * 100,
+      });
+    });
+    return boxes;
+  };
 
   // Undo / Redo stack tracker pushes
   const pushToHistory = (newTemplateState: CertificateTemplate) => {
@@ -212,12 +804,16 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
   // Resizing state manager
   const [resizingItem, setResizingItem] = useState<{
     id: string;
+    kind: ResizeKind;
     handle: 'left' | 'right' | 'top' | 'bottom' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
     startX: number;
     startY: number;
     startWidth: number;
     startFontSize?: number;
     startHeight?: number;
+    /** The element's centre at grab time, so the opposite edge can stay pinned. */
+    startXPercent: number;
+    startYPercent: number;
   } | null>(null);
 
   // Context menu state
@@ -264,6 +860,16 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
       xPercent: Math.round(Math.min(100, Math.max(0, x))),
       yPercent: Math.round(Math.min(100, Math.max(0, y)))
     };
+  };
+
+  const handleCanvasPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    // While panning (space or middle-mouse), don't clear the selection — the press
+    // is a pan gesture handled by the viewport.
+    if (spaceHeldRef.current || e.button === 1) return;
+    if (e.button !== 0 || e.target !== e.currentTarget) return;
+    setSelectedElId(null);
+    setContextMenu(null);
+    hideGuides();
   };
 
   const insertTextAtCoords = (type: 'heading' | 'subheading' | 'body', xPercent: number, yPercent: number) => {
@@ -315,6 +921,28 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
     if (!el) return;
     const remains = currentTemplate.textElements.filter(item => item.id !== id);
     updateTemplateProperty('textElements', [el, ...remains]);
+  };
+
+  // Layers panel drag-to-reorder. The paint/z-order is the textElements array
+  // order (index 0 = bottom), so moving an item in the array restacks it.
+  const [draggedLayerId, setDraggedLayerId] = useState<string | null>(null);
+  const moveTextLayer = (fromId: string, toId: string) => {
+    if (fromId === toId) return;
+    const list = [...currentTemplate.textElements];
+    const from = list.findIndex((e) => e.id === fromId);
+    const to = list.findIndex((e) => e.id === toId);
+    if (from === -1 || to === -1) return;
+    const [moved] = list.splice(from, 1);
+    list.splice(to, 0, moved);
+    updateTemplateProperty('textElements', list);
+  };
+  const shiftTextLayer = (id: string, dir: -1 | 1) => {
+    const list = [...currentTemplate.textElements];
+    const i = list.findIndex((e) => e.id === id);
+    const j = i + dir;
+    if (i === -1 || j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]];
+    updateTemplateProperty('textElements', list);
   };
 
   const duplicateElement = (id: string) => {
@@ -369,6 +997,50 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
     }
   };
 
+  const getElementHalfExtentsPercent = (id: string) => {
+    const canvas = canvasRef.current;
+    const element = document.getElementById(`canvas-item-${id}`);
+    if (!canvas || !element) return { hw: 0, hh: 0 };
+
+    const canvasRect = canvas.getBoundingClientRect();
+    const elementRect = element.getBoundingClientRect();
+    if (canvasRect.width === 0 || canvasRect.height === 0) return { hw: 0, hh: 0 };
+
+    return {
+      hw: Math.min(50, (elementRect.width / 2 / canvasRect.width) * 100),
+      hh: Math.min(50, (elementRect.height / 2 / canvasRect.height) * 100),
+    };
+  };
+
+  const roundPercent = (value: number) => Math.round(Math.min(100, Math.max(0, value)) * 10) / 10;
+  const clampFreePercent = (value: number) => Math.min(POSITION_MAX, Math.max(POSITION_MIN, value));
+  const roundFreePercent = (value: number) =>
+    Math.round(clampFreePercent(value) * 100) / 100;
+
+  const alignElementTo = (id: string, xAlign: HorizontalAlign, yAlign: VerticalAlign) => {
+    const { hw, hh } = getElementHalfExtentsPercent(id);
+    const nextX = roundPercent(xAlign === 'left' ? hw : xAlign === 'right' ? 100 - hw : 50);
+    const nextY = roundPercent(yAlign === 'top' ? hh : yAlign === 'bottom' ? 100 - hh : 50);
+
+    setContextMenu(null);
+
+    if (id === 'logo') {
+      updateTemplateProperties({ logoX: nextX, logoY: nextY });
+    } else if (id === 'signature') {
+      updateTemplateProperties({ signatureX: nextX, signatureY: nextY });
+    } else if (id === 'secondarySignature') {
+      updateTemplateProperties({ secondarySignatureX: nextX, secondarySignatureY: nextY });
+    } else if (id === 'seal') {
+      updateTemplateProperties({ qrCodeX: nextX, qrCodeY: nextY });
+    } else {
+      updateTemplateProperties({
+        textElements: currentTemplate.textElements.map((el) =>
+          el.id === id ? { ...el, xPercent: nextX, yPercent: nextY } : el,
+        ),
+      });
+    }
+  };
+
   // Generic multiple properties batch update helper
   const updateTemplateProperties = (properties: Partial<CertificateTemplate>) => {
     const updated = {
@@ -384,25 +1056,82 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
     updateTemplateProperties({ [property]: value });
   };
 
-  const handleResizeMouseDown = (
-    e: React.MouseEvent,
+  const beginResize = (
+    e: React.PointerEvent,
     id: string,
-    handle: 'left' | 'right' | 'top' | 'bottom' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right',
+    handle: HandlePos,
     currentWidth: number,
     currentFontSize?: number,
     currentHeight?: number
   ) => {
+    // Space-drag pans the canvas: let the event bubble to the viewport untouched.
+    if (spaceHeldRef.current || e.button === 1) return;
     e.preventDefault();
     e.stopPropagation();
-    
+
+    // Capture the pointer on the handle so every subsequent move lands here,
+    // even if the pointer outruns the 18px dot or crosses another element.
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      /* capture is best-effort; the document listeners are the fallback */
+    }
+
+    // Handles only render on the selected element, so it is already selected;
+    // don't re-run selectElementAndFocus (it would jump the sidebar scroll).
+    if (selectedElId !== id) setSelectedElId(id);
+
+    // Which family of element this is decides both the on-screen scale factor and
+    // whether a handle changes font size (text), height (redaction) or width only.
+    const kind: ResizeKind =
+      id === 'logo' || id === 'signature' || id === 'secondarySignature'
+        ? 'asset'
+        : currentHeight !== undefined
+          ? 'redaction'
+          : currentFontSize === undefined
+            ? 'image'
+            : 'text';
+
+    // The element's centre, so we can pin the opposite edge while resizing.
+    const textEl = currentTemplate.textElements.find((t) => t.id === id);
+    const startXPercent =
+      id === 'logo' ? currentTemplate.logoX
+      : id === 'signature' ? currentTemplate.signatureX
+      : id === 'secondarySignature' ? (currentTemplate.secondarySignatureX ?? 70)
+      : textEl?.xPercent ?? 50;
+    const startYPercent =
+      id === 'logo' ? currentTemplate.logoY
+      : id === 'signature' ? currentTemplate.signatureY
+      : id === 'secondarySignature' ? (currentTemplate.secondarySignatureY ?? 78)
+      : textEl?.yPercent ?? 50;
+
+    // Measure the element's *actual* current size so resizing starts smoothly even
+    // for auto-width text (which has no explicit width until first resized).
+    const scale = kind === 'asset' || kind === 'image' ? ASSET_SCALE : TEXT_SCALE;
+    const canvas = canvasRef.current;
+    const element = document.getElementById(`canvas-item-${id}`);
+    let startWidth = currentWidth;
+    let startHeight = currentHeight;
+    if (canvas && element) {
+      const contentW = canvas.clientWidth || 1;
+      const z = zoomRef.current || 1;
+      const pxPerUnit = (scale / 100) * contentW || 1;
+      const rect = element.getBoundingClientRect();
+      startWidth = rect.width / z / pxPerUnit;
+      if (currentHeight !== undefined) startHeight = rect.height / z / pxPerUnit;
+    }
+
     setResizingItem({
       id,
+      kind,
       handle,
       startX: e.clientX,
       startY: e.clientY,
-      startWidth: currentWidth,
+      startWidth,
       startFontSize: currentFontSize,
-      startHeight: currentHeight
+      startHeight,
+      startXPercent,
+      startYPercent,
     });
   };
 
@@ -414,14 +1143,16 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
   const currentResizeWidthRef = useRef<number | null>(null);
   const currentResizeFontSizeRef = useRef<number | null>(null);
   const currentResizeHeightRef = useRef<number | null>(null);
+  const currentResizeXPercentRef = useRef<number | null>(null);
+  const currentResizeYPercentRef = useRef<number | null>(null);
 
-  // Document level mouse listeners to ensure smooth resizing
+  // Document level pointer listeners to ensure smooth resizing
   useEffect(() => {
     if (!resizingItem) return;
 
     let rafId: number;
 
-    const handleGlobalMouseMove = (e: MouseEvent) => {
+    const handleGlobalMouseMove = (e: PointerEvent) => {
       const currentResize = resizingItemRef.current;
       if (!currentResize) return;
 
@@ -429,100 +1160,118 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
       rafId = requestAnimationFrame(() => {
         const deltaX = e.clientX - currentResize.startX;
         const deltaY = e.clientY - currentResize.startY;
-        
-        let newWidth = currentResize.startWidth;
-        let newFontSize = currentResize.startFontSize;
-        let newHeight = currentResize.startHeight;
 
-        if (currentResize.id.startsWith('t-')) {
-          // Check if it is a redaction block (stores startHeight)
-          if (currentResize.startHeight !== undefined) {
-            if (currentResize.handle === 'right' || currentResize.handle === 'top-right' || currentResize.handle === 'bottom-right') {
-              newWidth = currentResize.startWidth + deltaX * 2;
-            } else if (currentResize.handle === 'left' || currentResize.handle === 'top-left' || currentResize.handle === 'bottom-left') {
-              newWidth = currentResize.startWidth - deltaX * 2;
-            }
+        const elementDom = document.getElementById(`canvas-item-${currentResize.id}`);
+        // Stored sizes are logical units rendered as `value * scale` cqw. Work in the
+        // canvas's *own* (unzoomed) pixels — clientWidth/Height is exactly the cqw
+        // reference — so the grabbed edge tracks the pointer at any zoom, and preview
+        // in the same cqw the final render uses so there is no jump on release.
+        const scale =
+          currentResize.kind === 'asset' || currentResize.kind === 'image' ? ASSET_SCALE : TEXT_SCALE;
+        const canvas = canvasRef.current;
+        const contentW = canvas?.clientWidth || 800;
+        const contentH = canvas?.clientHeight || 600;
+        const z = zoomRef.current || 1;
+        const pxPerUnit = (scale / 100) * contentW || 1;
+        // Pointer delta expressed in the canvas's own pixels.
+        const dxLocal = deltaX / z;
+        const dyLocal = deltaY / z;
 
-            if (currentResize.handle === 'bottom' || currentResize.handle === 'bottom-right' || currentResize.handle === 'bottom-left') {
-              newHeight = currentResize.startHeight + deltaY * 2;
-            } else if (currentResize.handle === 'top' || currentResize.handle === 'top-right' || currentResize.handle === 'top-left') {
-              newHeight = currentResize.startHeight - deltaY * 2;
-            }
+        const clampWidth = (w: number) => Math.min(RESIZE_MAX_WIDTH, Math.max(RESIZE_MIN_WIDTH, w));
+        const clampHeight = (h: number) => Math.min(RESIZE_MAX_HEIGHT, Math.max(RESIZE_MIN_HEIGHT, h));
+        const clampFont = (f: number) => Math.min(RESIZE_MAX_FONT, Math.max(RESIZE_MIN_FONT, f));
 
-            newWidth = Math.min(1000, Math.max(10, newWidth));
-            newHeight = Math.min(600, Math.max(10, newHeight));
-            currentResizeWidthRef.current = newWidth;
-            currentResizeHeightRef.current = newHeight;
+        const { handle } = currentResize;
+        const growsRight = handle === 'right' || handle === 'top-right' || handle === 'bottom-right';
+        const growsLeft = handle === 'left' || handle === 'top-left' || handle === 'bottom-left';
+        const growsBottom = handle === 'bottom' || handle === 'bottom-right' || handle === 'bottom-left';
+        const growsTop = handle === 'top' || handle === 'top-right' || handle === 'top-left';
 
-            const elementDom = document.getElementById(`canvas-item-${currentResize.id}`);
-            if (elementDom) {
-              elementDom.style.width = `${newWidth}px`;
-              elementDom.style.height = `${newHeight}px`;
-            }
-          } else {
-            // Text resizing
-            if (currentResize.handle === 'right') {
-              newWidth = currentResize.startWidth + deltaX * 2;
-            } else if (currentResize.handle === 'left') {
-              newWidth = currentResize.startWidth - deltaX * 2;
-            } else if (currentResize.handle === 'top-right') {
-              newWidth = currentResize.startWidth + deltaX * 2;
-              if (currentResize.startFontSize) newFontSize = currentResize.startFontSize - deltaY * 0.5;
-            } else if (currentResize.handle === 'top-left') {
-              newWidth = currentResize.startWidth - deltaX * 2;
-              if (currentResize.startFontSize) newFontSize = currentResize.startFontSize - deltaY * 0.5;
-            } else if (currentResize.handle === 'bottom-right') {
-              newWidth = currentResize.startWidth + deltaX * 2;
-              if (currentResize.startFontSize) newFontSize = currentResize.startFontSize + deltaY * 0.5;
-            } else if (currentResize.handle === 'bottom-left') {
-              newWidth = currentResize.startWidth - deltaX * 2;
-              if (currentResize.startFontSize) newFontSize = currentResize.startFontSize + deltaY * 0.5;
-            } else if (currentResize.handle === 'top') {
-              if (currentResize.startFontSize) newFontSize = currentResize.startFontSize - deltaY * 0.5;
-            } else if (currentResize.handle === 'bottom') {
-              if (currentResize.startFontSize) newFontSize = currentResize.startFontSize + deltaY * 0.5;
-            }
-            
-            if (newFontSize !== undefined) {
-              newFontSize = Math.min(120, Math.max(8, newFontSize));
-              currentResizeFontSizeRef.current = newFontSize;
-              
-              const elementDom = document.getElementById(`canvas-item-${currentResize.id}`);
-              if (elementDom) {
-                elementDom.style.fontSize = `${newFontSize * 0.72}px`;
-              }
-            }
-            
-            newWidth = Math.min(1000, Math.max(30, newWidth));
-            currentResizeWidthRef.current = newWidth;
-            
-            const elementDom = document.getElementById(`canvas-item-${currentResize.id}`);
-            if (elementDom && currentResize.handle !== 'top' && currentResize.handle !== 'bottom') {
-              elementDom.style.maxWidth = `${newWidth}px`;
-            }
-          }
-        } else {
-          // Logo or signature resizing
-          if (currentResize.handle === 'right' || currentResize.handle === 'top-right' || currentResize.handle === 'bottom-right') {
-            newWidth = currentResize.startWidth + deltaX * 2;
-          } else if (currentResize.handle === 'left' || currentResize.handle === 'top-left' || currentResize.handle === 'bottom-left') {
-            newWidth = currentResize.startWidth - deltaX * 2;
-          } else if (currentResize.handle === 'bottom') {
-            newWidth = currentResize.startWidth + deltaY * 2;
-          } else if (currentResize.handle === 'top') {
-            newWidth = currentResize.startWidth - deltaY * 2;
-          }
+        // Edge-anchored: the grabbed edge follows the pointer while the opposite edge
+        // stays put. Because the element is centred, that means the width changes by
+        // the drag AND the centre shifts by half of it (in the same direction).
+        const startWidth = currentResize.startWidth;
+        let newWidth = startWidth;
+        let widthUnits = 0; // signed change, in logical units
+        if (growsRight) widthUnits = dxLocal / pxPerUnit;
+        else if (growsLeft) widthUnits = -dxLocal / pxPerUnit;
+        newWidth = clampWidth(startWidth + widthUnits);
+        // Recompute the *applied* change after clamping so the centre stays exact.
+        const appliedWidthUnits = newWidth - startWidth;
+        // Centre shift in canvas px: half the applied width change, toward the edge.
+        const centreShiftXPx = (growsLeft ? -1 : 1) * (appliedWidthUnits * pxPerUnit) / 2;
+        const newXPercent = currentResize.startXPercent + (centreShiftXPx / contentW) * 100;
 
-          newWidth = Math.min(1000, Math.max(30, newWidth));
+        // Height only matters for redaction blocks.
+        let newHeight = currentResize.startHeight ?? 0;
+        let centreShiftYPx = 0;
+        if (currentResize.kind === 'redaction') {
+          let heightUnits = 0;
+          if (growsBottom) heightUnits = dyLocal / pxPerUnit;
+          else if (growsTop) heightUnits = -dyLocal / pxPerUnit;
+          newHeight = clampHeight((currentResize.startHeight ?? 0) + heightUnits);
+          const appliedHeightUnits = newHeight - (currentResize.startHeight ?? 0);
+          centreShiftYPx = (growsTop ? -1 : 1) * (appliedHeightUnits * pxPerUnit) / 2;
+        }
+        const newYPercent = currentResize.startYPercent + (centreShiftYPx / contentH) * 100;
+
+        const applyTransform = () => {
+          if (!elementDom) return;
+          elementDom.style.transform =
+            `translate(-50%, -50%) translate(${centreShiftXPx}px, ${centreShiftYPx}px)`;
+        };
+
+        if (currentResize.kind === 'redaction') {
           currentResizeWidthRef.current = newWidth;
-
-          const elementDom = document.getElementById(`canvas-item-${currentResize.id}`);
+          currentResizeHeightRef.current = newHeight;
+          currentResizeXPercentRef.current = newXPercent;
+          currentResizeYPercentRef.current = newYPercent;
           if (elementDom) {
-            elementDom.style.width = `${newWidth}px`;
-            const imgDom = elementDom.querySelector('img');
-            if (imgDom) {
-              imgDom.style.width = `${newWidth}px`;
+            elementDom.style.width = `${newWidth * scale}cqw`;
+            elementDom.style.height = `${newHeight * scale}cqw`;
+            applyTransform();
+          }
+          return;
+        }
+
+        if (currentResize.kind === 'text') {
+          // Top/bottom (and corners) scale the font; font is not a box edge, so it
+          // uses a steady drag sensitivity rather than pointer tracking, and keeps
+          // the box centred vertically.
+          if (currentResize.startFontSize !== undefined && (growsTop || growsBottom)) {
+            const newFontSize = clampFont(currentResize.startFontSize + (growsBottom ? dyLocal : -dyLocal) * 0.5);
+            currentResizeFontSizeRef.current = newFontSize;
+            if (elementDom) elementDom.style.fontSize = `${newFontSize * scale}cqw`;
+          }
+
+          // Left/right (and corners) adjust the wrap width, edge-anchored.
+          if (handle !== 'top' && handle !== 'bottom') {
+            currentResizeWidthRef.current = newWidth;
+            currentResizeXPercentRef.current = newXPercent;
+            if (elementDom) {
+              elementDom.style.width = `${newWidth * scale}cqw`;
+              elementDom.style.maxWidth = 'none';
+              applyTransform();
             }
+          }
+          return;
+        }
+
+        // image or asset (logo / signature): width only, from whichever handle. For
+        // top/bottom handles use the vertical drag to drive width.
+        if (growsTop || (growsBottom && !growsLeft && !growsRight)) {
+          const vUnits = growsBottom ? dyLocal / pxPerUnit : -dyLocal / pxPerUnit;
+          newWidth = clampWidth(startWidth + vUnits);
+        }
+        currentResizeWidthRef.current = newWidth;
+        // Keep the grabbed side edge under the pointer for left/right handles.
+        if (growsLeft || growsRight) currentResizeXPercentRef.current = newXPercent;
+        if (elementDom) {
+          elementDom.style.width = `${newWidth * scale}cqw`;
+          if (growsLeft || growsRight) applyTransform();
+          if (currentResize.kind === 'asset') {
+            const imgDom = elementDom.querySelector('img');
+            if (imgDom) (imgDom as HTMLElement).style.width = `${newWidth * scale}cqw`;
           }
         }
       });
@@ -533,17 +1282,22 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
       const finalWidth = currentResizeWidthRef.current;
       const finalFontSize = currentResizeFontSizeRef.current;
       const finalHeight = currentResizeHeightRef.current;
+      const finalX = currentResizeXPercentRef.current;
+      const finalY = currentResizeYPercentRef.current;
 
       if (currentResize) {
         setCurrentTemplate(prev => {
           const updated = { ...prev };
-          
+
           if (currentResize.id === 'logo') {
             if (finalWidth !== null) updated.logoWidth = finalWidth;
+            if (finalX !== null) updated.logoX = roundFreePercent(finalX);
           } else if (currentResize.id === 'signature') {
             if (finalWidth !== null) updated.signatureWidth = finalWidth;
+            if (finalX !== null) updated.signatureX = roundFreePercent(finalX);
           } else if (currentResize.id === 'secondarySignature') {
             if (finalWidth !== null) updated.secondarySignatureWidth = finalWidth;
+            if (finalX !== null) updated.secondarySignatureX = roundFreePercent(finalX);
           } else {
             updated.textElements = prev.textElements.map(el => {
               if (el.id === currentResize.id) {
@@ -551,30 +1305,36 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                 if (finalWidth !== null) updatedEl.width = finalWidth;
                 if (finalFontSize !== null) updatedEl.fontSize = finalFontSize;
                 if (finalHeight !== null) updatedEl.height = finalHeight;
+                if (finalX !== null) updatedEl.xPercent = roundFreePercent(finalX);
+                if (finalY !== null) updatedEl.yPercent = roundFreePercent(finalY);
                 return updatedEl;
               }
               return el;
             });
           }
-          
+
           pushToHistory(updated);
           return updated;
         });
       }
-      
+
       currentResizeWidthRef.current = null;
       currentResizeFontSizeRef.current = null;
       currentResizeHeightRef.current = null;
+      currentResizeXPercentRef.current = null;
+      currentResizeYPercentRef.current = null;
       setResizingItem(null);
     };
 
-    document.addEventListener('mousemove', handleGlobalMouseMove);
-    document.addEventListener('mouseup', handleGlobalMouseUp);
+    document.addEventListener('pointermove', handleGlobalMouseMove);
+    document.addEventListener('pointerup', handleGlobalMouseUp);
+    document.addEventListener('pointercancel', handleGlobalMouseUp);
 
     return () => {
       cancelAnimationFrame(rafId);
-      document.removeEventListener('mousemove', handleGlobalMouseMove);
-      document.removeEventListener('mouseup', handleGlobalMouseUp);
+      document.removeEventListener('pointermove', handleGlobalMouseMove);
+      document.removeEventListener('pointerup', handleGlobalMouseUp);
+      document.removeEventListener('pointercancel', handleGlobalMouseUp);
     };
   }, [resizingItem !== null]);
 
@@ -682,7 +1442,15 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
   const updateTextElementProperty = (id: string, property: keyof TextElement, value: any) => {
     const updatedElements = currentTemplate.textElements.map(el => {
       if (el.id === id) {
-        return { ...el, [property]: value };
+        const next = { ...el, [property]: value };
+        // Editing the text must not wipe inline styling: re-map the runs onto the
+        // new string so unchanged words keep their color/bold/italic/underline.
+        if (property === 'text') {
+          const remapped = remapRichTextRuns(el.richText, el.text, value as string);
+          if (remapped.some(runHasStyle)) next.richText = remapped;
+          else delete next.richText;
+        }
+        return next;
       }
       return el;
     });
@@ -693,6 +1461,156 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
     setCurrentTemplate(updated);
     pushToHistory(updated);
   };
+
+  const updateTextAreaSelection = (id: string, target: HTMLTextAreaElement) => {
+    setTextSelection({ id, start: target.selectionStart, end: target.selectionEnd });
+  };
+
+  const getTextSelectionRange = (
+    id: string,
+    textLength: number,
+    explicitSelection?: { start: number; end: number },
+  ) => {
+    const selection = explicitSelection ?? (textSelection?.id === id ? textSelection : null);
+    const start = Math.max(0, Math.min(textLength, selection?.start ?? 0));
+    const end = Math.max(0, Math.min(textLength, selection?.end ?? textLength));
+    if (start === end) return { start: 0, end: textLength };
+    return { start: Math.min(start, end), end: Math.max(start, end) };
+  };
+
+  const runStyle = (run: RichTextRun): React.CSSProperties => ({
+    color: run.color,
+    fontWeight: run.fontWeight === 'bold' ? 700 : (run.fontWeight === 'medium' ? 500 : run.fontWeight),
+    fontStyle: run.fontStyle,
+    textDecoration: run.textDecoration,
+  });
+
+  const rangeRunsEvery = (
+    el: TextElement,
+    test: (run: RichTextRun) => boolean,
+    explicitSelection?: { start: number; end: number },
+  ) => {
+    const { start, end } = getTextSelectionRange(el.id, el.text.length, explicitSelection);
+    let cursor = 0;
+    let touched = false;
+
+    for (const run of normalizeRichTextRuns(el)) {
+      const runStart = cursor;
+      const runEnd = cursor + run.text.length;
+      cursor = runEnd;
+      if (Math.max(runStart, start) >= Math.min(runEnd, end)) continue;
+      touched = true;
+      if (!test(run)) return false;
+    }
+
+    return touched;
+  };
+
+  const getSelectionColor = (el: TextElement) => {
+    const { start, end } = getTextSelectionRange(el.id, el.text.length);
+    let cursor = 0;
+
+    for (const run of normalizeRichTextRuns(el)) {
+      const runStart = cursor;
+      const runEnd = cursor + run.text.length;
+      cursor = runEnd;
+      if (Math.max(runStart, start) < Math.min(runEnd, end)) return run.color ?? el.color;
+    }
+
+    return el.color;
+  };
+
+  const updateSelectedTextStyle = (
+    id: string,
+    patch: RichTextStylePatch,
+    explicitSelection?: { start: number; end: number },
+  ) => {
+    const updatedElements = currentTemplate.textElements.map(el => {
+      if (el.id !== id) return el;
+      const { start, end } = getTextSelectionRange(id, el.text.length, explicitSelection);
+      return {
+        ...el,
+        richText: applyRichTextStyleToRange(el, start, end, patch),
+      };
+    });
+
+    const updated = { ...currentTemplate, textElements: updatedElements };
+    setCurrentTemplate(updated);
+    pushToHistory(updated);
+  };
+
+  const toggleSelectedTextStyle = (
+    el: TextElement,
+    style: 'bold' | 'italic' | 'underline',
+    explicitSelection?: { start: number; end: number },
+  ) => {
+    if (style === 'bold') {
+      const selectedBold = rangeRunsEvery(el, (run) => (run.fontWeight ?? el.fontWeight) === 'bold', explicitSelection);
+      updateSelectedTextStyle(el.id, { fontWeight: selectedBold ? 'normal' : 'bold' }, explicitSelection);
+      return;
+    }
+
+    if (style === 'italic') {
+      const selectedItalic = rangeRunsEvery(
+        el,
+        (run) => (run.fontStyle ?? el.fontStyle ?? 'normal') === 'italic',
+        explicitSelection,
+      );
+      updateSelectedTextStyle(el.id, { fontStyle: selectedItalic ? 'normal' : 'italic' }, explicitSelection);
+      return;
+    }
+
+    const selectedUnderline = rangeRunsEvery(
+      el,
+      (run) => (run.textDecoration ?? el.textDecoration ?? 'none') === 'underline',
+      explicitSelection,
+    );
+    updateSelectedTextStyle(el.id, { textDecoration: selectedUnderline ? 'none' : 'underline' }, explicitSelection);
+  };
+
+  const handleTextAreaShortcut = (el: TextElement, e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+
+    const key = e.key.toLowerCase();
+    if (!['b', 'i', 'u'].includes(key)) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    const selection = {
+      start: e.currentTarget.selectionStart,
+      end: e.currentTarget.selectionEnd,
+    };
+    setTextSelection({ id: el.id, ...selection });
+    toggleSelectedTextStyle(el, key === 'b' ? 'bold' : key === 'i' ? 'italic' : 'underline', selection);
+  };
+
+  const renderRichText = (el: TextElement, replacements: Record<string, string>) => {
+    const runs = resolveRichTextRuns(el, replacements);
+    return runs.map((run, index) => (
+      <span key={`${index}-${run.text}`} style={runStyle(run)}>
+        {run.text}
+      </span>
+    ));
+  };
+
+  const prepareTemplateForSave = (): CertificateTemplate => ({
+    ...currentTemplate,
+    textElements: currentTemplate.textElements.map((el) => {
+      if (el.type === 'redaction' || el.imageUrl) return el;
+
+      const runs = normalizeRichTextRuns(el);
+      const hasCustomRunStyle = runs.some(
+        (run) => run.color || run.fontWeight || run.fontStyle || run.textDecoration,
+      );
+
+      if (!hasCustomRunStyle || plainTextFromRuns(runs) !== el.text) {
+        const { richText, ...plainElement } = el;
+        return plainElement;
+      }
+
+      return { ...el, richText: runs };
+    }),
+  });
 
   // Custom visual template preset applicator - fully replaces template, no overlapping
   const applyPresetDesign = (preset: (typeof BEAUTIFUL_PRESETS)[0]) => {
@@ -738,7 +1656,8 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
       secondarySignatureY: preset.secondarySignatureY ?? 78,
       secondarySignatureWidth: preset.secondarySignatureWidth ?? 100,
       backgroundImageUrl: undefined, // clear any uploaded backdrop on template switch
-      textElements: freshTextElements
+      textElements: freshTextElements,
+      customFonts: currentTemplate.customFonts,
     };
     setSelectedElId(null);
     setCurrentTemplate(updated);
@@ -1009,8 +1928,11 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
 
   const nudgeSelectedElement = (direction: 'up' | 'down' | 'left' | 'right', shiftKey: boolean) => {
     if (!selectedElId) return;
-    const amount = shiftKey ? 5 : 1;
-    
+    const canvas = canvasRef.current;
+    const rect = canvas?.getBoundingClientRect();
+    const stepPx = shiftKey ? 10 : 1;
+    const stepX = rect?.width ? (stepPx / rect.width) * 100 : (shiftKey ? 1 : 0.1);
+    const stepY = rect?.height ? (stepPx / rect.height) * 100 : (shiftKey ? 1 : 0.1);
     // Check if it's a text element
     const isTextEl = currentTemplate.textElements.some(el => el.id === selectedElId);
     
@@ -1019,10 +1941,10 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
         if (el.id === selectedElId) {
           let newX = el.xPercent;
           let newY = el.yPercent;
-          if (direction === 'left') newX = Math.max(0, el.xPercent - amount);
-          else if (direction === 'right') newX = Math.min(100, el.xPercent + amount);
-          else if (direction === 'up') newY = Math.max(0, el.yPercent - amount);
-          else if (direction === 'down') newY = Math.min(100, el.yPercent + amount);
+          if (direction === 'left') newX = roundFreePercent(el.xPercent - stepX);
+          else if (direction === 'right') newX = roundFreePercent(el.xPercent + stepX);
+          else if (direction === 'up') newY = roundFreePercent(el.yPercent - stepY);
+          else if (direction === 'down') newY = roundFreePercent(el.yPercent + stepY);
           return { ...el, xPercent: newX, yPercent: newY };
         }
         return el;
@@ -1034,27 +1956,27 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
       // Non-text elements: logo, signature, secondarySignature, seal
       const updated = { ...currentTemplate };
       if (selectedElId === 'logo') {
-        if (direction === 'left') updated.logoX = Math.max(0, updated.logoX - amount);
-        else if (direction === 'right') updated.logoX = Math.min(100, updated.logoX + amount);
-        else if (direction === 'up') updated.logoY = Math.max(0, updated.logoY - amount);
-        else if (direction === 'down') updated.logoY = Math.min(100, updated.logoY + amount);
+        if (direction === 'left') updated.logoX = roundFreePercent(updated.logoX - stepX);
+        else if (direction === 'right') updated.logoX = roundFreePercent(updated.logoX + stepX);
+        else if (direction === 'up') updated.logoY = roundFreePercent(updated.logoY - stepY);
+        else if (direction === 'down') updated.logoY = roundFreePercent(updated.logoY + stepY);
       } else if (selectedElId === 'signature') {
-        if (direction === 'left') updated.signatureX = Math.max(0, updated.signatureX - amount);
-        else if (direction === 'right') updated.signatureX = Math.min(100, updated.signatureX + amount);
-        else if (direction === 'up') updated.signatureY = Math.max(0, updated.signatureY - amount);
-        else if (direction === 'down') updated.signatureY = Math.min(100, updated.signatureY + amount);
+        if (direction === 'left') updated.signatureX = roundFreePercent(updated.signatureX - stepX);
+        else if (direction === 'right') updated.signatureX = roundFreePercent(updated.signatureX + stepX);
+        else if (direction === 'up') updated.signatureY = roundFreePercent(updated.signatureY - stepY);
+        else if (direction === 'down') updated.signatureY = roundFreePercent(updated.signatureY + stepY);
       } else if (selectedElId === 'secondarySignature') {
         const currentX = updated.secondarySignatureX ?? 70;
         const currentY = updated.secondarySignatureY ?? 78;
-        if (direction === 'left') updated.secondarySignatureX = Math.max(0, currentX - amount);
-        else if (direction === 'right') updated.secondarySignatureX = Math.min(100, currentX + amount);
-        else if (direction === 'up') updated.secondarySignatureY = Math.max(0, currentY - amount);
-        else if (direction === 'down') updated.secondarySignatureY = Math.min(100, currentY + amount);
+        if (direction === 'left') updated.secondarySignatureX = roundFreePercent(currentX - stepX);
+        else if (direction === 'right') updated.secondarySignatureX = roundFreePercent(currentX + stepX);
+        else if (direction === 'up') updated.secondarySignatureY = roundFreePercent(currentY - stepY);
+        else if (direction === 'down') updated.secondarySignatureY = roundFreePercent(currentY + stepY);
       } else if (selectedElId === 'seal') {
-        if (direction === 'left') updated.qrCodeX = Math.max(0, updated.qrCodeX - amount);
-        else if (direction === 'right') updated.qrCodeX = Math.min(100, updated.qrCodeX + amount);
-        else if (direction === 'up') updated.qrCodeY = Math.max(0, updated.qrCodeY - amount);
-        else if (direction === 'down') updated.qrCodeY = Math.min(100, updated.qrCodeY + amount);
+        if (direction === 'left') updated.qrCodeX = roundFreePercent(updated.qrCodeX - stepX);
+        else if (direction === 'right') updated.qrCodeX = roundFreePercent(updated.qrCodeX + stepX);
+        else if (direction === 'up') updated.qrCodeY = roundFreePercent(updated.qrCodeY - stepY);
+        else if (direction === 'down') updated.qrCodeY = roundFreePercent(updated.qrCodeY + stepY);
       } else {
         return;
       }
@@ -1132,26 +2054,6 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
     };
   }, [selectedElId, currentTemplate, history, historyIndex]);
 
-  // Drag operations math
-  const handleMouseDown = (e: React.MouseEvent, id: string, startXPercent: number, startYPercent: number) => {
-    e.preventDefault();
-    e.stopPropagation();
-    selectElementAndFocus(id);
-    
-    setDraggedItem({
-      id,
-      startX: e.clientX,
-      startY: e.clientY,
-      startLeft: startXPercent,
-      startTop: startYPercent
-    });
-  };
-
-  const draggedItemRef = useRef(draggedItem);
-  useEffect(() => {
-    draggedItemRef.current = draggedItem;
-  }, [draggedItem]);
-
   const snapToGridRef = useRef(snapToGrid);
   useEffect(() => {
     snapToGridRef.current = snapToGrid;
@@ -1159,101 +2061,218 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
 
   const currentCoordsRef = useRef<{ x: number; y: number } | null>(null);
 
-  // Document level mouse listeners to ensure smooth drags outside canvas bounds
-  useEffect(() => {
-    if (!draggedItem) return;
+  // Native drag loop: no React state changes while the pointer is moving.
+  const beginDrag = (e: React.PointerEvent, id: string, _startXPercent: number, _startYPercent: number) => {
+    // Space-drag pans the canvas: let the event bubble to the viewport untouched.
+    if (spaceHeldRef.current) return;
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
 
-    let rafId: number;
+    const canvas = canvasRef.current;
+    const element = e.currentTarget as HTMLElement;
+    if (!canvas) return;
 
-    const handleGlobalMouseMove = (e: MouseEvent) => {
-      const currentDrag = draggedItemRef.current;
-      if (!currentDrag || !canvasRef.current) return;
+    const canvasRect = canvas.getBoundingClientRect();
+    const elementRect = element.getBoundingClientRect();
+    if (canvasRect.width === 0 || canvasRect.height === 0) return;
 
-      cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => {
-        const rect = canvasRef.current!.getBoundingClientRect();
-        
-        const deltaX = e.clientX - currentDrag.startX;
-        const deltaY = e.clientY - currentDrag.startY;
-        
-        const percentDeltaX = (deltaX / rect.width) * 100;
-        const percentDeltaY = (deltaY / rect.height) * 100;
-        
-        let newX = Math.round(currentDrag.startLeft + percentDeltaX);
-        let newY = Math.round(currentDrag.startTop + percentDeltaY);
-        
-        if (snapToGridRef.current) {
-          newX = Math.round(newX / 2.5) * 2.5;
-          newY = Math.round(newY / 2.5) * 2.5;
-        }
-        
-        // Keep boundaries safe
-        newX = Math.min(100, Math.max(0, newX));
-        newY = Math.min(100, Math.max(0, newY));
+    const startLeft = ((elementRect.left + elementRect.width / 2 - canvasRect.left) / canvasRect.width) * 100;
+    const startTop = ((elementRect.top + elementRect.height / 2 - canvasRect.top) / canvasRect.height) * 100;
 
-        currentCoordsRef.current = { x: newX, y: newY };
-
-        // Update DOM element position directly for buttery-smooth dragging
-        const elementDom = document.getElementById(`canvas-item-${currentDrag.id}`);
-        if (elementDom) {
-          elementDom.style.left = `${newX}%`;
-          elementDom.style.top = `${newY}%`;
-        }
-
-        // Update guidelines directly
-        const guidelineV = document.getElementById('guideline-v');
-        const guidelineH = document.getElementById('guideline-h');
-        if (guidelineV) guidelineV.style.left = `${newX}%`;
-        if (guidelineH) guidelineH.style.top = `${newY}%`;
-      });
+    const session: DragSession = {
+      id,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startLeft,
+      startTop,
+      canvasWidth: canvasRect.width,
+      canvasHeight: canvasRect.height,
+      movingHw: (elementRect.width / 2 / canvasRect.width) * 100,
+      movingHh: (elementRect.height / 2 / canvasRect.height) * 100,
+      snapBoxes: snapshotSnapBoxes(id, canvasRect),
+      element,
+      focusOnClick: selectedElId !== id,
+      moved: false,
+      previousTransition: element.style.transition,
+      previousWillChange: element.style.willChange,
+      previousTransform: element.style.transform,
+      rafId: null,
+      lastEvent: null,
     };
 
-    const handleGlobalMouseUp = () => {
-      const currentDrag = draggedItemRef.current;
-      const finalCoords = currentCoordsRef.current;
+    dragSessionRef.current = session;
+    currentCoordsRef.current = null;
+    setContextMenu(null);
+    if (session.focusOnClick) setSelectedElId(id);
 
-      if (currentDrag && finalCoords) {
+    element.style.transition = 'none';
+    element.style.willChange = 'transform';
+
+    try {
+      element.setPointerCapture(e.pointerId);
+    } catch {
+      /* pointer capture is best-effort; window listeners keep the drag alive */
+    }
+
+    const pulseSnap = (guideX: Guide | null, guideY: Guide | null) => {
+      const key = `${guideX ? guideX.pos.toFixed(1) : ''}|${guideY ? guideY.pos.toFixed(1) : ''}`;
+      if (key === snapEngagedRef.current) return;
+      if (guideX || guideY) {
+        try { navigator.vibrate?.(8); } catch { /* not supported */ }
+      }
+      snapEngagedRef.current = key;
+    };
+
+    const paint = () => {
+      const active = dragSessionRef.current;
+      const event = active?.lastEvent;
+      if (!active || !event) return;
+      active.rafId = null;
+
+      const deltaX = event.clientX - active.startX;
+      const deltaY = event.clientY - active.startY;
+      if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) active.moved = true;
+
+      let nextX = active.startLeft + (deltaX / active.canvasWidth) * 100;
+      let nextY = active.startTop + (deltaY / active.canvasHeight) * 100;
+      let guideX: Guide | null = null;
+      let guideY: Guide | null = null;
+
+      if (event.altKey) {
+        hideGuides();
+      } else {
+        const tx = (6 / active.canvasWidth) * 100;
+        const ty = (6 / active.canvasHeight) * 100;
+        const moving = { x: nextX, y: nextY, hw: active.movingHw, hh: active.movingHh };
+        const canvasSnap = computeSnap(moving, [], tx, ty, {
+          includeCanvas: true,
+          canvasLines: 'center',
+          movingAnchors: 'center',
+        });
+        nextX = canvasSnap.x;
+        nextY = canvasSnap.y;
+        guideX = canvasSnap.guideX;
+        guideY = canvasSnap.guideY;
+
+        if (snapToGridRef.current) {
+          const adjacentSnap = computeSnap(
+            { x: nextX, y: nextY, hw: active.movingHw, hh: active.movingHh },
+            active.snapBoxes,
+            tx,
+            ty,
+            { includeCanvas: false },
+          );
+          if (adjacentSnap.snappedX) {
+            nextX = adjacentSnap.x;
+            guideX = adjacentSnap.guideX;
+          }
+          if (adjacentSnap.snappedY) {
+            nextY = adjacentSnap.y;
+            guideY = adjacentSnap.guideY;
+          }
+          if (!canvasSnap.snappedX && !adjacentSnap.snappedX) nextX = Math.round(nextX / 2.5) * 2.5;
+          if (!canvasSnap.snappedY && !adjacentSnap.snappedY) nextY = Math.round(nextY / 2.5) * 2.5;
+        }
+
+        renderGuides(guideX, guideY);
+        pulseSnap(guideX, guideY);
+      }
+
+      nextX = clampFreePercent(nextX);
+      nextY = clampFreePercent(nextY);
+      const commitX = roundFreePercent(nextX);
+      const commitY = roundFreePercent(nextY);
+      currentCoordsRef.current = { x: commitX, y: commitY };
+
+      // The element lives inside the zoom-scaled canvas, so a local translate is
+      // magnified by `zoom` on screen. Divide it back out so the preview tracks the
+      // pointer 1:1 at any zoom; the committed percentage is already scale-correct.
+      const z = zoomRef.current || 1;
+      const visualDx = (((nextX - active.startLeft) / 100) * active.canvasWidth) / z;
+      const visualDy = (((nextY - active.startTop) / 100) * active.canvasHeight) / z;
+      active.element.style.transform = `translate(-50%, -50%) translate3d(${visualDx}px, ${visualDy}px, 0)`;
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      const active = dragSessionRef.current;
+      if (!active || event.pointerId !== active.pointerId) return;
+      event.preventDefault();
+      active.lastEvent = event;
+      if (active.rafId === null) active.rafId = requestAnimationFrame(paint);
+    };
+
+    const endDrag = (event: PointerEvent) => {
+      const active = dragSessionRef.current;
+      if (!active || event.pointerId !== active.pointerId) return;
+      event.preventDefault();
+
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', endDrag);
+      window.removeEventListener('pointercancel', endDrag);
+      if (active.rafId !== null) cancelAnimationFrame(active.rafId);
+      active.rafId = null;
+      active.lastEvent = event;
+      paint();
+
+      hideGuides();
+      const finalCoords = currentCoordsRef.current;
+      if (finalCoords && active.moved) {
+        active.element.style.left = `${finalCoords.x}%`;
+        active.element.style.top = `${finalCoords.y}%`;
+      }
+      active.element.style.transform = active.previousTransform || 'translate(-50%, -50%)';
+      active.element.style.willChange = active.previousWillChange;
+      requestAnimationFrame(() => {
+        active.element.style.transition = active.previousTransition;
+      });
+
+      try {
+        active.element.releasePointerCapture(active.pointerId);
+      } catch {
+        /* no capture to release */
+      }
+
+      if (active.focusOnClick && !active.moved) {
+        selectElementAndFocus(active.id);
+      }
+
+      if (active.moved && finalCoords) {
         setCurrentTemplate(prev => {
           const updated = { ...prev };
           const { x: newX, y: newY } = finalCoords;
 
-          if (currentDrag.id === 'logo') {
+          if (active.id === 'logo') {
             updated.logoX = newX;
             updated.logoY = newY;
-          } else if (currentDrag.id === 'signature') {
+          } else if (active.id === 'signature') {
             updated.signatureX = newX;
             updated.signatureY = newY;
-          } else if (currentDrag.id === 'secondarySignature') {
+          } else if (active.id === 'secondarySignature') {
             updated.secondarySignatureX = newX;
             updated.secondarySignatureY = newY;
-          } else if (currentDrag.id === 'seal') {
+          } else if (active.id === 'seal') {
             updated.qrCodeX = newX;
             updated.qrCodeY = newY;
           } else {
-            updated.textElements = prev.textElements.map(el => {
-              if (el.id === currentDrag.id) {
-                return { ...el, xPercent: newX, yPercent: newY };
-              }
-              return el;
-            });
+            updated.textElements = prev.textElements.map(el =>
+              el.id === active.id ? { ...el, xPercent: newX, yPercent: newY } : el,
+            );
           }
           pushToHistory(updated);
           return updated;
         });
       }
+
       currentCoordsRef.current = null;
-      setDraggedItem(null);
+      dragSessionRef.current = null;
     };
 
-    document.addEventListener('mousemove', handleGlobalMouseMove);
-    document.addEventListener('mouseup', handleGlobalMouseUp);
-
-    return () => {
-      cancelAnimationFrame(rafId);
-      document.removeEventListener('mousemove', handleGlobalMouseMove);
-      document.removeEventListener('mouseup', handleGlobalMouseUp);
-    };
-  }, [draggedItem !== null]);
+    window.addEventListener('pointermove', onPointerMove, { passive: false });
+    window.addEventListener('pointerup', endDrag, { passive: false });
+    window.addEventListener('pointercancel', endDrag, { passive: false });
+  };
 
   // Insert custom placeholder tags into chosen text block
   const insertPlaceholderTag = (tag: string) => {
@@ -1429,7 +2448,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
         style={style}
         className="text-center tracking-wide border-b border-slate-400 pb-1 text-slate-800"
       >
-        {name || 'Thomas Kurian'}
+        {name || 'Signature'}
       </div>
     );
   };
@@ -1528,7 +2547,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
           </div>
  
           <button
-            onClick={() => onSave(currentTemplate)}
+            onClick={() => onSave(prepareTemplateForSave())}
             className="bg-slate-950 hover:bg-slate-850 text-white text-xs px-2.5 sm:px-5 py-2 rounded font-bold shadow transition-all flex items-center gap-1 sm:gap-1.5"
           >
             <Save className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Save Canva Slate</span><span className="inline sm:hidden">Save</span>
@@ -1548,6 +2567,13 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
           ref={directSampleUploadRef}
           style={{ display: 'none' }}
           onChange={handleDirectSampleParsingUpload}
+        />
+      <input
+          type="file"
+          accept=".ttf,font/ttf"
+          ref={customFontUploadRef}
+          style={{ display: 'none' }}
+          onChange={handleCustomFontUpload}
         />
         {/* Split core workspace content */}
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-w-0">
@@ -1837,6 +2863,10 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                     const el = currentTemplate.textElements.find(item => item.id === selectedElId);
                     if (!el) return null;
                     const isRedaction = el.type === 'redaction';
+                    const selectedBold = !isRedaction && rangeRunsEvery(el, (run) => (run.fontWeight ?? el.fontWeight) === 'bold');
+                    const selectedItalic = !isRedaction && rangeRunsEvery(el, (run) => (run.fontStyle ?? el.fontStyle ?? 'normal') === 'italic');
+                    const selectedUnderline = !isRedaction && rangeRunsEvery(el, (run) => (run.textDecoration ?? el.textDecoration ?? 'none') === 'underline');
+                    const selectedTextColor = !isRedaction ? getSelectionColor(el) : el.color;
                     return (
                       <div ref={selectedElementPanelRef} className="bg-gradient-to-br from-indigo-50 to-slate-50 border-2 border-indigo-200 p-4 rounded-xl space-y-4 shadow-md animate-fade-in text-slate-800">
                         <div className="flex justify-between items-center">
@@ -1908,7 +2938,8 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                               </div>
                               <div className="col-span-2 pt-2 border-t border-slate-200 space-y-1.5">
                                 <label className="text-[10px] uppercase text-slate-500 font-bold block">Position Alignment</label>
-                                <div className="flex gap-1.5 flex-wrap">
+                                <PositionAlignmentGrid onAlign={(x, y) => alignElementTo(el.id, x, y)} />
+                                <div className="hidden">
                                   <button
                                     onClick={() => {
                                       const updated = currentTemplate.textElements.map(item => item.id === el.id ? { ...item, xPercent: 10 } : item);
@@ -1955,9 +2986,57 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                               <label className="text-[10px] font-bold text-slate-500 uppercase">Edit Text</label>
                               <textarea
                                 value={el.text}
-                                onChange={(e) => updateTextElementProperty(el.id, 'text', e.target.value)}
+                                onChange={(e) => {
+                                  updateTextElementProperty(el.id, 'text', e.target.value);
+                                  updateTextAreaSelection(el.id, e.currentTarget);
+                                }}
+                                onSelect={(e) => updateTextAreaSelection(el.id, e.currentTarget)}
+                                onKeyDown={(e) => handleTextAreaShortcut(el, e)}
+                                onKeyUp={(e) => updateTextAreaSelection(el.id, e.currentTarget)}
+                                onMouseUp={(e) => updateTextAreaSelection(el.id, e.currentTarget)}
+                                onFocus={(e) => updateTextAreaSelection(el.id, e.currentTarget)}
                                 className="w-full bg-white border border-slate-200 rounded p-2 text-slate-900 font-mono focus:outline-none focus:border-indigo-500 text-xs h-16"
                               />
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] uppercase text-slate-500 font-bold">Selected Text Style</label>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => toggleSelectedTextStyle(el, 'bold')}
+                                  className={`p-1.5 rounded border transition-colors cursor-pointer ${selectedBold ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'}`}
+                                  title="Bold selected text"
+                                >
+                                  <Bold className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => toggleSelectedTextStyle(el, 'italic')}
+                                  className={`p-1.5 rounded border transition-colors cursor-pointer ${selectedItalic ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'}`}
+                                  title="Italic selected text"
+                                >
+                                  <Italic className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => toggleSelectedTextStyle(el, 'underline')}
+                                  className={`p-1.5 rounded border transition-colors cursor-pointer ${selectedUnderline ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'}`}
+                                  title="Underline selected text"
+                                >
+                                  <Underline className="w-3.5 h-3.5" />
+                                </button>
+                                <input
+                                  type="color"
+                                  value={selectedTextColor}
+                                  onChange={(e) => updateSelectedTextStyle(el.id, { color: e.target.value })}
+                                  className="h-8 flex-1 min-w-0 bg-white rounded border border-slate-200 cursor-pointer p-0.5 focus:outline-none"
+                                  title="Color selected text"
+                                />
+                              </div>
                             </div>
 
                             {/* Dynamic Tag Injector helpers */}
@@ -1985,10 +3064,17 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                                   onChange={(e) => updateTextElementProperty(el.id, 'fontFamily', e.target.value)}
                                   className="w-full bg-white border border-slate-200 p-1.5 rounded text-slate-900 focus:outline-none"
                                 >
-                                  {FONT_OPTIONS.map(font => (
+                                  {fontOptions.map(font => (
                                     <option key={font.value} value={font.value}>{font.label}</option>
                                   ))}
                                 </select>
+                                <button
+                                  type="button"
+                                  onClick={() => customFontUploadRef.current?.click()}
+                                  className="mt-1.5 flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-slate-300 bg-white px-2 py-1.5 text-[10px] font-bold uppercase text-slate-500 transition-colors hover:border-indigo-400 hover:bg-indigo-50 hover:text-indigo-600"
+                                >
+                                  <Upload className="h-3.5 w-3.5" /> Import .ttf Font
+                                </button>
                               </div>
 
                               <div className="space-y-1">
@@ -2010,6 +3096,38 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                                   value={el.color}
                                   onChange={(e) => updateTextElementProperty(el.id, 'color', e.target.value)}
                                   className="w-full h-8 bg-white rounded border border-slate-200 cursor-pointer p-0.5 focus:outline-none"
+                                />
+                              </div>
+
+                              <div className="space-y-1">
+                                <div className="flex justify-between items-center">
+                                  <label className="text-[10px] uppercase text-slate-500 font-bold">Line Spacing</label>
+                                  <span className="text-[10px] font-mono text-indigo-650">{Number(el.lineHeight ?? 1.2).toFixed(2)}</span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min="0.8"
+                                  max="3"
+                                  step="0.05"
+                                  value={el.lineHeight ?? 1.2}
+                                  onChange={(e) => updateTextElementProperty(el.id, 'lineHeight', parseFloat(e.target.value))}
+                                  className="w-full cursor-pointer mt-1 accent-indigo-600"
+                                />
+                              </div>
+
+                              <div className="space-y-1">
+                                <div className="flex justify-between items-center">
+                                  <label className="text-[10px] uppercase text-slate-500 font-bold">Letter Spacing</label>
+                                  <span className="text-[10px] font-mono text-indigo-650">{el.letterSpacing ?? 0}px</span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min="-2"
+                                  max="12"
+                                  step="0.25"
+                                  value={el.letterSpacing ?? 0}
+                                  onChange={(e) => updateTextElementProperty(el.id, 'letterSpacing', parseFloat(e.target.value))}
+                                  className="w-full cursor-pointer mt-1 accent-indigo-600"
                                 />
                               </div>
 
@@ -2071,7 +3189,8 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
 
                               <div className="col-span-2 pt-2 border-t border-slate-200 space-y-1.5">
                                 <label className="text-[10px] uppercase text-slate-500 font-bold block">Position Alignment</label>
-                                <div className="flex gap-1.5 flex-wrap">
+                                <PositionAlignmentGrid onAlign={(x, y) => alignElementTo(el.id, x, y)} />
+                                <div className="hidden">
                                   <button
                                     onClick={() => {
                                       const updated = currentTemplate.textElements.map(item => item.id === el.id ? { ...item, xPercent: 10 } : item);
@@ -2334,6 +3453,19 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                 </div>
 
                 <div className="space-y-4 pt-2">
+                  <label className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5 cursor-pointer">
+                    <span className="text-[11px] font-semibold text-slate-700">
+                      Corner watermark tags
+                      <span className="block text-[9px] font-normal text-slate-400">The "AUTHORIZED DISPATCH" editor guides</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={currentTemplate.showWatermarkTags !== false}
+                      onChange={(e) => updateTemplateProperty('showWatermarkTags', e.target.checked)}
+                      className="h-4 w-4 cursor-pointer accent-indigo-600"
+                    />
+                  </label>
+
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-slate-500 uppercase block">Border style</label>
                     <select
@@ -2660,7 +3792,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                           onChange={(e) => updateTemplateProperty('signatoryFontFamily', e.target.value)}
                           className="w-full bg-white border border-slate-200 p-1.5 rounded text-[9px] text-slate-900 focus:outline-none"
                         >
-                          {FONT_OPTIONS.map(font => (
+                          {fontOptions.map(font => (
                             <option key={font.value} value={font.value}>{font.label}</option>
                           ))}
                         </select>
@@ -2772,7 +3904,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                               onChange={(e) => updateTemplateProperty('secondarySignatoryFontFamily', e.target.value)}
                               className="w-full bg-white border border-slate-200 p-1.5 rounded text-[9px] text-slate-900 focus:outline-none"
                             >
-                              {FONT_OPTIONS.map(font => (
+                              {fontOptions.map(font => (
                                 <option key={font.value} value={font.value}>{font.label}</option>
                               ))}
                             </select>
@@ -2908,22 +4040,47 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                     </div>
                   )}
 
-                  {/* Text layers */}
-                  {currentTemplate.textElements.map((el) => (
+                  {/* Text layers — drag to restack, or use the arrows. Rendered
+                      top-of-list = front, so the visual matches the paint order. */}
+                  {currentTemplate.textElements.length > 1 && (
+                    <p className="text-[9px] text-slate-400 pl-0.5 flex items-center gap-1">
+                      <GripVertical className="w-3 h-3" /> Drag to reorder stacking (top = front)
+                    </p>
+                  )}
+                  {[...currentTemplate.textElements].reverse().map((el) => (
                     <div
                       key={el.id}
+                      draggable
+                      onDragStart={() => setDraggedLayerId(el.id)}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => { e.preventDefault(); if (draggedLayerId) moveTextLayer(draggedLayerId, el.id); setDraggedLayerId(null); }}
+                      onDragEnd={() => setDraggedLayerId(null)}
                       onClick={() => setSelectedElId(el.id)}
-                      className={`flex justify-between items-center p-2 rounded-lg cursor-pointer border transition-colors ${selectedElId === el.id ? 'bg-indigo-50 border-indigo-500 text-indigo-955' : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'}`}
+                      className={`flex justify-between items-center p-2 rounded-lg cursor-grab active:cursor-grabbing border transition-colors ${draggedLayerId === el.id ? 'opacity-40' : ''} ${selectedElId === el.id ? 'bg-indigo-50 border-indigo-500 text-indigo-955' : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'}`}
                     >
-                      <div className="truncate max-w-[140px] flex items-center gap-1.5 font-semibold text-[11px]">
+                      <div className="truncate max-w-[130px] flex items-center gap-1.5 font-semibold text-[11px]">
+                        <GripVertical className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                         <Type className="w-3.5 h-3.5 text-indigo-650 shrink-0" />
-                        <span className="truncate">{el.text}</span>
+                        <span className="truncate">{el.text || '(empty)'}</span>
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[8px] font-mono text-slate-400 font-bold font-bold font-bold font-bold font-bold font-bold font-bold">L: {el.xPercent}% T: {el.yPercent}%</span>
+                      <div className="flex items-center gap-0.5">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); shiftTextLayer(el.id, 1); }}
+                          className="text-slate-400 hover:text-indigo-600 transition-colors p-0.5"
+                          title="Bring forward"
+                        >
+                          <ChevronUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); shiftTextLayer(el.id, -1); }}
+                          className="text-slate-400 hover:text-indigo-600 transition-colors p-0.5"
+                          title="Send backward"
+                        >
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        </button>
                         <button
                           onClick={(e) => { e.stopPropagation(); deleteSelectedElement(el.id); }}
-                          className="text-slate-400 hover:text-rose-600 transition-colors"
+                          className="text-slate-400 hover:text-rose-600 transition-colors p-0.5"
                           title="Delete layer"
                         >
                           <Trash2 className="w-3 h-3" />
@@ -2999,8 +4156,8 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
         </div>
 
         {/* Outer Designer Stage canvas container */}
-        <div className="flex-1 bg-[#E2E8F0] p-2 sm:p-12 flex flex-col items-center justify-center overflow-y-auto selection:bg-slate-200 relative">
-          
+        <div ref={stageRef} className="flex-1 min-h-0 bg-[#E2E8F0] p-3 flex items-center justify-center overflow-hidden selection:bg-slate-200 relative">
+
           {showCanvaTip && (
             <div className="hidden md:block absolute top-4 left-4 bg-white border border-slate-205 p-3 rounded-lg text-[10px] text-slate-500 max-w-sm space-y-1.5 shadow-md z-10 transition-all duration-300">
               <div className="flex justify-between items-start gap-3">
@@ -3028,15 +4185,30 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
             <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span> Vector precision lock: bound</span>
           </div> */}
 
-          {/* Core Interactive visual frame */}
-          <div className="w-full max-w-4xl bg-white/80 border border-slate-250 rounded-xl p-2 sm:p-8 shadow-sm flex items-center justify-center">
-            
-            <div 
+          {/* Core Interactive visual frame — doubles as the pan/zoom viewport */}
+          <div
+            ref={viewportRef}
+            onPointerDown={handleViewportPointerDown}
+            onPointerMove={handleViewportPointerMove}
+            onPointerUp={handleViewportPointerUp}
+            onPointerCancel={handleViewportPointerUp}
+            style={{ cursor: isPanning ? 'grabbing' : spaceHeld ? 'grab' : undefined }}
+            className="relative w-full h-full flex items-center justify-center overflow-hidden"
+          >
+            <ViewportControls
+              zoom={zoom}
+              onZoomIn={() => zoomByStep(1)}
+              onZoomOut={() => zoomByStep(-1)}
+              onReset={resetView}
+            />
+
+            <div
               ref={canvasRef}
+              onPointerDown={handleCanvasPointerDown}
               onContextMenu={(e) => handleContextMenu(e, null)}
               style={{
-                background: currentTemplate.backgroundImageUrl 
-                  ? `url(${currentTemplate.backgroundImageUrl})` 
+                background: currentTemplate.backgroundImageUrl
+                  ? `url(${currentTemplate.backgroundImageUrl})`
                   : (currentTemplate.backgroundGradient || currentTemplate.backgroundColor),
                 backgroundSize: currentTemplate.backgroundImageUrl ? 'cover' : undefined,
                 backgroundPosition: currentTemplate.backgroundImageUrl ? 'center' : undefined,
@@ -3045,9 +4217,20 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                 borderWidth: `${currentTemplate.borderWidth}px`,
                 borderStyle: currentTemplate.borderStyle === 'double' ? 'double' : (currentTemplate.borderStyle === 'dashed' ? 'dashed' : (currentTemplate.borderStyle === 'none' ? 'none' : 'solid')),
                 borderRadius: `${currentTemplate.borderRadius || 0}px`,
-                containerType: 'inline-size'
+                containerType: 'inline-size',
+                // Pan slides the page in screen px; zoom scales it about its centre.
+                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                transformOrigin: 'center center',
+                transition: isPanning ? 'none' : undefined,
+                willChange: 'transform',
+                // Sized to the largest 1.414:1 box that fits the stage.
+                width: stageFit.width || undefined,
+                height: stageFit.height || undefined,
+                // Pointer gestures on elements drive drag/resize; without this a
+                // touch or pen drag would scroll the page instead.
+                touchAction: 'none'
               }}
-              className="aspect-[1.414/1] w-full bg-white relative shadow-2xl transition-all duration-150 overflow-hidden select-none border-indigo-400 cursor-default"
+              className="aspect-[1.414/1] bg-white relative shadow-2xl transition-all duration-150 overflow-hidden select-none border-indigo-400 cursor-default"
             >
               
               {/* AI Sample Parsing Glassmorphism Overlay */}
@@ -3080,40 +4263,48 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                 />
               )}
               
-              {/* Drag Alignment floating guideline simulation */}
-              {draggedItem && (
-                <>
-                  {/* Vertical coordinate guideline */}
-                  <div 
-                    style={{ left: `${currentTemplate.logoX}%` }} 
-                    className="absolute inset-y-0 border-l border-indigo-500/30 border-dashed pointer-events-none z-30"
-                  />
-                  {/* Horizontal coordinate guideline */}
-                  <div 
-                    style={{ top: `${currentTemplate.logoY}%` }} 
-                    className="absolute inset-x-0 border-t border-indigo-500/30 border-dashed pointer-events-none z-30"
-                  />
-                </>
-              )}
+              {/*
+                Alignment guides. Always mounted, hidden until a drag engages a
+                snap; the drag handler positions and shows them directly on the
+                DOM (renderGuides / hideGuides) so dragging never re-renders React.
+
+                The previous version hardcoded these to the LOGO's position and
+                wrote to element ids that were never rendered, so no guide ever
+                actually appeared.
+              */}
+              <div
+                ref={guideVRef}
+                style={{ display: 'none', width: '1.5px' }}
+                className="absolute bg-fuchsia-500 pointer-events-none z-[60] shadow-[0_0_4px_rgba(217,70,239,0.7)]"
+              />
+              <div
+                ref={guideHRef}
+                style={{ display: 'none', height: '1.5px' }}
+                className="absolute bg-fuchsia-500 pointer-events-none z-[60] shadow-[0_0_4px_rgba(217,70,239,0.7)]"
+              />
 
               {/* Watermark watermark background */}
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 opacity-[0.02] border border-slate-900 rounded-full flex items-center justify-center pointer-events-none">
                 <Award className="w-24 h-24" />
               </div>
 
-              {/* Top watermark tags */}
-              <div className="absolute top-4 left-6 pointer-events-none text-slate-400 font-mono text-[6px] tracking-widest uppercase">
-                {brandName} AUTHORIZED DISPATCH
-              </div>
-              <div className="absolute top-4 right-6 pointer-events-none text-slate-400 font-mono text-[6px] tracking-widest uppercase">
-                AUTHENTIC_LEDGER_MATCH
-              </div>
+              {/* Decorative corner watermark tags (toggle in the Borders panel) */}
+              {currentTemplate.showWatermarkTags !== false && (
+                <>
+                  <div className="absolute top-4 left-6 pointer-events-none text-slate-400 font-mono text-[6px] tracking-widest uppercase">
+                    {brandName} AUTHORIZED DISPATCH
+                  </div>
+                  <div className="absolute top-4 right-6 pointer-events-none text-slate-400 font-mono text-[6px] tracking-widest uppercase">
+                    AUTHENTIC_LEDGER_MATCH
+                  </div>
+                </>
+              )}
 
               {/* DYNAMIC CANVAS LOGO ITEM */}
               {(currentTemplate.logoUrl || (currentTemplate.logoIconType && currentTemplate.logoIconType !== 'none')) && (
                 <div
                   id="canvas-item-logo"
-                  onMouseDown={(e) => handleMouseDown(e, 'logo', currentTemplate.logoX, currentTemplate.logoY)}
+                  onPointerDown={(e) => beginDrag(e, 'logo', currentTemplate.logoX, currentTemplate.logoY)}
                   onContextMenu={(e) => handleContextMenu(e, 'logo')}
                   style={{
                     position: 'absolute',
@@ -3155,51 +4346,14 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                         <Trash2 className="w-3 h-3" />
                       </button>
 
-                      {/* Left handle */}
-                      <div
-                        onMouseDown={(e) => handleResizeMouseDown(e, 'logo', 'left', currentTemplate.logoWidth)}
-                        className="absolute left-[-8px] top-1/2 -translate-y-1/2 w-1.5 h-3 bg-indigo-600 rounded-sm cursor-ew-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                        title="Drag to resize logo width"
-                      />
-                      {/* Right handle */}
-                      <div
-                        onMouseDown={(e) => handleResizeMouseDown(e, 'logo', 'right', currentTemplate.logoWidth)}
-                        className="absolute right-[-8px] top-1/2 -translate-y-1/2 w-1.5 h-3 bg-indigo-600 rounded-sm cursor-ew-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                        title="Drag to resize logo width"
-                      />
-                      {/* Top handle */}
-                      <div
-                        onMouseDown={(e) => handleResizeMouseDown(e, 'logo', 'top', currentTemplate.logoWidth)}
-                        className="absolute top-[-8px] left-1/2 -translate-x-1/2 w-3 h-1.5 bg-indigo-600 rounded-sm cursor-ns-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                        title="Drag to resize logo width"
-                      />
-                      {/* Bottom handle */}
-                      <div
-                        onMouseDown={(e) => handleResizeMouseDown(e, 'logo', 'bottom', currentTemplate.logoWidth)}
-                        className="absolute bottom-[-8px] left-1/2 -translate-x-1/2 w-3 h-1.5 bg-indigo-600 rounded-sm cursor-ns-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                        title="Drag to resize logo width"
-                      />
-                      {/* Corners */}
-                      <div
-                        onMouseDown={(e) => handleResizeMouseDown(e, 'logo', 'top-left', currentTemplate.logoWidth)}
-                        className="absolute left-[-8px] top-[-8px] w-2 h-2 bg-indigo-600 rounded-full cursor-nwse-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                        title="Drag to resize"
-                      />
-                      <div
-                        onMouseDown={(e) => handleResizeMouseDown(e, 'logo', 'top-right', currentTemplate.logoWidth)}
-                        className="absolute right-[-8px] top-[-8px] w-2 h-2 bg-indigo-600 rounded-full cursor-nesw-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                        title="Drag to resize"
-                      />
-                      <div
-                        onMouseDown={(e) => handleResizeMouseDown(e, 'logo', 'bottom-left', currentTemplate.logoWidth)}
-                        className="absolute left-[-8px] bottom-[-8px] w-2 h-2 bg-indigo-600 rounded-full cursor-nesw-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                        title="Drag to resize"
-                      />
-                      <div
-                        onMouseDown={(e) => handleResizeMouseDown(e, 'logo', 'bottom-right', currentTemplate.logoWidth)}
-                        className="absolute right-[-8px] bottom-[-8px] w-2 h-2 bg-indigo-600 rounded-full cursor-nwse-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                        title="Drag to resize"
-                      />
+                      {ALL_HANDLES.map((h) => (
+                        <ResizeHandle
+                          key={h}
+                          pos={h}
+                          outlineOffset={4}
+                          onStart={(ev, hp) => beginResize(ev, 'logo', hp, currentTemplate.logoWidth)}
+                        />
+                      ))}
                     </>
                   )}
                 </div>
@@ -3212,15 +4366,15 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                     <div
                       key={el.id}
                       id={`canvas-item-${el.id}`}
-                      onMouseDown={(e) => handleMouseDown(e, el.id, el.xPercent, el.yPercent)}
+                      onPointerDown={(e) => beginDrag(e, el.id, el.xPercent, el.yPercent)}
                       onContextMenu={(e) => handleContextMenu(e, el.id)}
                       style={{
                         position: 'absolute',
                         left: `${el.xPercent}%`,
                         top: `${el.yPercent}%`,
                         transform: 'translate(-50%, -50%)',
-                        width: `${el.width || 200}px`,
-                        height: `${el.height || 40}px`,
+                        width: `${(el.width || 200) * 0.1125}cqw`,
+                        height: `${(el.height || 40) * 0.1125}cqw`,
                         backgroundColor: el.color || '#FFFFFF',
                         zIndex: isSelected ? 45 : 15,
                         opacity: el.opacity !== undefined ? el.opacity : 1
@@ -3251,21 +4405,13 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                             <Trash2 className="w-3 h-3" />
                           </button>
 
-                          <div
-                            onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'bottom-right', el.width || 200, undefined, el.height || 40)}
-                            className="absolute right-[-5px] bottom-[-5px] w-2 h-2 bg-indigo-600 rounded-full cursor-nwse-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                            title="Resize"
-                          />
-                          <div
-                            onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'right', el.width || 200, undefined, el.height || 40)}
-                            className="absolute right-[-5px] top-1/2 -translate-y-1/2 w-1.5 h-3 bg-indigo-600 rounded-sm cursor-ew-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                            title="Resize width"
-                          />
-                          <div
-                            onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'bottom', el.width || 200, undefined, el.height || 40)}
-                            className="absolute bottom-[-5px] left-1/2 -translate-x-1/2 w-3 h-1.5 bg-indigo-600 rounded-sm cursor-ns-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                            title="Resize height"
-                          />
+                          {PATCH_HANDLES.map((h) => (
+                            <ResizeHandle
+                              key={h}
+                              pos={h}
+                              onStart={(ev, hp) => beginResize(ev, el.id, hp, el.width || 200, undefined, el.height || 40)}
+                            />
+                          ))}
                         </>
                       )}
                     </div>
@@ -3278,7 +4424,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                     <div
                       key={el.id}
                       id={`canvas-item-${el.id}`}
-                      onMouseDown={(e) => handleMouseDown(e, el.id, el.xPercent, el.yPercent)}
+                      onPointerDown={(e) => beginDrag(e, el.id, el.xPercent, el.yPercent)}
                       onContextMenu={(e) => handleContextMenu(e, el.id)}
                       style={{
                         position: 'absolute',
@@ -3320,53 +4466,25 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                             <Trash2 className="w-3 h-3" />
                           </button>
 
-                          {/* Top-left handle */}
-                          <div
-                            onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'top-left', el.width || 120)}
-                            className="absolute left-[-5px] top-[-5px] w-2 h-2 bg-indigo-600 rounded-full cursor-nwse-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                            title="Drag to resize"
-                          />
-                          {/* Top-right handle */}
-                          <div
-                            onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'top-right', el.width || 120)}
-                            className="absolute right-[-5px] top-[-5px] w-2 h-2 bg-indigo-600 rounded-full cursor-nesw-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                            title="Drag to resize"
-                          />
-                          {/* Bottom-left handle */}
-                          <div
-                            onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'bottom-left', el.width || 120)}
-                            className="absolute left-[-5px] bottom-[-5px] w-2 h-2 bg-indigo-600 rounded-full cursor-nesw-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                            title="Drag to resize"
-                          />
-                          {/* Bottom-right handle */}
-                          <div
-                            onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'bottom-right', el.width || 120)}
-                            className="absolute right-[-5px] bottom-[-5px] w-2 h-2 bg-indigo-600 rounded-full cursor-nwse-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                            title="Drag to resize"
-                          />
-                          {/* Left edge handle */}
-                          <div
-                            onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'left', el.width || 120)}
-                            className="absolute left-[-5px] top-1/2 -translate-y-1/2 w-1.5 h-3 bg-indigo-600 rounded-sm cursor-ew-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                            title="Drag to resize width"
-                          />
-                          {/* Right edge handle */}
-                          <div
-                            onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'right', el.width || 120)}
-                            className="absolute right-[-5px] top-1/2 -translate-y-1/2 w-1.5 h-3 bg-indigo-600 rounded-sm cursor-ew-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                            title="Drag to resize width"
-                          />
+                          {CORNER_HANDLES.map((h) => (
+                            <ResizeHandle
+                              key={h}
+                              pos={h}
+                              onStart={(ev, hp) => beginResize(ev, el.id, hp, el.width || 120)}
+                            />
+                          ))}
                         </>
                       )}
                     </div>
                   );
                 }
 
-                let value = el.text;
-                if (el.text.includes('{{name}}')) value = value.replace('{{name}}', 'Alex Rivera (Recipient Name)');
-                if (el.text.includes('{{program}}')) value = value.replace('{{program}}', 'Gemini Developer Mastery Program');
-                if (el.text.includes('{{id}}')) value = value.replace('{{id}}', 'CERT-2026-XMOCK');
-                if (el.text.includes('{{date}}')) value = value.replace('{{date}}', '2026-06-18');
+                const previewReplacements = {
+                  name: 'Alex Rivera (Recipient Name)',
+                  program: 'Gemini Developer Mastery Program',
+                  id: 'GLNT-SAMPLE-PREVIEW',
+                  date: '2026-06-18',
+                };
 
                 // Fonts mapping classes
                 let fontClass = 'font-sans';
@@ -3384,24 +4502,32 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                   <div
                     key={el.id}
                     id={`canvas-item-${el.id}`}
-                    onMouseDown={(e) => handleMouseDown(e, el.id, el.xPercent, el.yPercent)}
+                    onPointerDown={(e) => { if (editingCanvasId !== el.id) beginDrag(e, el.id, el.xPercent, el.yPercent); }}
+                    onDoubleClick={(e) => { e.stopPropagation(); setSelectedElId(el.id); setEditingCanvasId(el.id); }}
                     onContextMenu={(e) => handleContextMenu(e, el.id)}
                     style={{
                       position: 'absolute',
                       left: `${el.xPercent}%`,
                       top: `${el.yPercent}%`,
                       transform: 'translate(-50%, -50%)',
+                      cursor: editingCanvasId === el.id ? 'text' : undefined,
                       color: el.color,
-                      fontSize: `${el.fontSize * 0.09}cqw`,
+                      // Same canvas-relative scale the viewer uses, so the editor
+                      // is a true WYSIWYG preview of the delivered certificate.
+                      fontSize: `${el.fontSize * 0.1125}cqw`,
                       textAlign: el.align as any,
                       zIndex: isSelected ? 40 : 20,
-                      maxWidth: el.width ? `${el.width}px` : '512px',
+                      width: el.width ? `${el.width * 0.1125}cqw` : undefined,
+                      maxWidth: el.width ? undefined : '57.6cqw',
+                      boxSizing: 'border-box',
                       fontFamily: el.fontFamily,
                       fontStyle: el.fontStyle || 'normal',
                       fontWeight: el.fontWeight === 'bold' ? 700 : (el.fontWeight === 'medium' ? 500 : 400),
                       textDecoration: el.textDecoration || 'none',
                       letterSpacing: el.letterSpacing ? `${el.letterSpacing}px` : undefined,
                       lineHeight: el.lineHeight || 'normal',
+                      whiteSpace: 'pre-wrap',
+                      overflowWrap: 'break-word',
                       opacity: el.opacity !== undefined ? el.opacity : undefined,
                       textTransform: el.textTransform || 'none'
                     }}
@@ -3409,7 +4535,16 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                       isSelected ? 'outline border-dashed outline-2 outline-indigo-500 outline-offset-2 bg-indigo-500/5 rounded-md' : 'hover:outline hover:outline-dashed hover:outline-1 hover:outline-slate-400 hover:outline-offset-2'
                     }`}
                   >
-                    {value}
+                    {editingCanvasId === el.id ? (
+                      <InlineTextEditor
+                        key="inline-edit"
+                        initialText={el.text}
+                        onCommit={(text) => { setEditingCanvasId(null); updateTextElementProperty(el.id, 'text', text); }}
+                        onCancel={() => setEditingCanvasId(null)}
+                      />
+                    ) : (
+                      renderRichText(el, previewReplacements)
+                    )}
 
                     {/* Floating context label */}
                     <div className="absolute -top-7 left-1/2 -translate-x-1/2 font-mono text-[7px] bg-slate-900 border border-slate-700 text-slate-300 px-1 py-0.2 rounded opacity-0 group-hover:opacity-100 transition-opacity shrink-0 pointer-events-none select-none flex items-center gap-1 whitespace-nowrap">
@@ -3432,54 +4567,19 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                           <Trash2 className="w-3 h-3" />
                         </button>
 
-                        {/* Top-left handle */}
-                        <div
-                          onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'top-left', el.width || 512, el.fontSize)}
-                          className="absolute left-[-5px] top-[-5px] w-2 h-2 bg-indigo-600 rounded-full cursor-nwse-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                          title="Drag to resize"
-                        />
-                        {/* Top-right handle */}
-                        <div
-                          onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'top-right', el.width || 512, el.fontSize)}
-                          className="absolute right-[-5px] top-[-5px] w-2 h-2 bg-indigo-600 rounded-full cursor-nesw-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                          title="Drag to resize"
-                        />
-                        {/* Bottom-left handle */}
-                        <div
-                          onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'bottom-left', el.width || 512, el.fontSize)}
-                          className="absolute left-[-5px] bottom-[-5px] w-2 h-2 bg-indigo-600 rounded-full cursor-nesw-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                          title="Drag to resize"
-                        />
-                        {/* Bottom-right handle */}
-                        <div
-                          onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'bottom-right', el.width || 512, el.fontSize)}
-                          className="absolute right-[-5px] bottom-[-5px] w-2 h-2 bg-indigo-600 rounded-full cursor-nwse-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                          title="Drag to resize"
-                        />
-                        {/* Left edge handle */}
-                        <div
-                          onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'left', el.width || 512)}
-                          className="absolute left-[-5px] top-1/2 -translate-y-1/2 w-1.5 h-3 bg-indigo-600 rounded-sm cursor-ew-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                          title="Drag to resize width"
-                        />
-                        {/* Right edge handle */}
-                        <div
-                          onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'right', el.width || 512)}
-                          className="absolute right-[-5px] top-1/2 -translate-y-1/2 w-1.5 h-3 bg-indigo-600 rounded-sm cursor-ew-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                          title="Drag to resize width"
-                        />
-                        {/* Top edge handle */}
-                        <div
-                          onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'top', el.width || 512, el.fontSize)}
-                          className="absolute top-[-5px] left-1/2 -translate-x-1/2 w-3 h-1.5 bg-indigo-600 rounded-sm cursor-ns-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                          title="Drag to resize font size"
-                        />
-                        {/* Bottom edge handle */}
-                        <div
-                          onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'bottom', el.width || 512, el.fontSize)}
-                          className="absolute bottom-[-5px] left-1/2 -translate-x-1/2 w-3 h-1.5 bg-indigo-600 rounded-sm cursor-ns-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                          title="Drag to resize font size"
-                        />
+                        {/*
+                          Corners and the top/bottom edges scale the font size;
+                          left/right scale the wrap width. `beginResize` gets the
+                          font size for all handles — the move handler only applies
+                          it for the handles that should change it.
+                        */}
+                        {ALL_HANDLES.map((h) => (
+                          <ResizeHandle
+                            key={h}
+                            pos={h}
+                            onStart={(ev, hp) => beginResize(ev, el.id, hp, el.width || 512, el.fontSize)}
+                          />
+                        ))}
                       </>
                     )}
                   </div>
@@ -3490,7 +4590,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
               {(currentTemplate.signatureUrl || currentTemplate.signatoryName) && (
                 <div
                   id="canvas-item-signature"
-                  onMouseDown={(e) => handleMouseDown(e, 'signature', currentTemplate.signatureX, currentTemplate.signatureY)}
+                  onPointerDown={(e) => beginDrag(e, 'signature', currentTemplate.signatureX, currentTemplate.signatureY)}
                   onContextMenu={(e) => handleContextMenu(e, 'signature')}
                   style={{
                     position: 'absolute',
@@ -3518,7 +4618,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                     }}
                     className="font-bold uppercase tracking-widest text-slate-400 mt-1.5 leading-tight text-[7px]"
                   >
-                    {currentTemplate.signatoryTitle || 'CEO, Authority'}
+                    {currentTemplate.signatoryTitle || 'Signatory title'}
                   </p>
                   
                   {/* Coordinate Tag */}
@@ -3542,51 +4642,14 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                         <Trash2 className="w-3 h-3" />
                       </button>
 
-                      {/* Left handle */}
-                      <div
-                        onMouseDown={(e) => handleResizeMouseDown(e, 'signature', 'left', currentTemplate.signatureWidth)}
-                        className="absolute left-[-8px] top-1/2 -translate-y-1/2 w-1.5 h-3 bg-indigo-600 rounded-sm cursor-ew-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                        title="Drag to resize signature width"
-                      />
-                      {/* Right handle */}
-                      <div
-                        onMouseDown={(e) => handleResizeMouseDown(e, 'signature', 'right', currentTemplate.signatureWidth)}
-                        className="absolute right-[-8px] top-1/2 -translate-y-1/2 w-1.5 h-3 bg-indigo-600 rounded-sm cursor-ew-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                        title="Drag to resize signature width"
-                      />
-                      {/* Top handle */}
-                      <div
-                        onMouseDown={(e) => handleResizeMouseDown(e, 'signature', 'top', currentTemplate.signatureWidth)}
-                        className="absolute top-[-8px] left-1/2 -translate-x-1/2 w-3 h-1.5 bg-indigo-600 rounded-sm cursor-ns-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                        title="Drag to resize signature width"
-                      />
-                      {/* Bottom handle */}
-                      <div
-                        onMouseDown={(e) => handleResizeMouseDown(e, 'signature', 'bottom', currentTemplate.signatureWidth)}
-                        className="absolute bottom-[-8px] left-1/2 -translate-x-1/2 w-3 h-1.5 bg-indigo-600 rounded-sm cursor-ns-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                        title="Drag to resize signature width"
-                      />
-                      {/* Corners */}
-                      <div
-                        onMouseDown={(e) => handleResizeMouseDown(e, 'signature', 'top-left', currentTemplate.signatureWidth)}
-                        className="absolute left-[-8px] top-[-8px] w-2 h-2 bg-indigo-600 rounded-full cursor-nwse-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                        title="Drag to resize"
-                      />
-                      <div
-                        onMouseDown={(e) => handleResizeMouseDown(e, 'signature', 'top-right', currentTemplate.signatureWidth)}
-                        className="absolute right-[-8px] top-[-8px] w-2 h-2 bg-indigo-600 rounded-full cursor-nesw-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                        title="Drag to resize"
-                      />
-                      <div
-                        onMouseDown={(e) => handleResizeMouseDown(e, 'signature', 'bottom-left', currentTemplate.signatureWidth)}
-                        className="absolute left-[-8px] bottom-[-8px] w-2 h-2 bg-indigo-600 rounded-full cursor-nesw-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                        title="Drag to resize"
-                      />
-                      <div
-                        onMouseDown={(e) => handleResizeMouseDown(e, 'signature', 'bottom-right', currentTemplate.signatureWidth)}
-                        className="absolute right-[-8px] bottom-[-8px] w-2 h-2 bg-indigo-600 rounded-full cursor-nwse-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                        title="Drag to resize"
-                      />
+                      {ALL_HANDLES.map((h) => (
+                        <ResizeHandle
+                          key={h}
+                          pos={h}
+                          outlineOffset={4}
+                          onStart={(ev, hp) => beginResize(ev, 'signature', hp, currentTemplate.signatureWidth)}
+                        />
+                      ))}
                     </>
                   )}
                 </div>
@@ -3596,7 +4659,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
               {(currentTemplate.secondarySignatureUrl || currentTemplate.showSecondarySignatory) && (
                 <div
                   id="canvas-item-secondarySignature"
-                  onMouseDown={(e) => handleMouseDown(e, 'secondarySignature', currentTemplate.secondarySignatureX || 70, currentTemplate.secondarySignatureY || 78)}
+                  onPointerDown={(e) => beginDrag(e, 'secondarySignature', currentTemplate.secondarySignatureX || 70, currentTemplate.secondarySignatureY || 78)}
                   onContextMenu={(e) => handleContextMenu(e, 'secondarySignature')}
                   style={{
                     position: 'absolute',
@@ -3615,16 +4678,19 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                       alt="Secondary Signature"
                     />
                   ) : (
-                    renderHandwrittenSignature(currentTemplate.secondarySignatoryName || 'Dr. Clara Masters', currentTemplate.secondarySignatoryFontFamily || 'Playfair Display', currentTemplate.secondarySignatoryFontSize || 18)
+                    // Empty slots preview as the literal word "Signature". They used to
+                    // preview as "Dr. Clara Masters, Admissions Registrar" — a person
+                    // who does not exist, on a certificate about to be issued for real.
+                    renderHandwrittenSignature(currentTemplate.secondarySignatoryName || '', currentTemplate.secondarySignatoryFontFamily || 'Playfair Display', currentTemplate.secondarySignatoryFontSize || 18)
                   )}
-                  <p 
+                  <p
                     style={{
                       fontFamily: currentTemplate.secondarySignatoryFontFamily || 'Inter',
                       fontSize: currentTemplate.secondarySignatoryFontSize ? `${(currentTemplate.secondarySignatoryFontSize * 0.4) * 0.09}cqw` : undefined
                     }}
                     className="font-bold uppercase tracking-widest text-slate-400 mt-1.5 leading-tight text-[7px]"
                   >
-                    {currentTemplate.secondarySignatoryTitle || 'Admissions Registrar'}
+                    {currentTemplate.secondarySignatoryTitle || 'Signatory title'}
                   </p>
                   
                   {/* Coordinate Tag */}
@@ -3648,51 +4714,14 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                         <Trash2 className="w-3 h-3" />
                       </button>
 
-                      {/* Left handle */}
-                      <div
-                        onMouseDown={(e) => handleResizeMouseDown(e, 'secondarySignature', 'left', currentTemplate.secondarySignatureWidth || 100)}
-                        className="absolute left-[-8px] top-1/2 -translate-y-1/2 w-1.5 h-3 bg-indigo-600 rounded-sm cursor-ew-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                        title="Drag to resize signature width"
-                      />
-                      {/* Right handle */}
-                      <div
-                        onMouseDown={(e) => handleResizeMouseDown(e, 'secondarySignature', 'right', currentTemplate.secondarySignatureWidth || 100)}
-                        className="absolute right-[-8px] top-1/2 -translate-y-1/2 w-1.5 h-3 bg-indigo-600 rounded-sm cursor-ew-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                        title="Drag to resize signature width"
-                      />
-                      {/* Top handle */}
-                      <div
-                        onMouseDown={(e) => handleResizeMouseDown(e, 'secondarySignature', 'top', currentTemplate.secondarySignatureWidth || 100)}
-                        className="absolute top-[-8px] left-1/2 -translate-x-1/2 w-3 h-1.5 bg-indigo-600 rounded-sm cursor-ns-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                        title="Drag to resize signature width"
-                      />
-                      {/* Bottom handle */}
-                      <div
-                        onMouseDown={(e) => handleResizeMouseDown(e, 'secondarySignature', 'bottom', currentTemplate.secondarySignatureWidth || 100)}
-                        className="absolute bottom-[-8px] left-1/2 -translate-x-1/2 w-3 h-1.5 bg-indigo-600 rounded-sm cursor-ns-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                        title="Drag to resize signature width"
-                      />
-                      {/* Corners */}
-                      <div
-                        onMouseDown={(e) => handleResizeMouseDown(e, 'secondarySignature', 'top-left', currentTemplate.secondarySignatureWidth || 100)}
-                        className="absolute left-[-8px] top-[-8px] w-2 h-2 bg-indigo-600 rounded-full cursor-nwse-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                        title="Drag to resize"
-                      />
-                      <div
-                        onMouseDown={(e) => handleResizeMouseDown(e, 'secondarySignature', 'top-right', currentTemplate.secondarySignatureWidth || 100)}
-                        className="absolute right-[-8px] top-[-8px] w-2 h-2 bg-indigo-600 rounded-full cursor-nesw-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                        title="Drag to resize"
-                      />
-                      <div
-                        onMouseDown={(e) => handleResizeMouseDown(e, 'secondarySignature', 'bottom-left', currentTemplate.secondarySignatureWidth || 100)}
-                        className="absolute left-[-8px] bottom-[-8px] w-2 h-2 bg-indigo-600 rounded-full cursor-nesw-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                        title="Drag to resize"
-                      />
-                      <div
-                        onMouseDown={(e) => handleResizeMouseDown(e, 'secondarySignature', 'bottom-right', currentTemplate.secondarySignatureWidth || 100)}
-                        className="absolute right-[-8px] bottom-[-8px] w-2 h-2 bg-indigo-600 rounded-full cursor-nwse-resize hover:scale-125 transition-transform z-50 border border-white shadow-sm"
-                        title="Drag to resize"
-                      />
+                      {ALL_HANDLES.map((h) => (
+                        <ResizeHandle
+                          key={h}
+                          pos={h}
+                          outlineOffset={4}
+                          onStart={(ev, hp) => beginResize(ev, 'secondarySignature', hp, currentTemplate.secondarySignatureWidth || 100)}
+                        />
+                      ))}
                     </>
                   )}
                 </div>
@@ -3702,7 +4731,7 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
               {(currentTemplate.showQrCode || currentTemplate.showSeal) && (
                 <div
                   id="canvas-item-seal"
-                  onMouseDown={(e) => handleMouseDown(e, 'seal', currentTemplate.qrCodeX, currentTemplate.qrCodeY)}
+                  onPointerDown={(e) => beginDrag(e, 'seal', currentTemplate.qrCodeX, currentTemplate.qrCodeY)}
                   onContextMenu={(e) => handleContextMenu(e, 'seal')}
                   style={{
                     position: 'absolute',
@@ -3755,26 +4784,16 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
                     </div>
                   )}
 
-                  {/* Trust QR */}
-                  {currentTemplate.showQrCode && (
-                    <div 
+                  {/* Trust QR — generated locally, previewing the sample values */}
+                  {currentTemplate.showQrCode && previewQrDataUrl && (
+                    <div
                       style={{
                         width: `${(currentTemplate.qrCodeWidth || 32) * 0.125}cqw`,
                         height: `${(currentTemplate.qrCodeWidth || 32) * 0.125}cqw`,
                       }}
                       className="bg-white p-0.5 rounded-sm border border-slate-200 shadow-sm flex items-center justify-center select-none shrink-0"
                     >
-                      <img 
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(
-                          (currentTemplate.qrCodeCustomUrl || 'https://glint.io/verify/{{id}}')
-                            .replace('{{id}}', 'CERT-2026-XMOCK')
-                            .replace('{{name}}', 'Alex Rivera')
-                            .replace('{{program}}', 'Gemini Developer Mastery Program')
-                            .replace('{{date}}', '2026-06-18')
-                        )}&color=0f172a`}
-                        alt="Verification QR"
-                        className="w-full h-full object-contain"
-                      />
+                      <img src={previewQrDataUrl} alt="Verification QR preview" className="w-full h-full object-contain" />
                     </div>
                   )}
 
@@ -3804,13 +4823,6 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
             </div>
           </div>
 
-          {/* Guidelines hint footer */}
-          <div className="mt-6 flex gap-4 text-xs text-slate-500 text-center font-semibold">
-            <span className="flex items-center gap-1.5"><Grid className="w-4 h-4 text-slate-650" /> Alignment Assistant Connected</span>
-            <span className="text-slate-800">|</span>
-            <span className="flex items-center gap-1.5"><Sparkles className="w-4 h-4 text-slate-650" /> Fluid responsive visual coordinates mapping</span>
-          </div>
-
         </div>
 
       </div>
@@ -3831,15 +4843,18 @@ export function CanvaEditor({ template, onSave, onCancel, brandName = 'Workspace
               <div className="px-2.5 py-1 text-[9px] uppercase font-bold text-slate-400">
                 Layer Operations
               </div>
+              <div className="px-2.5 py-1.5">
+                <PositionAlignmentGrid onAlign={(x, y) => alignElementTo(contextMenu.targetId!, x, y)} />
+              </div>
               <button
                 onClick={() => alignCenterHorizontally(contextMenu.targetId!)}
-                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-indigo-50 hover:text-indigo-600 rounded-lg text-left"
+                className="hidden"
               >
                 <AlignCenter className="w-3.5 h-3.5" /> Align Horizontally
               </button>
               <button
                 onClick={() => alignCenterVertically(contextMenu.targetId!)}
-                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-indigo-50 hover:text-indigo-600 rounded-lg text-left"
+                className="hidden"
               >
                 <AlignCenter className="w-3.5 h-3.5 rotate-90" /> Align Vertically
               </button>
