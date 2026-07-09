@@ -5,309 +5,315 @@ import { toast } from 'sonner';
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Award, CheckCircle, ShieldAlert, BadgeAlert, Printer, Share2, Copy, Play, Database, Calendar, User, Building, Landmark, ChevronRight, RefreshCw, Hash, Sparkles, QrCode, Download } from 'lucide-react';
-import { Certificate, CertificateTemplate, OrganizationBranding } from '../types';
+import { Award, ShieldAlert, BadgeAlert, Printer, Share2, Copy, Play, Database, Landmark, RefreshCw, Sparkles, QrCode, Download } from 'lucide-react';
+import type {
+  AuditLogEntry,
+  CertificateTemplate,
+  CustomFontAsset,
+  OrganizationBranding,
+  PublicCertificate,
+  RichTextRun,
+  VerificationResult,
+} from '../types';
+import { resolveRichTextRuns } from '../lib/richText';
 
 interface CertificateViewerProps {
   certificateId: string;
   onBackToHome: () => void;
 }
 
+/** Certificate links are `/c/<id>`. The origin is wherever this page is served from. */
+const certificateUrl = (id: string) => `${window.location.origin}/c/${id}`;
+
+const richTextRunStyle = (run: RichTextRun): React.CSSProperties => ({
+  color: run.color,
+  fontWeight: run.fontWeight === 'bold' ? 700 : (run.fontWeight === 'medium' ? 500 : run.fontWeight),
+  fontStyle: run.fontStyle,
+  textDecoration: run.textDecoration,
+});
+
 export function CertificateViewer({ certificateId, onBackToHome }: CertificateViewerProps) {
-  const [cert, setCert] = useState<Certificate | null>(null);
+  const [cert, setCert] = useState<PublicCertificate | null>(null);
   const [branding, setBranding] = useState<OrganizationBranding | null>(null);
   const [template, setTemplate] = useState<CertificateTemplate | null>(null);
+  const [auditTrail, setAuditTrail] = useState<AuditLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  
-  // Auditing check states
-  const [auditProgress, setAuditProgress] = useState<'idle' | 'running' | 'success'>('idle');
-  const [auditMessage, setAuditMessage] = useState('');
+
+  const [auditProgress, setAuditProgress] = useState<'idle' | 'running' | 'done'>('idle');
+  const [verification, setVerification] = useState<VerificationResult | null>(null);
   const [copied, setCopied] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string>('');
 
-  // Reference for the printable certificate area
   const printRef = useRef<HTMLDivElement>(null);
+  const loadedCustomFontsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     fetchCertificate();
   }, [certificateId]);
 
+  const loadCustomFont = async (font: CustomFontAsset) => {
+    const key = `${font.family}:${font.dataUrl.length}`;
+    if (loadedCustomFontsRef.current.has(key)) return;
+
+    const face = new FontFace(font.family, `url(${font.dataUrl}) format("truetype")`);
+    const loaded = await face.load();
+    document.fonts.add(loaded);
+    loadedCustomFontsRef.current.add(key);
+  };
+
+  useEffect(() => {
+    template?.customFonts?.forEach((font) => {
+      loadCustomFont(font).catch(() => {
+        /* The browser will fall back to the next available family. */
+      });
+    });
+  }, [template?.customFonts]);
+
+  /**
+   * One request. The template arrives with the certificate.
+   *
+   * This used to make a second call to `GET /api/templates`, which requires a
+   * bearer token — so for the recipient it returned 401, the error was
+   * swallowed, and the page silently rendered a hardcoded fallback template
+   * signed by "Thomas Kurian, CEO, Platform Authority". Nobody ever saw the
+   * design they had made.
+   */
   const fetchCertificate = async () => {
     try {
       setLoading(true);
       setError('');
-      const res = await fetch(`/api/certificates/${certificateId}`);
+
+      const res = await fetch(`/api/certificates/${encodeURIComponent(certificateId)}`);
       if (!res.ok) {
-        throw new Error('Requested certificate ID not found in the public registry archives.');
+        throw new Error(
+          res.status === 404
+            ? 'No certificate is registered under this identifier.'
+            : 'The verification registry could not be reached.',
+        );
       }
+
       const data = await res.json();
       setCert(data.certificate);
       setBranding(data.branding);
+      setTemplate(data.template);
+      setAuditTrail(data.auditTrail ?? []);
 
-      // Report a view statistics increase
-      fetch(`/api/certificates/${certificateId}/stats`, {
+      // Counters only — the endpoint no longer echoes the whole record back.
+      fetch(`/api/certificates/${encodeURIComponent(certificateId)}/stats`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'view' })
+        body: JSON.stringify({ action: 'view' }),
       })
-        .then(res => {
-          if (res.ok) return res.json();
-        })
-        .then(updated => {
-          if (updated) setCert(updated);
-        })
-        .catch(err => console.error('Failed to log view statistic', err));
-
-      // Load related template logic to support customized certificate preview
-      // If we don't find it on API, fallback on standard preset template
-      const templateRes = await fetch(`/api/templates?workspaceId=${data.certificate.workspaceId}`);
-      if (templateRes.ok) {
-        const templatesList: CertificateTemplate[] = await templateRes.json();
-        const matched = templatesList.find(t => t.id === data.certificate.templateId || t.id === data.certificate.programId || t.id === 'temp-google-classic' || t.id === 'temp-stellar-modern');
-        if (matched) {
-          setTemplate(matched);
-        } else if (templatesList.length > 0) {
-          setTemplate(templatesList[0]);
-        }
-      }
+        .then((r) => (r.ok ? r.json() : null))
+        .then((counters) => counters && setCert((prev) => (prev ? { ...prev, ...counters } : prev)))
+        .catch(() => {
+          /* a view counter is not worth surfacing */
+        });
     } catch (err: any) {
-      setError(err.message || 'Verification search failed');
+      setError(err.message || 'Verification failed');
     } finally {
       setLoading(false);
     }
   };
 
-  // Perform a simulated physical check of security ledger
-  const runCryptographicAudit = async () => {
+  /**
+   * Asks the server to recompute the HMAC over this certificate's issuance facts
+   * and compare it, in constant time, with the stored signature.
+   *
+   * The previous version was three `setTimeout` calls printing "Decoding
+   * tamper-proof security stamp…", after which it reported success — including
+   * when the request failed, and including for revoked certificates. The server
+   * endpoint it called returned `verified: true` unconditionally.
+   */
+  const runSignatureCheck = async () => {
     if (!cert) return;
     setAuditProgress('running');
-    setAuditMessage('Connecting to workspace validation protocol...');
-    
-    setTimeout(() => {
-      setAuditMessage('Decoding tamper-proof security stamp...');
-    }, 800);
+    setVerification(null);
 
-    setTimeout(() => {
-      setAuditMessage('Validating credential signature keys against authority ledger...');
-    }, 1600);
+    try {
+      const res = await fetch(`/api/certificates/${encodeURIComponent(cert.id)}/verify`, { method: 'POST' });
+      if (!res.ok) throw new Error('Verification request failed');
 
-    setTimeout(async () => {
-      try {
-        const verifyRes = await fetch(`/api/certificates/${cert.id}/verify`, {
-          method: 'POST'
-        });
-        if (verifyRes.ok) {
-          const verifyData = await verifyRes.json();
-          // Update cert to load new verification entry
-          setCert(verifyData.certificate);
-          setAuditProgress('success');
-          setAuditMessage('Cryptographic seal verified matched. Status returned: VALID_SECURE_REPRESENTATION.');
-        } else {
-          setAuditProgress('success');
-          setAuditMessage('Ledger check successfully parsed. Cryptographic sign matches registry.');
-        }
-      } catch (err) {
-        setAuditProgress('success');
-        setAuditMessage('Ledger check successfully parsed. Cryptographic sign matches registry.');
-      }
-    }, 2400);
+      const result: VerificationResult = await res.json();
+      setVerification(result);
+      setCert(result.certificate);
+      setAuditProgress('done');
+    } catch {
+      setVerification(null);
+      setAuditProgress('idle');
+      toast.error('Could not reach the verification service. Try again.');
+    }
+  };
+
+  const verificationSummary = (result: VerificationResult): string => {
+    if (result.verified) return 'Signature valid. This credential is authentic and currently in force.';
+    if (!result.signatureValid) {
+      return 'Signature does NOT match. This record has been altered since it was issued, or was not issued by this registry.';
+    }
+    if (result.reasons.includes('revoked')) {
+      return 'Signature is valid, but the issuer has revoked this credential. It is no longer in force.';
+    }
+    if (result.reasons.includes('expired')) return 'Signature is valid, but this credential has expired.';
+    return 'This credential could not be verified.';
+  };
+
+  /** Fire-and-forget counter bump. Merges the returned counters into local state. */
+  const recordAction = (action: 'download' | 'share') => {
+    if (!cert) return;
+    fetch(`/api/certificates/${encodeURIComponent(cert.id)}/stats`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((counters) => counters && setCert((prev) => (prev ? { ...prev, ...counters } : prev)))
+      .catch(() => {
+        /* counters are best-effort */
+      });
   };
 
   const executeDownloadStat = () => {
     if (!cert || cert.status === 'revoked') return;
-    // Log Download
-    fetch(`/api/certificates/${cert.id}/stats`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'download' })
-    })
-      .then(res => {
-        if (res.ok) return res.json();
-      })
-      .then(updated => {
-        if (updated) setCert(updated);
-      })
-      .catch(err => console.error('Failed to log download statistic', err));
-    
-    // Trigger standard browser print window targeting certificate area
+    recordAction('download');
     window.print();
   };
 
+  /**
+   * jsPDF and html2canvas-pro are bundled and imported on demand, rather than
+   * pulled from cdnjs and jsdelivr as unpinned global <script> tags on every
+   * page load. They add ~500kB, so the import happens on click, not at boot.
+   */
   const executePdfDownload = async () => {
-    if (!cert || !printRef.current || cert.status === 'revoked') return;
+    if (!cert || !printRef.current || !template || cert.status === 'revoked') return;
     setIsDownloadingPdf(true);
+    recordAction('download');
 
-    // Log Download
-    fetch(`/api/certificates/${cert.id}/stats`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'download' })
-    })
-      .then(res => {
-        if (res.ok) return res.json();
-      })
-      .then(updated => {
-        if (updated) setCert(updated);
-      })
-      .catch(err => console.error('Failed to log download statistic', err));
-
+    let wrapper: HTMLDivElement | null = null;
     try {
       await document.fonts.ready;
-      const html2pdfLib = (window as any).html2pdf;
-      if (!html2pdfLib) {
-        throw new Error('PDF conversion engine not loaded yet. Please wait a moment and try again.');
-      }
 
-      // Create a hidden wrapper container to host the cloned element off-screen
-      const wrapper = document.createElement('div');
-      wrapper.style.position = 'absolute';
-      wrapper.style.left = '-9999px';
-      wrapper.style.top = '-9999px';
-      wrapper.style.width = '1120px';
-      wrapper.style.height = '792px';
-      wrapper.style.overflow = 'hidden';
+      const [{ jsPDF }, { default: html2canvas }] = await Promise.all([
+        import('jspdf'),
+        import('html2canvas-pro'),
+      ]);
 
-      // Clone the node so we can manipulate it off-screen without altering the UI
-      const originalElement = printRef.current;
-      const element = originalElement.cloneNode(true) as HTMLElement;
+      // Render off-screen at a fixed size so the container-query units (cqw) the
+      // template uses resolve at print resolution rather than at whatever width
+      // the viewport happens to be.
+      wrapper = document.createElement('div');
+      wrapper.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:1120px;height:792px;overflow:hidden';
 
-      // Force fixed dimensions on the cloned element so that container queries (cqw) 
-      // evaluate correctly at a high resolution.
-      element.style.width = '1120px';
-      element.style.height = '792px';
-      element.style.position = 'relative';
-      element.style.left = '0';
-      element.style.top = '0';
-      element.style.zIndex = '1';
-
-      // Append cloned element to the wrapper, and wrapper to the body
+      const element = printRef.current.cloneNode(true) as HTMLElement;
+      element.style.cssText += ';width:1120px;height:792px;position:relative;left:0;top:0';
       wrapper.appendChild(element);
       document.body.appendChild(wrapper);
 
-      const opt = {
-        margin:       0,
-        filename:     `Glint_Certificate_${cert.id}.pdf`,
-        image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  { 
-          scale: 2, 
-          useCORS: true,
-          logging: false
-        },
-        jsPDF:        { 
-          unit: 'in', 
-          format: 'a4', 
-          orientation: activeTemplate.layout || 'landscape' 
-        }
-      };
+      const canvas = await html2canvas(element, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' });
 
-      // Generate the PDF
-      await html2pdfLib().set(opt).from(element).save();
+      const landscape = (template.layout ?? 'landscape') === 'landscape';
+      const pdf = new jsPDF({ unit: 'pt', format: 'a4', orientation: landscape ? 'landscape' : 'portrait' });
 
-      // Clean up the DOM element and wrapper
-      document.body.removeChild(wrapper);
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+
+      // Preserve aspect ratio and centre; stretching to the page corners
+      // distorted every certificate that was not exactly A4-proportioned.
+      const scale = Math.min(pageWidth / canvas.width, pageHeight / canvas.height);
+      const width = canvas.width * scale;
+      const height = canvas.height * scale;
+
+      pdf.addImage(
+        canvas.toDataURL('image/jpeg', 0.98),
+        'JPEG',
+        (pageWidth - width) / 2,
+        (pageHeight - height) / 2,
+        width,
+        height,
+      );
+      pdf.save(`Glint_Certificate_${cert.id}.pdf`);
     } catch (err: any) {
       console.error(err);
-      toast.error(err.message || 'Failed to download certificate PDF');
+      toast.error('Could not generate the PDF. Try the Print option instead.');
     } finally {
+      if (wrapper?.parentNode) wrapper.parentNode.removeChild(wrapper);
       setIsDownloadingPdf(false);
     }
   };
 
   const copyUrl = () => {
-    const origin = window.location.origin.includes('localhost') ? 'https://glint-pi.vercel.app' : window.location.origin;
-    const url = origin + '/#credential=' + certificateId;
-    navigator.clipboard.writeText(url);
+    navigator.clipboard.writeText(certificateUrl(certificateId));
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-    
-    // Log Share
-    if (cert) {
-      fetch(`/api/certificates/${cert.id}/stats`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'share' })
-      })
-        .then(res => {
-          if (res.ok) return res.json();
-        })
-        .then(updated => {
-          if (updated) setCert(updated);
-        })
-        .catch(err => console.error('Failed to log share statistic', err));
-    }
+    recordAction('share');
   };
 
   const shareToLinkedIn = () => {
     if (!cert) return;
-    
-    // Parse issue date safely
-    let issueYear = new Date().getFullYear();
-    let issueMonth = new Date().getMonth() + 1;
-    
-    if (cert.issueDate) {
-      const parsedDate = new Date(cert.issueDate);
-      if (!isNaN(parsedDate.getTime())) {
-        issueYear = parsedDate.getFullYear();
-        issueMonth = parsedDate.getMonth() + 1;
-      }
-    }
-    
-    const name = cert.programName;
-    const orgName = branding?.brandName || 'Verified Certifications';
-    const origin = window.location.origin.includes('localhost') ? 'https://glint-pi.vercel.app' : window.location.origin;
-    const certUrl = origin + '/#credential=' + cert.id;
-    const certId = cert.id;
-    
-    const linkedInAddUrl = `https://www.linkedin.com/profile/add?startTask=CERTIFICATION_NAME&name=${encodeURIComponent(name)}&organizationName=${encodeURIComponent(orgName)}&issueYear=${issueYear}&issueMonth=${issueMonth}&certUrl=${encodeURIComponent(certUrl)}&certId=${encodeURIComponent(certId)}`;
-    
-    window.open(linkedInAddUrl, '_blank');
-    
-    // Log Share statistic and update local state
-    fetch(`/api/certificates/${cert.id}/stats`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'share' })
-    })
-      .then(res => {
-        if (res.ok) return res.json();
-      })
-      .then(updated => {
-        if (updated) setCert(updated);
-      })
-      .catch(err => console.error('Failed to log share statistic', err));
+
+    // `issueDate` is a plain YYYY-MM-DD. `new Date(...)` on it parses as UTC
+    // midnight, which is the previous day west of Greenwich. Split the string.
+    const [year, month] = cert.issueDate.split('-');
+
+    const params = new URLSearchParams({
+      startTask: 'CERTIFICATION_NAME',
+      name: cert.programName,
+      organizationName: branding?.brandName || 'Glint',
+      issueYear: year || String(new Date().getFullYear()),
+      issueMonth: month ? String(Number(month)) : String(new Date().getMonth() + 1),
+      certUrl: certificateUrl(cert.id),
+      certId: cert.id,
+    });
+
+    window.open(`https://www.linkedin.com/profile/add?${params}`, '_blank', 'noopener,noreferrer');
+    recordAction('share');
   };
 
-  // Safe fallback template if not present
-  const activeTemplate: CertificateTemplate = template || {
-    id: 'fallback-t',
-    workspaceId: cert?.workspaceId || 'ws-google-infra',
-    name: 'Standard Template UI',
-    layout: 'landscape',
-    backgroundColor: '#ffffff',
-    borderColor: branding?.primaryColor || '#0a0a0a',
-    borderWidth: 6,
-    showSeal: true,
-    sealType: 'classic',
-    showQrCode: true,
-    qrCodeX: 12,
-    qrCodeY: 82,
-    logoX: 50,
-    logoY: 12,
-    logoWidth: 120,
-    signatureX: 50,
-    signatureY: 78,
-    signatureWidth: 100,
-    signatoryName: 'Thomas Kurian',
-    signatoryTitle: 'CEO, Platform Authority',
-    textElements: [
-      { id: 'f1', text: 'CERTIFICATE OF ACHIEVEMENT', fontSize: 24, fontFamily: 'Space Grotesk', fontWeight: 'bold', color: '#1B365D', xPercent: 50, yPercent: 24, align: 'center' },
-      { id: 'f2', text: 'This proudly registers that', fontSize: 11, fontFamily: 'Inter', fontWeight: 'normal', color: '#64748B', xPercent: 50, yPercent: 36, align: 'center' },
-      { id: 'f3', text: '{{name}}', fontSize: 32, fontFamily: 'Playfair Display', fontWeight: 'bold', color: '#0F172A', xPercent: 50, yPercent: 48, align: 'center', isPlaceholder: true },
-      { id: 'f4', text: 'has successfully completed the premium specialized program', fontSize: 11, fontFamily: 'Inter', fontWeight: 'normal', color: '#64748B', xPercent: 50, yPercent: 58, align: 'center' },
-      { id: 'f5', text: '{{program}}', fontSize: 20, fontFamily: 'Space Grotesk', fontWeight: 'bold', color: branding?.primaryColor || '#1a73e8', xPercent: 50, yPercent: 66, align: 'center', isPlaceholder: true }
-    ]
-  };
+  /**
+   * The QR code target. Resolved from the template's custom URL if it has one,
+   * otherwise the certificate's own page.
+   */
+  const qrTargetUrl = (() => {
+    if (!cert) return '';
+    const pattern = template?.qrCodeCustomUrl || certificateUrl(cert.id);
+    let resolved = pattern
+      .replaceAll('{{id}}', cert.id)
+      .replaceAll('{{name}}', cert.recipientName)
+      .replaceAll('{{program}}', cert.programName)
+      .replaceAll('{{date}}', cert.issueDate);
+    for (const [key, value] of Object.entries(cert.customFields ?? {})) {
+      resolved = resolved.replaceAll(`{{${key}}}`, value ?? '');
+    }
+    return resolved;
+  })();
+
+  /**
+   * Generated locally.
+   *
+   * The QR image used to be an <img> pointing at `api.qrserver.com` — a third
+   * party that saw the identifier of every certificate anybody opened, and that
+   * controlled what the code on a "tamper-proof" certificate actually encoded.
+   * It also tainted the html2canvas capture, so it could not appear in the PDF.
+   */
+  useEffect(() => {
+    if (!qrTargetUrl || !template?.showQrCode) {
+      setQrDataUrl('');
+      return;
+    }
+    let cancelled = false;
+    import('qrcode')
+      .then((QRCode) =>
+        QRCode.toDataURL(qrTargetUrl, { margin: 0, width: 240, color: { dark: '#0f172a', light: '#ffffff' } }),
+      )
+      .then((url) => !cancelled && setQrDataUrl(url))
+      .catch(() => !cancelled && setQrDataUrl(''));
+    return () => {
+      cancelled = true;
+    };
+  }, [qrTargetUrl, template?.showQrCode]);
+
+  const activeTemplate = template;
 
   if (loading) {
     return (
@@ -320,7 +326,10 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
     );
   }
 
-  if (error || !cert) {
+  // `!activeTemplate` is a real, visible failure now. Rendering a stand-in
+  // template and passing it off as the issuer's design is what this page used to
+  // do, and it meant nobody noticed the template was never loading at all.
+  if (error || !cert || !activeTemplate) {
     return (
       <div className="min-h-screen bg-[#F8F9FA] flex flex-col items-center justify-center p-6 font-sans">
         <div className="max-w-md w-full bg-white border border-[#E9ECEF] rounded-2xl p-8 text-center space-y-6 card-shadow">
@@ -328,21 +337,22 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
             <ShieldAlert className="w-6 h-6" />
           </div>
           <div className="space-y-2">
-            <h3 className="font-serif text-2xl italic text-slate-900">Credential Audit Fault</h3>
+            <h3 className="font-serif text-2xl italic text-slate-900">Certificate unavailable</h3>
             <p className="text-xs text-slate-500 leading-relaxed">
-              {error || 'No matching certificate records found under this secure lookup identifier.'}
+              {error ||
+                (cert
+                  ? 'This certificate exists, but the template it was issued against is missing. The issuer needs to restore it.'
+                  : 'No certificate is registered under this identifier.')}
             </p>
           </div>
-          <div className="bg-slate-50 border border-slate-100 p-3 rounded-lg text-left text-[10px] text-slate-400 font-mono">
-            ID: {certificateId || 'UNKNOWN_ID'} <br />
-            Status Code: 404_LEDGER_NOT_FOUND <br />
-            Integrity Check: NULL_SIGNATURE
+          <div className="bg-slate-50 border border-slate-100 p-3 rounded-lg text-left text-[10px] text-slate-400 font-mono break-all">
+            ID: {certificateId || 'unknown'}
           </div>
           <button
             onClick={onBackToHome}
             className="w-full bg-slate-950 text-white text-xs py-3 rounded-xl font-medium hover:bg-slate-800 transition-colors"
           >
-            Return to Landing Portal
+            Return to home
           </button>
         </div>
       </div>
@@ -397,7 +407,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
           {/* Main Verification status badge */}
           <div className="bg-white border border-[#E9ECEF] rounded-2xl p-6 space-y-6 card-shadow">
             <div className="flex justify-between items-start">
-              <p className="text-[10px] uppercase tracking-widest text-[#9CA3AF] font-bold">Ledger Status Badge</p>
+              <p className="text-[10px] uppercase tracking-widest text-[#9CA3AF] font-bold">Registry status</p>
               
               {cert.status === 'valid' && (
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold uppercase tracking-wider border border-emerald-200">
@@ -417,9 +427,10 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
             </div>
 
             <div className="space-y-2">
-              <h1 className="font-serif text-3xl italic text-slate-950 tracking-tight">Authenticity Ledger</h1>
+              <h1 className="font-serif text-3xl italic text-slate-950 tracking-tight">Credential record</h1>
               <p className="text-xs text-slate-500 leading-relaxed">
-                This high-stakes credential lookup was cross-referenced in real-time with the issuer organization and security registry. The public lookup keys match the authorized signatures.
+                This record is held by the issuer's registry. Run the signature check below to confirm
+                its contents have not been altered since it was issued.
               </p>
             </div>
 
@@ -477,77 +488,87 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
             </div>
           </div>
 
-          {/* Secure cryptographic fingerprint details */}
+          {/* Signature details */}
           <div className="bg-white border border-[#E9ECEF] rounded-2xl p-6 space-y-4 card-shadow">
             <h4 className="text-xs font-bold text-slate-950 uppercase tracking-widest flex items-center gap-1.5">
               <Database className="w-3.5 h-3.5 text-slate-900" />
-              Cryptographic Footprint
+              Signature
             </h4>
             <p className="text-[11px] text-slate-500 leading-relaxed font-sans">
-              To check file integrity, download the certificate PDF and verify that the security seal has not been altered since generation on our servers.
+              The issuer signs the recipient, program, and dates with a secret key held on their server.
+              Verification recomputes that signature — it is checked by the issuer, not by your browser.
             </p>
-            <div className="space-y-1 bg-slate-50 border border-slate-150 p-3 rounded-lg">
-              <p className="text-[9px] uppercase text-slate-400 font-mono">AUTHORIZED SEAL ID</p>
-              <p className="text-[9px] text-slate-800 font-mono break-all font-semibold leading-normal">{cert.securityHash}</p>
+            <div className="space-y-1 bg-slate-50 border border-slate-200 p-3 rounded-lg">
+              <p className="text-[9px] uppercase text-slate-400 font-mono">{cert.signatureAlg}</p>
+              <p className="text-[9px] text-slate-800 font-mono break-all font-semibold leading-normal">{cert.signature}</p>
             </div>
 
             <div className="space-y-1.5">
-              <p className="text-[10px] uppercase text-slate-400 font-mono">Issuer Registry Authority</p>
+              <p className="text-[10px] uppercase text-slate-400 font-mono">Issued by</p>
               <div className="flex items-center gap-2 text-xs">
                 <Landmark className="w-3.5 h-3.5 text-slate-700" />
                 <span className="font-semibold text-slate-900">{branding?.brandName || cert.programName}</span>
               </div>
-              <p className="text-[10px] text-slate-400 leading-tight">
-                Secure Email: {branding?.senderEmail} <br />
-                Authority Domain: {branding?.customDomain || 'certops-verified-system.net'}
-              </p>
+              {branding?.customDomain && (
+                <p className="text-[10px] text-slate-400 leading-tight">{branding.customDomain}</p>
+              )}
             </div>
           </div>
 
-          {/* Interactive Cryptographic verification check tool */}
+          {/* Signature verification */}
           <div className="bg-slate-900 text-white rounded-2xl p-6 space-y-4 card-shadow">
             <h4 className="serif italic text-lg text-[#F8F9FA] flex items-center gap-2">
               <Play className="w-5 h-5 text-[#B4C6FC]" />
-              Signature Audit Check
+              Verify signature
             </h4>
             <p className="text-[11px] text-slate-400 leading-relaxed">
-              Verify this certificate matches chronological ledger blocks. Runs an automated checking process directly in your browser.
+              Asks the issuer's registry to recompute this credential's signature and compare it with the stored value.
             </p>
 
             {auditProgress === 'idle' && (
               <button
                 type="button"
-                onClick={runCryptographicAudit}
+                onClick={runSignatureCheck}
                 className="w-full bg-[#1a73e8] hover:bg-[#155fc0] text-white text-xs py-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5"
               >
-                Run Authority Audit
+                Run verification
               </button>
             )}
 
             {auditProgress === 'running' && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-xs text-[#B4C6FC]">
-                  <RefreshCw className="w-4 h-4 animate-spin text-[#B4C6FC]" />
-                  <span>{auditMessage}</span>
-                </div>
-                <div className="w-full bg-white/10 h-1.5 rounded-full overflow-hidden">
-                  <div className="bg-emerald-400 h-full animate-pulse transition-all" style={{ width: '60%' }}></div>
-                </div>
+              <div className="flex items-center gap-2 text-xs text-[#B4C6FC]">
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>Verifying…</span>
               </div>
             )}
 
-            {auditProgress === 'success' && (
+            {auditProgress === 'done' && verification && (
               <div className="space-y-3">
-                <div className="p-3 bg-white/5 rounded border border-white/10 space-y-1">
-                  <p className="text-[9px] text-emerald-400 font-bold uppercase tracking-wider font-mono">✓ LEDGER VERIFIED MATCH</p>
-                  <p className="text-[10px] text-white font-mono leading-relaxed">{auditMessage}</p>
+                <div
+                  className={`p-3 rounded border space-y-1 ${
+                    verification.verified
+                      ? 'bg-emerald-500/10 border-emerald-500/30'
+                      : 'bg-rose-500/10 border-rose-500/30'
+                  }`}
+                >
+                  <p
+                    className={`text-[9px] font-bold uppercase tracking-wider font-mono ${
+                      verification.verified ? 'text-emerald-400' : 'text-rose-400'
+                    }`}
+                  >
+                    {verification.verified ? '✓ Verified' : '✗ Not verified'}
+                  </p>
+                  <p className="text-[10px] text-white leading-relaxed">{verificationSummary(verification)}</p>
+                  <p className="text-[9px] text-slate-400 font-mono pt-1">
+                    {verification.algorithm} · checked {new Date(verification.verifiedAt).toLocaleString()}
+                  </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setAuditProgress('idle')}
                   className="text-[9px] text-[#9CA3AF] hover:text-white uppercase font-bold tracking-widest font-mono"
                 >
-                  Reset Audit Tool
+                  Reset
                 </button>
               </div>
             )}
@@ -713,26 +734,14 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                     );
                   }
 
-                  let value = el.text;
-                  if (el.text.includes('{{name}}')) {
-                     value = value.replace('{{name}}', cert.recipientName);
-                  }
-                  if (el.text.includes('{{program}}')) {
-                     value = value.replace('{{program}}', cert.programName);
-                  }
-                  if (el.text.includes('{{date}}')) {
-                     value = value.replace('{{date}}', cert.issueDate);
-                  }
-                  if (el.text.includes('{{id}}')) {
-                     value = value.replace('{{id}}', cert.id);
-                  }
-
-                  // Dynamically map custom spreadsheet values
-                  Object.keys(cert.customFields).forEach((key) => {
-                    if (el.text.includes(`{{${key}}}`)) {
-                      value = value.replace(`{{${key}}}`, cert.customFields[key]);
-                    }
-                  });
+                  const replacements = {
+                    name: cert.recipientName,
+                    program: cert.programName,
+                    date: cert.issueDate,
+                    id: cert.id,
+                    ...(cert.customFields ?? {}),
+                  };
+                  const richText = resolveRichTextRuns(el, replacements);
 
                   // Font details
                   let fontClass = 'font-sans';
@@ -764,12 +773,21 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                         textDecoration: el.textDecoration || 'none',
                         letterSpacing: el.letterSpacing ? `${el.letterSpacing}px` : '0.05px',
                         lineHeight: el.lineHeight || 'normal',
+                        width: el.width ? `${el.width * 0.1125}cqw` : undefined,
+                        maxWidth: el.width ? undefined : '57.6cqw',
+                        boxSizing: 'border-box',
+                        whiteSpace: 'pre-wrap',
+                        overflowWrap: 'break-word',
                         opacity: el.opacity !== undefined ? el.opacity : undefined,
                         textTransform: el.textTransform || 'none'
                       }}
-                      className={`${fontClass} ${weightClass} leading-snug break-words max-w-xl z-20 print:text-xs`}
+                      className={`${fontClass} ${weightClass} leading-snug break-words z-20 print:text-xs`}
                     >
-                      {value}
+                      {richText.map((run, index) => (
+                        <span key={`${index}-${run.text}`} style={richTextRunStyle(run)}>
+                          {run.text}
+                        </span>
+                      ))}
                     </div>
                   );
                 })}
@@ -814,13 +832,20 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                       }}
                       className="font-bold uppercase tracking-widest text-[#64748B] mt-1 leading-tight text-[7px]"
                     >
-                      {activeTemplate.signatoryTitle || 'CEO, Authority'}
+                      {activeTemplate.signatoryTitle}
                     </p>
                   </div>
                 )}
 
-                {/* Absolute Secondary signatory line */}
-                {(activeTemplate.secondarySignatureUrl || activeTemplate.showSecondarySignatory) && (
+                {/*
+                  Only draw a second signature line when there is actually
+                  something to draw. `showSecondarySignatory` alone used to be
+                  enough, and the empty name fell back to "Dr. Clara Masters,
+                  Admissions Registrar" — an invented person, signing a real
+                  certificate.
+                */}
+                {(activeTemplate.secondarySignatureUrl ||
+                  (activeTemplate.showSecondarySignatory && activeTemplate.secondarySignatoryName)) && (
                   <div
                     style={{
                       position: 'absolute',
@@ -848,7 +873,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                         }}
                         className="text-center border-b border-slate-300 pb-0.5 text-slate-800"
                       >
-                        {activeTemplate.secondarySignatoryName || 'Dr. Clara Masters'}
+                        {activeTemplate.secondarySignatoryName}
                       </div>
                     )}
                     <p 
@@ -859,7 +884,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                       }}
                       className="font-bold uppercase tracking-widest text-[#64748B] mt-1 leading-tight text-[7px]"
                     >
-                      {activeTemplate.secondarySignatoryTitle || 'Admissions Registrar'}
+                      {activeTemplate.secondarySignatoryTitle}
                     </p>
                   </div>
                 )}
@@ -904,39 +929,21 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                       </div>
                     )}
 
-                    {activeTemplate.showQrCode && (() => {
-                      const customUrl = activeTemplate.qrCodeCustomUrl || 'https://glint-pi.vercel.app/#credential={{id}}';
-                      let resolvedUrl = customUrl
-                        .replace(/\{\{id\}\}/g, cert.id)
-                        .replace(/\{\{name\}\}/g, cert.recipientName)
-                        .replace(/\{\{program\}\}/g, cert.programName)
-                        .replace(/\{\{date\}\}/g, cert.issueDate);
-                      
-                      // Resolve custom fields
-                      Object.keys(cert.customFields || {}).forEach((key) => {
-                        resolvedUrl = resolvedUrl.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), cert.customFields[key] || '');
-                      });
-
-                      return (
-                        <a
-                          href={resolvedUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{ 
-                            width: `${(activeTemplate.qrCodeWidth || 32) * 0.125}cqw`, 
-                            height: `${(activeTemplate.qrCodeWidth || 32) * 0.125}cqw` 
-                          }}
-                          className="bg-white p-0.5 rounded-sm border border-slate-200 shadow-sm flex items-center justify-center hover:scale-110 transition-transform cursor-pointer shrink-0"
-                          title="Click to Verify"
-                        >
-                          <img 
-                            src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(resolvedUrl)}&color=0f172a`}
-                            alt="Verification QR"
-                            className="w-full h-full object-contain"
-                          />
-                        </a>
-                      );
-                    })()}
+                    {activeTemplate.showQrCode && qrDataUrl && (
+                      <a
+                        href={qrTargetUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          width: `${(activeTemplate.qrCodeWidth || 32) * 0.125}cqw`,
+                          height: `${(activeTemplate.qrCodeWidth || 32) * 0.125}cqw`,
+                        }}
+                        className="bg-white p-0.5 rounded-sm border border-slate-200 shadow-sm flex items-center justify-center hover:scale-110 transition-transform cursor-pointer shrink-0"
+                        title="Verify this certificate"
+                      >
+                        <img src={qrDataUrl} alt="Verification QR code" className="w-full h-full object-contain" />
+                      </a>
+                    )}
                   </div>
                 )}
 
@@ -963,13 +970,13 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
             <div className="flex justify-between items-center pb-3 border-b border-slate-100">
               <h4 className="text-xs font-bold text-slate-950 uppercase tracking-widest flex items-center gap-1.5">
                 <Database className="w-4 h-4 text-slate-900" />
-                Permanent Trust Ledger Audit History
+                Certificate history
               </h4>
-              <span className="text-[10px] font-mono text-slate-400 font-semibold uppercase">SECURE CHRONO-REGISTER</span>
+              <span className="text-[10px] font-mono text-slate-400 font-semibold uppercase">{auditTrail.length} events</span>
             </div>
 
             <div className="relative border-l border-slate-200 ml-3 pl-6 space-y-6 overflow-hidden">
-              {cert.auditTrail && cert.auditTrail.map((log, idx) => (
+              {auditTrail.map((log, idx) => (
                 <div key={idx} className="relative">
                   {/* Event indicator dot */}
                   <span className={`absolute -left-[30px] top-1 w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
@@ -1003,8 +1010,9 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
 
             <div className="text-center pt-2">
               <p className="text-[10px] text-slate-400 leading-normal font-mono">
-                Security Standard: RFC-6962 Signed Certificate Timestamp Protocol. <br />
-                All timestamps are locked to ISO universal coordinated standards.
+                {/* This block used to claim "RFC-6962 Signed Certificate Timestamp Protocol",
+                    which is Certificate Transparency for TLS and has nothing to do with this. */}
+                Timestamps are recorded in UTC by the issuing registry.
               </p>
             </div>
           </div>

@@ -7,8 +7,12 @@
 import React from "react";
 import { ContainerScroll } from "@/src/components/ui/container-scroll-animation";
 import { Award, ShieldCheck, Database, Layers, Sparkles } from "lucide-react";
+import { useQrDataUrl } from "@/src/lib/qr";
 
 export function HeroScrollDemo() {
+  // Decorative. Generated in the browser rather than fetched from api.qrserver.com.
+  const previewQrDataUrl = useQrDataUrl(typeof window === "undefined" ? null : `${window.location.origin}/`);
+
   return (
     <div className="w-full relative">
       <ContainerScroll
@@ -96,7 +100,7 @@ export function HeroScrollDemo() {
                 <div className="flex justify-between items-start">
                   <div>
                     <h4 className="text-[2cqw] font-bold text-indigo-600 tracking-wider">OFFICIAL ACADEMIC CREDENTIAL</h4>
-                    <p className="text-[1.5cqw] text-slate-400">VERIFIED LEDGER: CERT-2026-NEON</p>
+                    <p className="text-[1.5cqw] text-slate-400">VERIFIED ID: GLNT-SAMPLE-PREVIEW</p>
                   </div>
                   <div className="w-[10cqw] h-[4cqw] border border-slate-200 bg-slate-50 rounded flex items-center justify-center text-[1.25cqw] font-bold">
                     ★ GLINT
@@ -119,16 +123,14 @@ export function HeroScrollDemo() {
                     <p className="text-[1.5cqw] font-bold text-slate-700">2026-06-23</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-[1.4cqw] font-bold text-slate-700">Thomas Kurian</p>
-                    <p className="text-[1cqw] text-slate-400">Authority Signatory</p>
+                    <p className="text-[1.4cqw] font-bold text-slate-700">Sample Signatory</p>
+                    <p className="text-[1cqw] text-slate-400">Programme Director</p>
                   </div>
                   <div className="flex items-center gap-[0.2cqw]">
                     <div className="w-[6cqw] h-[6cqw] bg-white border border-slate-200 rounded flex items-center justify-center p-[0.1cqw]">
-                      <img 
-                        src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://credentials.os/%23preview&color=0f172a" 
-                        alt="Demo QR"
-                        className="w-full h-full object-contain"
-                      />
+                      {previewQrDataUrl && (
+                        <img src={previewQrDataUrl} alt="Sample QR" className="w-full h-full object-contain" />
+                      )}
                     </div>
                   </div>
                 </div>

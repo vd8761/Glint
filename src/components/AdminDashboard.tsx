@@ -220,6 +220,27 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
 
   const [resendingCertId, setResendingCertId] = useState<string | null>(null);
   const [selectedAuditTrailCert, setSelectedAuditTrailCert] = useState<any | null>(null);
+  // Certificate history lives in `certificate_events` now, not in an unbounded
+  // `audit_trail` JSONB column on every certificate row.
+  const [auditTrailLogs, setAuditTrailLogs] = useState<any[]>([]);
+  const [auditTrailLoading, setAuditTrailLoading] = useState(false);
+
+  useEffect(() => {
+    if (!selectedAuditTrailCert) {
+      setAuditTrailLogs([]);
+      return;
+    }
+    let cancelled = false;
+    setAuditTrailLoading(true);
+    fetch(`/api/certificates/${encodeURIComponent(selectedAuditTrailCert.id)}/events`, { headers: authHeaders })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((logs) => !cancelled && setAuditTrailLogs(logs))
+      .catch(() => !cancelled && setAuditTrailLogs([]))
+      .finally(() => !cancelled && setAuditTrailLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAuditTrailCert]);
   const [candidateSearchQuery, setCandidateSearchQuery] = useState('');
   const [activeActionMenuId, setActiveActionMenuId] = useState<string | null>(null);
   const [selectedCryptoProofCert, setSelectedCryptoProofCert] = useState<any | null>(null);
@@ -729,12 +750,12 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
 
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5 truncate">
-              <div className="w-8 h-8 rounded-full bg-slate-950 text-white flex items-center justify-center font-bold text-xs select-none">
-                A
+              <div className="w-8 h-8 rounded-full bg-slate-950 text-white flex items-center justify-center font-bold text-xs select-none uppercase">
+                {(user?.name ?? 'A').charAt(0)}
               </div>
               <div className="truncate">
-                <p className="text-xs font-bold text-slate-900 truncate">Glint Owner</p>
-                <p className="text-[9px] font-mono text-slate-400 truncate">admin@gmail.com</p>
+                <p className="text-xs font-bold text-slate-900 truncate">{user?.name ?? 'Administrator'}</p>
+                <p className="text-[9px] font-mono text-slate-400 truncate">{user?.email ?? ''}</p>
               </div>
             </div>
             <button
@@ -1398,23 +1419,22 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
               <X className="w-5 h-5" />
             </button>
             <h3 className="font-serif text-2xl italic text-slate-950 pb-3 border-b">
-              Cryptographic Audit Log Trail (Admin)
+              Certificate history
             </h3>
             <p className="text-xs text-slate-500 mt-2 mb-4">
-              Immutable ledger trail for credential <span className="font-mono text-slate-800">{selectedAuditTrailCert.id}</span> issued to <span className="font-bold text-slate-800">{selectedAuditTrailCert.recipient_name}</span>.
+              Recorded events for credential <span className="font-mono text-slate-800">{selectedAuditTrailCert.id}</span> issued to <span className="font-bold text-slate-800">{selectedAuditTrailCert.recipient_name}</span>.
             </p>
 
             <div className="flex-1 overflow-y-auto space-y-4 pr-2">
               {(() => {
-                const logs = Array.isArray(selectedAuditTrailCert.audit_trail) 
-                  ? selectedAuditTrailCert.audit_trail 
-                  : (typeof selectedAuditTrailCert.audit_trail === 'string'
-                      ? JSON.parse(selectedAuditTrailCert.audit_trail)
-                      : []);
+                const logs = auditTrailLogs;
+                if (auditTrailLoading) {
+                  return <div className="text-center py-8 text-slate-400 font-mono text-xs">Loading history…</div>;
+                }
                 if (logs.length === 0) {
                   return (
                     <div className="text-center py-8 text-slate-400 font-mono text-xs">
-                      No logs registered on secure verify channel yet.
+                      No events recorded yet.
                     </div>
                   );
                 }
@@ -1484,46 +1504,55 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                 <ShieldCheck className="w-6 h-6 animate-pulse" />
               </span>
               <div>
-                <h3 className="font-serif text-2xl italic text-slate-950">Cryptographic Integrity Status</h3>
-                <p className="text-[10px] text-slate-400 font-mono tracking-wide uppercase mt-0.5">Anchored Verify Protocol V1</p>
+                <h3 className="font-serif text-2xl italic text-slate-950">Signature</h3>
+                <p className="text-[10px] text-slate-400 font-mono tracking-wide uppercase mt-0.5">
+                  {selectedCryptoProofCert.signature_alg} · v{selectedCryptoProofCert.signature_version}
+                </p>
               </div>
             </div>
 
+            {/* See the matching panel in Dashboard.tsx: this claimed Ed25519 and a
+                Merkle-root "consensus anchor" over a Math.random() value. */}
             <div className="space-y-4 text-xs">
-              <div className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-4 flex gap-3">
-                <Check className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex gap-3">
+                <Check className="w-5 h-5 text-slate-500 shrink-0 mt-0.5" />
                 <div className="space-y-1">
-                  <h4 className="font-bold text-slate-900">Valid Digital Signature Ledger Proof</h4>
-                  <p className="text-slate-600 leading-normal">This credential's cryptographic fingerprint matches the digital signature generated by the workspace signing keys. No tampering detected.</p>
+                  <h4 className="font-bold text-slate-900">Keyed message authentication code</h4>
+                  <p className="text-slate-600 leading-normal">
+                    Recipient, program, and dates are signed with a server-held secret key. Editing any
+                    of them invalidates the signature. The key is symmetric, so only this registry can verify it.
+                  </p>
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-2 py-2 border-y border-slate-100 font-sans">
                 <div className="space-y-0.5">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Signature Status</span>
-                  <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full text-[9px] font-bold uppercase inline-block">SECURED</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Status</span>
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-full text-[9px] font-bold uppercase inline-block">
+                    {selectedCryptoProofCert.status}
+                  </span>
                 </div>
                 <div className="space-y-0.5">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Verification Scheme</span>
-                  <span className="font-mono text-slate-800 font-semibold block text-[10px]">ECC-Ed25519</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Algorithm</span>
+                  <span className="font-mono text-slate-800 font-semibold block text-[10px]">{selectedCryptoProofCert.signature_alg}</span>
                 </div>
                 <div className="space-y-0.5">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Verify Channel</span>
-                  <span className="font-mono text-slate-800 font-semibold block text-[10px]">Registry Ledger</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Verified</span>
+                  <span className="font-mono text-slate-800 font-semibold block text-[10px]">{selectedCryptoProofCert.verify_count}×</span>
                 </div>
               </div>
 
               <div className="space-y-1.5 font-mono">
-                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Certificate Hash (SHA-256)</label>
+                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Signature (hex)</label>
                 <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 break-all text-[10px] text-slate-700 font-semibold">
-                  {selectedCryptoProofCert.security_hash || "0xef7a7b8e5c2b0c3f4e1f7c8d9e0b1a2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a"}
+                  {selectedCryptoProofCert.signature}
                 </div>
               </div>
 
               <div className="space-y-1.5 font-mono">
-                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Consensus Block Anchor</label>
-                <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 break-all text-[10px] text-slate-700 font-semibold">
-                  {`glint:anchor:merkle:root:${selectedCryptoProofCert.id}`}
+                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Signed fields</label>
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-[10px] text-slate-700 leading-relaxed">
+                  id · workspace · program · recipient name · recipient email · issue date · expiry date
                 </div>
               </div>
             </div>
@@ -1555,36 +1584,32 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
             <div className="pb-3 border-b border-slate-100">
               <h3 className="font-serif text-2xl italic text-slate-950">JSON Metadata Envelope</h3>
               <p className="text-xs text-slate-500 mt-1">
-                W3C Verifiable Credentials compliance registry payload for ID: <span className="font-mono text-slate-800">{selectedJsonEnvelopeCert.id}</span>
+                Registry record for ID: <span className="font-mono text-slate-800">{selectedJsonEnvelopeCert.id}</span>
               </p>
             </div>
 
             <div className="flex-1 overflow-y-auto my-4 bg-slate-950 rounded-xl p-4 text-[11px] font-mono text-emerald-400 border border-slate-800 scrollbar-thin">
               <pre className="whitespace-pre-wrap leading-relaxed select-all">
+                {/* Was a W3C Verifiable Credential with a forged Ed25519Signature2020
+                    proof and a `did:glint:` verification method that does not exist. */}
                 {JSON.stringify({
-                  "@context": [
-                    "https://www.w3.org/2018/credentials/v1",
-                    "https://schema.glintregistry.org/v1"
-                  ],
-                  "id": `urn:uuid:${selectedJsonEnvelopeCert.id}`,
-                  "type": ["VerifiableCredential", "GlintCertificate"],
-                  "issuer": `urn:uuid:${selectedJsonEnvelopeCert.workspace_id}`,
-                  "issuanceDate": selectedJsonEnvelopeCert.issue_date,
-                  "credentialSubject": {
-                    "id": `urn:uuid:recipient-sha256-hash`,
-                    "name": selectedJsonEnvelopeCert.recipient_name,
-                    "email": selectedJsonEnvelopeCert.recipient_email,
-                    "programId": selectedJsonEnvelopeCert.program_id,
-                    "programName": selectedJsonEnvelopeCert.program_name || "Certification Program",
-                    "status": selectedJsonEnvelopeCert.status
+                  id: selectedJsonEnvelopeCert.id,
+                  issuer: selectedJsonEnvelopeCert.workspace_id,
+                  issuanceDate: selectedJsonEnvelopeCert.issue_date,
+                  expiryDate: selectedJsonEnvelopeCert.expiry_date ?? null,
+                  status: selectedJsonEnvelopeCert.status,
+                  subject: {
+                    name: selectedJsonEnvelopeCert.recipient_name,
+                    email: selectedJsonEnvelopeCert.recipient_email,
+                    programId: selectedJsonEnvelopeCert.program_id,
+                    programName: selectedJsonEnvelopeCert.program_name,
                   },
-                  "proof": {
-                    "type": "Ed25519Signature2020",
-                    "created": `${selectedJsonEnvelopeCert.issue_date}T12:00:00Z`,
-                    "verificationMethod": `did:glint:${selectedJsonEnvelopeCert.workspace_id}#key-1`,
-                    "proofPurpose": "assertionMethod",
-                    "proofValue": selectedJsonEnvelopeCert.security_hash ? `z${selectedJsonEnvelopeCert.security_hash.substring(0, 32)}` : "z6MksHiazACZui39yrrUiJ57L6J22312b98gB..."
-                  }
+                  signature: {
+                    algorithm: selectedJsonEnvelopeCert.signature_alg,
+                    version: selectedJsonEnvelopeCert.signature_version,
+                    value: selectedJsonEnvelopeCert.signature,
+                    note: 'Symmetric HMAC. Verifiable only by the issuing registry.',
+                  },
                 }, null, 2)}
               </pre>
             </div>

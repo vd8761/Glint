@@ -1,9 +1,19 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
   "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/index.ts" },
+    { "source": "/c/:id", "destination": "/api/index.ts" }
+  ],
+  "functions": {
+    "api/index.ts": {
+      "includeFiles": "dist/index.html"
+    }
+  },
+  "crons": [
     {
-      "source": "/api/:path*",
-      "destination": "/api/index.ts"
+      "path": "/api/internal/email/drain",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
