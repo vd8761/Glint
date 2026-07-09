@@ -138,6 +138,9 @@ const textElementSchema = z.object({
   height: z.number().min(0).max(4000).optional(),
   type: z.enum(['text', 'image', 'redaction']).optional(),
   imageUrl: safeUrl,
+  rotation: z.number().min(-360).max(360).optional(),
+  flipH: z.boolean().optional(),
+  flipV: z.boolean().optional(),
 });
 
 const customFontSchema = z.object({
@@ -201,6 +204,15 @@ export const templateBodySchema = z.object({
   textElements: z.array(textElementSchema).max(60).optional(),
   customFonts: z.array(customFontSchema).max(12).optional(),
   showWatermarkTags: z.boolean().optional(),
+  logoRotation: z.number().min(-360).max(360).optional(),
+  logoFlipH: z.boolean().optional(),
+  logoFlipV: z.boolean().optional(),
+  signatureRotation: z.number().min(-360).max(360).optional(),
+  signatureFlipH: z.boolean().optional(),
+  signatureFlipV: z.boolean().optional(),
+  secondarySignatureRotation: z.number().min(-360).max(360).optional(),
+  secondarySignatureFlipH: z.boolean().optional(),
+  secondarySignatureFlipV: z.boolean().optional(),
 });
 
 // -----------------------------------------------------------------------------

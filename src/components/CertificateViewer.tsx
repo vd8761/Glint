@@ -16,6 +16,7 @@ import type {
   VerificationResult,
 } from '../types';
 import { resolveRichTextRuns } from '../lib/richText';
+import { elementTransform } from '../lib/transform';
 
 interface CertificateViewerProps {
   certificateId: string;
@@ -637,7 +638,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                       position: 'absolute',
                       left: `${activeTemplate.logoX}%`,
                       top: `${activeTemplate.logoY}%`,
-                      transform: 'translate(-50%, -50%)',
+                      transform: elementTransform(activeTemplate.logoRotation, activeTemplate.logoFlipH, activeTemplate.logoFlipV),
                     }}
                     className="flex justify-center items-center pointer-events-none select-none z-30"
                   >
@@ -696,7 +697,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                           position: 'absolute',
                           left: `${leftPct}%`,
                           top: `${topPct}%`,
-                          transform: 'translate(-50%, -50%)',
+                          transform: elementTransform(el.rotation, el.flipH, el.flipV),
                           width: `${(el.width || 200) * 0.1125}cqw`,
                           height: `${(el.height || 40) * 0.1125}cqw`,
                           backgroundColor: el.color || '#FFFFFF',
@@ -718,7 +719,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                           position: 'absolute',
                           left: `${leftPct}%`,
                           top: `${topPct}%`,
-                          transform: 'translate(-50%, -50%)',
+                          transform: elementTransform(el.rotation, el.flipH, el.flipV),
                           width: `${(el.width || 120) * 0.125}cqw`,
                           zIndex: 20
                         }}
@@ -763,7 +764,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                         position: 'absolute',
                         left: `${leftPct}%`,
                         top: `${topPct}%`,
-                        transform: 'translate(-50%, -50%)',
+                        transform: elementTransform(el.rotation, el.flipH, el.flipV),
                         color: el.color,
                         textAlign: (el.align || 'center') as any,
                         fontSize: `${el.fontSize * 0.1125}cqw`,
@@ -799,7 +800,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                       position: 'absolute',
                       left: `${activeTemplate.signatureX}%`,
                       top: `${activeTemplate.signatureY}%`,
-                      transform: 'translate(-50%, -50%)',
+                      transform: elementTransform(activeTemplate.signatureRotation, activeTemplate.signatureFlipH, activeTemplate.signatureFlipV),
                       width: `${activeTemplate.signatureWidth * 0.125}cqw`,
                     }}
                     className="text-center select-none z-30"
@@ -851,7 +852,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                       position: 'absolute',
                       left: `${activeTemplate.secondarySignatureX || 70}%`,
                       top: `${activeTemplate.secondarySignatureY || 78}%`,
-                      transform: 'translate(-50%, -50%)',
+                      transform: elementTransform(activeTemplate.secondarySignatureRotation, activeTemplate.secondarySignatureFlipH, activeTemplate.secondarySignatureFlipV),
                       width: `${(activeTemplate.secondarySignatureWidth || 100) * 0.125}cqw`,
                     }}
                     className="text-center select-none z-30"
