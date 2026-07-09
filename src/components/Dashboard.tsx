@@ -4,7 +4,7 @@ import { toast } from 'sonner';
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   BarChart3, Award, Users, Database, ShieldCheck, Settings, Globe, Mail, Landmark, 
   Trash2, Plus, ArrowUpRight, Upload, RefreshCw, Layers, Calendar, User, Search,
@@ -43,6 +43,7 @@ export function Dashboard({
   onLogout
 }: DashboardProps) {
   const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
+  const todayIso = () => new Date().toISOString().split('T')[0];
   // Navigation tabs
   const [activeTab, setActiveTab] = useState<'overview' | 'programs' | 'templates' | 'recipients' | 'issued' | 'branding' | 'settings' | 'emails'>(activeTabProp || 'overview');
 
@@ -73,6 +74,8 @@ export function Dashboard({
   // Loading States
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const actionLockRef = useRef<string | null>(null);
 
   // Workspace Creation modal state
   const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
@@ -86,7 +89,7 @@ export function Dashboard({
   const [progName, setProgName] = useState('');
   const [progDesc, setProgDesc] = useState('');
   const [progTemplateId, setProgTemplateId] = useState('');
-  const [progIssueDate, setProgIssueDate] = useState('2026-06-17');
+  const [progIssueDate, setProgIssueDate] = useState(todayIso);
   const [progExpiryDate, setProgExpiryDate] = useState('');
   const [fieldString, setFieldString] = useState('');
   const [editingProgram, setEditingProgram] = useState<CertificateProgram | null>(null);
@@ -129,6 +132,31 @@ export function Dashboard({
   // Filtering states
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const pendingActionLabels: Record<string, string> = {
+    'workspace:create': 'Creating workspace...',
+    'program:save': editingProgram ? 'Saving program...' : 'Registering program track...',
+    'template:create': 'Creating template...',
+    'template:save': 'Saving template...',
+    'template:upload': 'Uploading template...',
+    'certificates:bulk': 'Issuing certificates...',
+    'certificate:single': 'Issuing certificate...',
+    'certificate:revoke': 'Revoking certificate...',
+  };
+  const pendingActionLabel =
+    pendingAction && (pendingActionLabels[pendingAction] || (pendingAction.startsWith('program:delete') ? 'Deleting program...' : pendingAction.startsWith('template:delete') ? 'Deleting template...' : pendingAction.startsWith('certificate:restore') ? 'Restoring certificate...' : 'Working...'));
+  const isActionPending = (key: string) => pendingAction === key;
+  const beginAction = (key: string) => {
+    if (actionLockRef.current) return false;
+    actionLockRef.current = key;
+    setPendingAction(key);
+    return true;
+  };
+  const endAction = (key: string) => {
+    if (actionLockRef.current === key) {
+      actionLockRef.current = null;
+      setPendingAction(null);
+    }
+  };
 
   // 1. Initial Load & Dynamic Synchronization
   useEffect(() => {
@@ -183,8 +211,8 @@ export function Dashboard({
     }
   };
 
-  const loadWorkspaceData = async () => {
-    setLoading(true);
+  const loadWorkspaceData = async (options: { silent?: boolean } = {}) => {
+    if (!options.silent) setLoading(true);
     try {
       // Parallel fetch to load workspace resources speed-first
       const [programsRes, templatesRes, certsRes, emailsRes, analyticsRes, workspaceRes] = await Promise.all([
@@ -216,20 +244,26 @@ export function Dashboard({
     } catch (err) {
       console.error('Error loading dashboard assets', err);
     } finally {
-      setLoading(false);
+      if (!options.silent) setLoading(false);
     }
   };
 
   const triggerDataRefresh = async () => {
+    if (refreshing) return;
     setRefreshing(true);
-    await loadWorkspaceData();
-    setRefreshing(false);
+    try {
+      await loadWorkspaceData({ silent: true });
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   // 2. Onboard Brand New Workspace
   const handleCreateWorkspace = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newWsName || !newWsBrandName) return;
+    const actionKey = 'workspace:create';
+    if (!beginAction(actionKey)) return;
 
     try {
       const res = await fetch('/api/workspaces', {
@@ -269,13 +303,21 @@ export function Dashboard({
     } catch (err) {
       console.error('Failed to register workspace', err);
       toast.error('Network error creating workspace. Please try again.');
+    } finally {
+      endAction(actionKey);
     }
   };
 
   // 3. Create or Edit a Program
   const handleCreateProgram = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!progName || !progTemplateId) return;
+    const selectedTemplateId = progTemplateId || templates[0]?.id || '';
+    if (!progName || !selectedTemplateId) {
+      toast.error('Add a program name and choose a certificate template.');
+      return;
+    }
+    const actionKey = 'program:save';
+    if (!beginAction(actionKey)) return;
 
     // Filter out standard base fields (name, email, date, id, program) and duplicates
     const baseFields = ['name', 'email', 'date', 'id', 'program'];
@@ -305,7 +347,7 @@ export function Dashboard({
           workspaceId: currentWorkspaceId,
           name: progName,
           description: progDesc,
-          templateId: progTemplateId,
+          templateId: selectedTemplateId,
           issueDate: progIssueDate,
           expiryDate: progExpiryDate || undefined,
           recipientFields: uniqueFields
@@ -317,12 +359,20 @@ export function Dashboard({
         setEditingProgram(null);
         setProgName('');
         setProgDesc('');
+        setProgIssueDate(todayIso());
         setProgExpiryDate('');
         setFieldString('');
         await triggerDataRefresh();
+        toast.success(editingProgram ? 'Program track updated.' : 'Program track registered.');
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.error || 'Failed to save program track.');
       }
     } catch (err) {
       console.error('Failed to save program', err);
+      toast.error('Network error saving program track. Please try again.');
+    } finally {
+      endAction(actionKey);
     }
   };
 
@@ -333,9 +383,14 @@ export function Dashboard({
       toast.error('Name and Email are required.');
       return;
     }
+    const actionKey = 'certificate:single';
+    if (!beginAction(actionKey)) return;
 
     const matchedProg = programs.find(p => p.id === singleProgramId);
-    if (!matchedProg) return;
+    if (!matchedProg) {
+      endAction(actionKey);
+      return;
+    }
 
     const issueDateVal = singleIssueDate || matchedProg.issueDate || new Date().toISOString().split('T')[0];
 
@@ -379,6 +434,8 @@ export function Dashboard({
     } catch (err) {
       console.error('Single issuance failed', err);
       toast.error('An error occurred during issuance.');
+    } finally {
+      endAction(actionKey);
     }
   };
 
@@ -414,6 +471,8 @@ export function Dashboard({
 
   const handleSaveTemplateChanges = async () => {
     if (!editingTemplate) return;
+    const actionKey = 'template:save';
+    if (!beginAction(actionKey)) return;
     try {
       const res = await fetch(`/api/templates/${editingTemplate.id}`, {
         method: 'PUT',
@@ -429,10 +488,15 @@ export function Dashboard({
       }
     } catch (err) {
       console.error('Failed saving template edits', err);
+      toast.error('Failed to save template changes.');
+    } finally {
+      endAction(actionKey);
     }
   };
 
   const handleSaveCanvaTemplate = async (updated: CertificateTemplate) => {
+    const actionKey = 'template:save';
+    if (!beginAction(actionKey)) return;
     try {
       const res = await fetch(`/api/templates/${updated.id}`, {
         method: 'PUT',
@@ -448,10 +512,15 @@ export function Dashboard({
       }
     } catch (err) {
       console.error('Failed saving template edits', err);
+      toast.error('Failed to save template changes.');
+    } finally {
+      endAction(actionKey);
     }
   };
 
   const handleAddNewTemplate = async () => {
+    const actionKey = 'template:create';
+    if (!beginAction(actionKey)) return;
     try {
       const res = await fetch('/api/templates', {
         method: 'POST',
@@ -481,9 +550,16 @@ export function Dashboard({
       });
       if (res.ok) {
         await triggerDataRefresh();
+        toast.success('Template created.');
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.error || 'Failed to create template.');
       }
     } catch (err) {
       console.error('Failed creating template template', err);
+      toast.error('Network error creating template.');
+    } finally {
+      endAction(actionKey);
     }
   };
   
@@ -499,6 +575,8 @@ export function Dashboard({
     const reader = new FileReader();
     reader.onload = async (event) => {
       const base64Data = event.target?.result as string;
+      const actionKey = 'template:upload';
+      if (!beginAction(actionKey)) return;
       try {
         const res = await fetch('/api/templates', {
           method: 'POST',
@@ -529,9 +607,16 @@ export function Dashboard({
         });
         if (res.ok) {
           await triggerDataRefresh();
+          toast.success('Certificate design uploaded.');
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          toast.error(errData.error || 'Failed to upload certificate design.');
         }
       } catch (err) {
         console.error('Failed creating template from uploaded design', err);
+        toast.error('Network error uploading certificate design.');
+      } finally {
+        endAction(actionKey);
       }
     };
     reader.readAsDataURL(file);
@@ -540,6 +625,8 @@ export function Dashboard({
 
   const handleDeleteTemplate = async (id: string) => {
     if (!confirm('Are you absolutely sure you want to remove this template? This cannot be undone.')) return;
+    const actionKey = `template:delete:${id}`;
+    if (!beginAction(actionKey)) return;
     try {
       const res = await fetch(`/api/templates/${id}`, { 
         method: 'DELETE',
@@ -547,9 +634,16 @@ export function Dashboard({
       });
       if (res.ok) {
         await triggerDataRefresh();
+        toast.success('Template deleted.');
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.error || 'Failed to delete template.');
       }
     } catch (err) {
       console.error(err);
+      toast.error('Network error deleting template.');
+    } finally {
+      endAction(actionKey);
     }
   };
 
@@ -700,11 +794,14 @@ export function Dashboard({
 
   const handleIssueCertificates = async () => {
     if (validatedRecipients.length === 0 || !selectedProgramId) return;
+    const actionKey = 'certificates:bulk';
+    if (!beginAction(actionKey)) return;
 
     // Filter only valid entries to issue safely
     const activeIssuables = validatedRecipients.filter(r => r.isValid);
     if (activeIssuables.length === 0) {
       toast.error('There are no valid, clean recipient lines matching the template fields to issue.');
+      endAction(actionKey);
       return;
     }
 
@@ -731,6 +828,8 @@ export function Dashboard({
     } catch (err) {
       console.error('Issuance failed', err);
       toast.error('An unexpected network error occurred while dispatching certificates.');
+    } finally {
+      endAction(actionKey);
     }
   };
 
@@ -742,6 +841,8 @@ export function Dashboard({
 
   const handleExecuteRevocation = async () => {
     if (!revokingCertId) return;
+    const actionKey = 'certificate:revoke';
+    if (!beginAction(actionKey)) return;
 
     try {
       const res = await fetch(`/api/certificates/${revokingCertId}/status`, {
@@ -756,13 +857,22 @@ export function Dashboard({
       if (res.ok) {
         setRevokingCertId(null);
         await triggerDataRefresh();
+        toast.success('Certificate revoked.');
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || 'Failed to revoke certificate.');
       }
     } catch (err) {
       console.error(err);
+      toast.error('Network error revoking certificate.');
+    } finally {
+      endAction(actionKey);
     }
   };
 
   const handleRestoreCertificate = async (id: string) => {
+    const actionKey = `certificate:restore:${id}`;
+    if (!beginAction(actionKey)) return;
     try {
       const res = await fetch(`/api/certificates/${id}/status`, {
         method: 'POST',
@@ -774,9 +884,16 @@ export function Dashboard({
       });
       if (res.ok) {
         await triggerDataRefresh();
+        toast.success('Certificate restored.');
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || 'Failed to restore certificate.');
       }
     } catch (err) {
       console.error(err);
+      toast.error('Network error restoring certificate.');
+    } finally {
+      endAction(actionKey);
     }
   };
 
@@ -805,11 +922,14 @@ export function Dashboard({
       }
     } catch (err) {
       console.error(err);
+      toast.error('Network error saving branding.');
     }
   };
 
   const handleDeleteProgram = async (id: string) => {
     if (!confirm('Are you absolutely sure you want to delete this program? All related certificates will be revoked.')) return;
+    const actionKey = `program:delete:${id}`;
+    if (!beginAction(actionKey)) return;
     try {
       const res = await fetch(`/api/programs/${id}`, { 
         method: 'DELETE',
@@ -817,9 +937,16 @@ export function Dashboard({
       });
       if (res.ok) {
         await triggerDataRefresh();
+        toast.success('Program deleted.');
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || 'Failed to delete program.');
       }
     } catch (err) {
       console.error(err);
+      toast.error('Network error deleting program.');
+    } finally {
+      endAction(actionKey);
     }
   };
 
@@ -1108,13 +1235,15 @@ export function Dashboard({
                                       </button>
                                     ) : (
                                       <button
+                                        disabled={isActionPending(`certificate:restore:${c.id}`)}
                                         onClick={() => {
                                           setActiveActionMenuId(null);
                                           handleRestoreCertificate(c.id);
                                         }}
-                                        className="w-full text-left px-4 py-2 text-xs text-emerald-600 hover:bg-emerald-50 flex items-center gap-2 font-bold cursor-pointer"
+                                        className="w-full text-left px-4 py-2 text-xs text-emerald-600 hover:bg-emerald-50 flex items-center gap-2 font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                                       >
-                                        <Check className="w-3.5 h-3.5 text-emerald-500" /> Restore Valid
+                                        {isActionPending(`certificate:restore:${c.id}`) ? <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-500" /> : <Check className="w-3.5 h-3.5 text-emerald-500" />}
+                                        {isActionPending(`certificate:restore:${c.id}`) ? 'Restoring...' : 'Restore Valid'}
                                       </button>
                                     )}
                                   </div>
@@ -1247,13 +1376,15 @@ export function Dashboard({
                                   </button>
                                 ) : (
                                   <button
+                                    disabled={isActionPending(`certificate:restore:${c.id}`)}
                                     onClick={() => {
                                       setActiveActionMenuId(null);
                                       handleRestoreCertificate(c.id);
                                     }}
-                                    className="w-full text-left px-4 py-2 text-xs text-emerald-600 hover:bg-emerald-50 flex items-center gap-2 font-bold cursor-pointer"
+                                    className="w-full text-left px-4 py-2 text-xs text-emerald-600 hover:bg-emerald-50 flex items-center gap-2 font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                                   >
-                                    <Check className="w-3.5 h-3.5 text-emerald-500" /> Restore
+                                    {isActionPending(`certificate:restore:${c.id}`) ? <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-500" /> : <Check className="w-3.5 h-3.5 text-emerald-500" />}
+                                    {isActionPending(`certificate:restore:${c.id}`) ? 'Restoring...' : 'Restore'}
                                   </button>
                                 )}
                               </div>
@@ -1284,7 +1415,13 @@ export function Dashboard({
   });
 
   return (
-    <div className="flex h-screen w-screen bg-[#F8F9FA] overflow-hidden font-sans relative">
+    <div className="flex h-screen w-screen bg-[#F8F9FA] overflow-hidden font-sans relative" aria-busy={pendingAction ? true : undefined}>
+      {pendingActionLabel && (
+        <div className="fixed bottom-4 left-1/2 z-[120] -translate-x-1/2 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-800 shadow-xl flex items-center gap-2">
+          <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-500" />
+          {pendingActionLabel}
+        </div>
+      )}
       
       {/* Sidebar Control Deck */}
       {/* Translucent backdrop overlay for mobile view */}
@@ -1315,7 +1452,8 @@ export function Dashboard({
             {/* Refresh state spinner */}
             <button 
               onClick={triggerDataRefresh}
-              className={`text-slate-400 hover:text-slate-900 transition-colors p-1 rounded hover:bg-slate-50 ${refreshing ? 'animate-spin' : ''}`}
+              disabled={refreshing || Boolean(pendingAction)}
+              className={`text-slate-400 hover:text-slate-900 transition-colors p-1 rounded hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed ${refreshing ? 'animate-spin' : ''}`}
               title="Refresh ledger state"
             >
               <RefreshCw className="w-3.5 h-3.5" />
@@ -1510,7 +1648,7 @@ export function Dashboard({
           {loading ? (
             <div className="h-full flex flex-col items-center justify-center text-slate-500">
               <RefreshCw className="w-8 h-8 text-slate-800 animate-spin mb-3" />
-              <p className="text-xs font-mono uppercase tracking-widest">Compiling live credential ledger...</p>
+              <p className="text-xs font-mono uppercase tracking-widest">Loading workspace data...</p>
             </div>
           ) : (
             <>
@@ -1724,6 +1862,7 @@ export function Dashboard({
                               setProgExpiryDate('');
                               setFieldString('');
                               setProgTemplateId(templates[0].id);
+                              setProgIssueDate(todayIso());
                               setShowProgramForm(true);
                             }}
                             className="bg-slate-950 text-white text-xs px-5 py-2.5 rounded-full font-bold shadow-sm hover:bg-slate-800 transition-colors flex items-center gap-1 cursor-pointer"
@@ -1756,7 +1895,7 @@ export function Dashboard({
                             <div className="space-y-1">
                               <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Default Layout Template</label>
                               <select
-                                value={progTemplateId}
+                                value={progTemplateId || templates[0]?.id || ''}
                                 onChange={(e) => setProgTemplateId(e.target.value)}
                                 className="w-full bg-slate-50 text-xs py-2 px-3 rounded border border-slate-200 focus:outline-none focus:border-slate-905 cursor-pointer"
                               >
@@ -1806,7 +1945,6 @@ export function Dashboard({
                             </label>
                             <input
                               type="text"
-                              required
                               value={fieldString}
                               onChange={(e) => setFieldString(e.target.value)}
                               className="w-full bg-slate-50 text-xs py-2.5 px-3 rounded border border-slate-200 focus:outline-none focus:border-slate-905 font-mono"
@@ -1819,23 +1957,27 @@ export function Dashboard({
                           <div className="flex gap-3 justify-end pt-2">
                             <button
                               type="button"
+                              disabled={isActionPending('program:save')}
                               onClick={() => {
                                 setShowProgramForm(false);
                                 setEditingProgram(null);
                                 setProgName('');
                                 setProgDesc('');
+                                setProgIssueDate(todayIso());
                                 setProgExpiryDate('');
                                 setFieldString('');
                               }}
-                              className="bg-slate-100 text-slate-800 text-xs px-4 py-2 rounded-lg font-bold cursor-pointer"
+                              className="bg-slate-100 text-slate-800 text-xs px-4 py-2 rounded-lg font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               Cancel
                             </button>
                             <button
                               type="submit"
-                              className="bg-slate-950 text-white text-xs px-5 py-2.5 rounded-lg font-bold hover:bg-slate-800 cursor-pointer"
+                              disabled={isActionPending('program:save')}
+                              className="bg-slate-950 text-white text-xs px-5 py-2.5 rounded-lg font-bold hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
                             >
-                              {editingProgram ? 'Save Changes' : 'Register Program Track'}
+                              {isActionPending('program:save') && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                              {isActionPending('program:save') ? (editingProgram ? 'Saving...' : 'Registering...') : (editingProgram ? 'Save Changes' : 'Register Program Track')}
                             </button>
                           </div>
                         </form>
@@ -1849,7 +1991,23 @@ export function Dashboard({
                             </div>
                             <h3 className="font-bold text-slate-700 text-sm">No Programs Found</h3>
                             <p className="text-xs text-slate-500 max-w-xs mx-auto">Create a certificate program to start issuing credentials to your recipients.</p>
-                            <button onClick={() => setShowProgramForm(true)} className="mt-2 text-indigo-600 hover:text-indigo-800 text-xs font-bold underline transition-colors cursor-pointer">
+                            <button
+                              onClick={() => {
+                                if (templates.length === 0) {
+                                  toast.error('Create at least one certificate template first.');
+                                  return;
+                                }
+                                setEditingProgram(null);
+                                setProgName('');
+                                setProgDesc('');
+                                setProgIssueDate(todayIso());
+                                setProgExpiryDate('');
+                                setFieldString('');
+                                setProgTemplateId(templates[0].id);
+                                setShowProgramForm(true);
+                              }}
+                              className="mt-2 text-indigo-600 hover:text-indigo-800 text-xs font-bold underline transition-colors cursor-pointer"
+                            >
                               Create First Program
                             </button>
                           </div>
@@ -1928,8 +2086,9 @@ export function Dashboard({
                                         </button>
                                         <button
                                           type="button"
+                                          disabled={isActionPending(`program:delete:${prog.id}`)}
                                           onClick={() => handleDeleteProgram(prog.id)}
-                                          className="text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                                          className="text-slate-400 hover:text-rose-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                           title="Delete track"
                                         >
                                           <Trash2 className="w-4 h-4 inline" />
@@ -2016,8 +2175,9 @@ export function Dashboard({
                                     </div>
                                     <button
                                       type="button"
+                                      disabled={isActionPending(`program:delete:${prog.id}`)}
                                       onClick={() => handleDeleteProgram(prog.id)}
-                                      className="text-slate-405 hover:text-rose-600 p-1 rounded hover:bg-rose-50 cursor-pointer"
+                                      className="text-slate-405 hover:text-rose-600 p-1 rounded hover:bg-rose-50 disabled:opacity-40 disabled:cursor-not-allowed"
                                       title="Delete track"
                                     >
                                       <Trash2 className="w-4 h-4" />
@@ -2057,9 +2217,11 @@ export function Dashboard({
                         <div className="flex flex-wrap gap-2">
                           <button
                             onClick={() => document.getElementById('dashboard-design-upload')?.click()}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-5 py-2.5 rounded-full font-bold shadow-sm flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                            disabled={isActionPending('template:upload')}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-5 py-2.5 rounded-full font-bold shadow-sm flex items-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed"
                           >
-                            <Upload className="w-4 h-4" /> Upload Certificate Design
+                            {isActionPending('template:upload') ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                            {isActionPending('template:upload') ? 'Uploading...' : 'Upload Certificate Design'}
                           </button>
                           <input 
                             type="file"
@@ -2070,9 +2232,11 @@ export function Dashboard({
                           />
                           <button
                             onClick={handleAddNewTemplate}
-                            className="bg-slate-950 text-white text-xs px-5 py-2.5 rounded-full font-bold shadow-sm hover:bg-slate-800 whitespace-nowrap"
+                            disabled={isActionPending('template:create')}
+                            className="bg-slate-950 text-white text-xs px-5 py-2.5 rounded-full font-bold shadow-sm hover:bg-slate-800 whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
                           >
-                            + Seed Professional Blueprint
+                            {isActionPending('template:create') && <RefreshCw className="w-4 h-4 animate-spin" />}
+                            {isActionPending('template:create') ? 'Creating...' : '+ Seed Professional Blueprint'}
                           </button>
                         </div>
                       </div>
@@ -2102,10 +2266,11 @@ export function Dashboard({
                             <div className="flex justify-end gap-3 pt-2">
                               <button
                                 onClick={() => handleDeleteTemplate(temp.id)}
-                                className="bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-600 p-2 rounded border text-xs"
+                                disabled={isActionPending(`template:delete:${temp.id}`)}
+                                className="bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-600 p-2 rounded border text-xs disabled:opacity-50 disabled:cursor-not-allowed"
                                 title="Delete template form"
                               >
-                                Delete
+                                {isActionPending(`template:delete:${temp.id}`) ? 'Deleting...' : 'Delete'}
                               </button>
                               <button
                                 onClick={() => selectTemplateForEditor(temp)}
@@ -2286,16 +2451,25 @@ export function Dashboard({
                       <div className="flex gap-3 justify-end">
                         <button
                           onClick={() => setImportStep('input')}
-                          className="bg-slate-100 text-slate-700 text-xs px-5 py-2.5 rounded-lg font-bold"
+                          disabled={isActionPending('certificates:bulk')}
+                          className="bg-slate-100 text-slate-700 text-xs px-5 py-2.5 rounded-lg font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Cancel
                         </button>
                         <button
                           onClick={handleIssueCertificates}
-                          disabled={validatedRecipients.filter(r => r.isValid).length === 0}
-                          className="bg-slate-950 hover:bg-slate-800 disabled:bg-slate-200 text-white text-xs px-6 py-2.5 rounded-full font-bold shadow-md flex items-center gap-1 shrink-0"
+                          disabled={isActionPending('certificates:bulk') || validatedRecipients.filter(r => r.isValid).length === 0}
+                          className="bg-slate-950 hover:bg-slate-800 disabled:bg-slate-200 disabled:cursor-not-allowed text-white text-xs px-6 py-2.5 rounded-full font-bold shadow-md flex items-center gap-1.5 shrink-0"
                         >
-                          <Play className="w-3.5 h-3.5 fill-current" /> Initialize Automated Ledger Issuance
+                          {isActionPending('certificates:bulk') ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Issuing...
+                            </>
+                          ) : (
+                            <>
+                              <Play className="w-3.5 h-3.5 fill-current" /> Initialize Automated Ledger Issuance
+                            </>
+                          )}
                         </button>
                       </div>
 
@@ -2418,17 +2592,20 @@ export function Dashboard({
                       <div className="flex gap-2.5 justify-end">
                         <button
                           type="button"
+                          disabled={isActionPending('certificate:revoke')}
                           onClick={() => setRevokingCertId(null)}
-                          className="bg-white border rounded text-slate-700 text-xs font-bold px-3 py-1.5"
+                          className="bg-white border rounded text-slate-700 text-xs font-bold px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Cancel
                         </button>
                         <button
                           type="button"
+                          disabled={isActionPending('certificate:revoke')}
                           onClick={handleExecuteRevocation}
-                          className="bg-rose-600 hover:bg-rose-700 text-white rounded text-xs font-bold px-4 py-1.5"
+                          className="bg-rose-600 hover:bg-rose-700 text-white rounded text-xs font-bold px-4 py-1.5 disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
                         >
-                          Confirm Revocation State
+                          {isActionPending('certificate:revoke') && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                          {isActionPending('certificate:revoke') ? 'Revoking...' : 'Confirm Revocation State'}
                         </button>
                       </div>
                     </div>
@@ -2500,10 +2677,12 @@ export function Dashboard({
                                 </button>
                               ) : (
                                 <button
+                                  disabled={isActionPending(`certificate:restore:${c.id}`)}
                                   onClick={() => handleRestoreCertificate(c.id)}
-                                  className="text-[10px] font-bold uppercase text-emerald-600 hover:text-emerald-800"
+                                  className="text-[10px] font-bold uppercase text-emerald-600 hover:text-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1"
                                 >
-                                  Restore Valid
+                                  {isActionPending(`certificate:restore:${c.id}`) && <RefreshCw className="w-3 h-3 animate-spin" />}
+                                  {isActionPending(`certificate:restore:${c.id}`) ? 'Restoring' : 'Restore Valid'}
                                 </button>
                               )}
                             </td>
@@ -2574,10 +2753,12 @@ export function Dashboard({
                               </button>
                             ) : (
                               <button
+                                disabled={isActionPending(`certificate:restore:${c.id}`)}
                                 onClick={() => handleRestoreCertificate(c.id)}
-                                className="text-[10px] font-bold uppercase text-emerald-600 hover:text-emerald-800"
+                                className="text-[10px] font-bold uppercase text-emerald-600 hover:text-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1"
                               >
-                                Restore
+                                {isActionPending(`certificate:restore:${c.id}`) && <RefreshCw className="w-3 h-3 animate-spin" />}
+                                {isActionPending(`certificate:restore:${c.id}`) ? 'Restoring' : 'Restore'}
                               </button>
                             )}
                           </div>
@@ -3067,16 +3248,19 @@ export function Dashboard({
               <div className="flex gap-3 justify-end pt-4">
                 <button
                   type="button"
+                  disabled={isActionPending('workspace:create')}
                   onClick={() => setShowWorkspaceModal(false)}
-                  className="bg-slate-100 text-slate-700 text-xs px-4 py-2 rounded-lg font-bold"
+                  className="bg-slate-100 text-slate-700 text-xs px-4 py-2 rounded-lg font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="bg-slate-950 text-white text-xs px-5 py-2.5 rounded-lg font-bold hover:bg-slate-800"
+                  disabled={isActionPending('workspace:create')}
+                  className="bg-slate-950 text-white text-xs px-5 py-2.5 rounded-lg font-bold hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
                 >
-                  Onboard Workspace
+                  {isActionPending('workspace:create') && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                  {isActionPending('workspace:create') ? 'Onboarding...' : 'Onboard Workspace'}
                 </button>
               </div>
             </form>
@@ -3272,16 +3456,19 @@ export function Dashboard({
               <div className="flex gap-3 justify-end pt-4 border-t border-slate-100">
                 <button
                   type="button"
+                  disabled={isActionPending('certificate:single')}
                   onClick={() => setShowSingleIssueModal(false)}
-                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs px-4 py-2.5 rounded-lg font-bold transition-colors cursor-pointer"
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs px-4 py-2.5 rounded-lg font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="bg-slate-950 hover:bg-slate-800 text-white text-xs px-5 py-2.5 rounded-lg font-bold shadow-sm transition-colors cursor-pointer"
+                  disabled={isActionPending('certificate:single')}
+                  className="bg-slate-950 hover:bg-slate-800 text-white text-xs px-5 py-2.5 rounded-lg font-bold shadow-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
                 >
-                  Issue Certificate
+                  {isActionPending('certificate:single') && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                  {isActionPending('certificate:single') ? 'Issuing...' : 'Issue Certificate'}
                 </button>
               </div>
             </form>
