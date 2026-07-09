@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import {
   OrganizationWorkspace, CertificateProgram, CertificateTemplate,
-  Certificate, Recipient, WorkspaceAnalytics, TextElement, EmailLog, AuditLogEntry
+  Certificate, Recipient, WorkspaceAnalytics, TextElement, EmailLog, EmailStatus, AuditLogEntry
 } from '../types';
 import { CanvaEditor } from './CanvaEditor';
 import { TemplatePreview, captureTemplatePreviewPng } from './TemplatePreview';
@@ -25,6 +25,23 @@ import {
 const capitalizeWords = (str: string) => {
   return str.replace(/\b\w/g, char => char.toUpperCase());
 };
+
+/**
+ * Presentation for the real delivery status of an outbox message. The registry
+ * tracks the full lifecycle (pending → sending → sent / failed, or simulated
+ * when no transport is configured); this maps each to a label and colour so the
+ * Emails tab reflects what actually happened instead of always showing "sent".
+ */
+const EMAIL_STATUS_BADGE: Record<EmailStatus, { label: string; className: string }> = {
+  sent:      { label: 'Delivered',  className: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
+  pending:   { label: 'Queued',     className: 'bg-amber-50 text-amber-700 border-amber-100' },
+  sending:   { label: 'Sending',    className: 'bg-sky-50 text-sky-700 border-sky-100' },
+  failed:    { label: 'Failed',     className: 'bg-rose-50 text-rose-700 border-rose-100' },
+  simulated: { label: 'Simulated',  className: 'bg-slate-100 text-slate-600 border-slate-200' },
+};
+
+const emailStatusBadge = (status: EmailStatus) =>
+  EMAIL_STATUS_BADGE[status] ?? EMAIL_STATUS_BADGE.pending;
 
 interface DashboardProps {
   currentWorkspaceId: string;
@@ -3070,9 +3087,17 @@ export function Dashboard({
                                     {log.subject}
                                   </td>
                                   <td className="px-6 py-4 whitespace-nowrap">
-                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[9px] font-mono font-bold uppercase border border-emerald-100">
-                                      ● DISPATCHED
+                                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-mono font-bold uppercase border ${emailStatusBadge(log.status).className}`}>
+                                      ● {emailStatusBadge(log.status).label}
                                     </span>
+                                    {log.status === 'failed' && log.lastError && (
+                                      <p className="mt-1 text-[9px] text-rose-500 font-mono max-w-[200px] truncate" title={log.lastError}>
+                                        {log.lastError}
+                                      </p>
+                                    )}
+                                    {log.status === 'pending' && log.attempts > 0 && (
+                                      <p className="mt-1 text-[9px] text-amber-500 font-mono">retry {log.attempts}</p>
+                                    )}
                                   </td>
                                   <td className="px-6 py-4 text-right space-x-2 whitespace-nowrap">
                                     <button
@@ -3102,10 +3127,14 @@ export function Dashboard({
                                 <span className="font-mono text-[10px] text-slate-405">
                                   {new Date(log.sentTime).toLocaleString()}
                                 </span>
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[9px] font-mono font-bold uppercase border border-emerald-100">
-                                  Dispatched
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono font-bold uppercase border ${emailStatusBadge(log.status).className}`}>
+                                  {emailStatusBadge(log.status).label}
                                 </span>
                               </div>
+
+                              {log.status === 'failed' && log.lastError && (
+                                <p className="text-[10px] text-rose-500 font-mono break-words">{log.lastError}</p>
+                              )}
 
                               <div className="space-y-1">
                                 <p className="text-[9px] uppercase tracking-wider text-slate-405 font-bold">Recipient</p>
@@ -3156,7 +3185,7 @@ export function Dashboard({
                 <span className="w-2.5 h-2.5 bg-red-500 rounded-full"></span>
                 <span className="w-2.5 h-2.5 bg-yellow-500 rounded-full"></span>
                 <span className="w-2.5 h-2.5 bg-green-500 rounded-full"></span>
-                <span className="font-mono text-xs text-slate-400 ml-2">SMTP Sandbox Email Dispatch Simulator</span>
+                <span className="font-mono text-xs text-slate-400 ml-2">Outbox Message</span>
               </div>
               <button
                 onClick={() => setSelectedEmailLog(null)}
@@ -3192,33 +3221,36 @@ export function Dashboard({
                   {new Date(selectedEmailLog.sentTime).toLocaleString()}
                 </span>
               </div>
+              <div className="flex items-center">
+                <span className="w-16 font-semibold text-slate-400 uppercase tracking-wider font-mono">Status:</span>
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-mono font-bold uppercase border ${emailStatusBadge(selectedEmailLog.status).className}`}>
+                  ● {emailStatusBadge(selectedEmailLog.status).label}
+                  {selectedEmailLog.attempts > 0 && ` · ${selectedEmailLog.attempts} attempt${selectedEmailLog.attempts === 1 ? '' : 's'}`}
+                </span>
+              </div>
+              {selectedEmailLog.status === 'failed' && selectedEmailLog.lastError && (
+                <div className="flex">
+                  <span className="w-16 font-semibold text-slate-400 uppercase tracking-wider font-mono shrink-0">Error:</span>
+                  <span className="text-rose-600 font-mono text-[11px] break-words">{selectedEmailLog.lastError}</span>
+                </div>
+              )}
             </div>
 
             {/* Email Body content */}
             <div className="p-8 overflow-y-auto bg-white flex-1 text-slate-800 text-sm font-sans space-y-6">
-              <div className="whitespace-pre-wrap leading-relaxed max-w-xl mx-auto border border-slate-100 p-8 rounded-xl shadow-sm bg-slate-550/5">
-                {/* Simulated professional email container */}
-                <div className="flex items-center gap-2 pb-4 border-b border-slate-150 mb-4 justify-between">
+              <div className="max-w-xl mx-auto border border-slate-100 p-8 rounded-xl shadow-sm bg-slate-550/5 space-y-4">
+                {/* Real message header, followed by the exact text stored in the outbox */}
+                <div className="flex items-center gap-2 pb-4 border-b border-slate-150 justify-between">
                   <div className="flex items-center gap-1.5">
                     <div className="w-5 h-5 bg-slate-950 rounded flex items-center justify-center text-white text-[8px] font-bold">★</div>
                     <span className="font-display font-black text-slate-950 text-xs tracking-tight uppercase">{currentWorkspace?.branding?.brandName}</span>
                   </div>
-                  <span className="text-[9px] font-mono text-[#9CA3AF] uppercase">Ledger Notification</span>
+                  <span className="text-[9px] font-mono text-[#9CA3AF] uppercase">Credential Notification</span>
                 </div>
 
-                <p className="text-slate-800 font-semibold">Hello {selectedEmailLog.recipientName},</p>
-                
-                <p className="text-slate-600 leading-relaxed text-xs">
-                  Congratulations! Your official credential for completing <strong className="text-slate-900">"{programs.find(p => p.id === selectedEmailLog.workspaceId)?.name || "Academic Program"}"</strong> has been successfully issued and registered on the permanent public verification ledger.
-                </p>
+                <pre className="whitespace-pre-wrap font-sans text-xs text-slate-700 leading-relaxed">{selectedEmailLog.body}</pre>
 
-                <div className="bg-slate-900 text-white rounded-xl p-4 my-4 font-mono text-[10px] space-y-1">
-                  <p className="text-slate-400 font-bold uppercase text-[8px] tracking-widest">Secure Verification Info</p>
-                  <p>• Credential ID: {selectedEmailLog.certificateId}</p>
-                  <p>• Ledger Status: ACTIVE / VALID</p>
-                </div>
-
-                <div className="py-4 text-center">
+                <div className="py-2 text-center">
                   <button
                     onClick={() => {
                       setSelectedEmailLog(null);
@@ -3226,12 +3258,12 @@ export function Dashboard({
                     }}
                     className="inline-block bg-slate-950 hover:bg-slate-850 text-white text-xs px-6 py-3 rounded-full font-bold shadow-md hover:shadow-lg transition-all tracking-wide uppercase"
                   >
-                    View & Claim Digital Certificate
+                    View Certificate Page
                   </button>
                 </div>
 
-                <p className="text-slate-500 text-[11px] leading-relaxed pt-4 border-t border-slate-150">
-                  This dispatch is a secure, authenticated message sent automatically by {currentWorkspace?.branding?.brandName} Certification Registry Services.
+                <p className="text-slate-400 text-[10px] leading-relaxed pt-4 border-t border-slate-150 font-mono">
+                  This is the exact message body recorded in the outbox for this recipient. The delivered email is rendered with {currentWorkspace?.branding?.brandName} branding.
                 </p>
               </div>
             </div>
@@ -3242,7 +3274,7 @@ export function Dashboard({
                 onClick={() => setSelectedEmailLog(null)}
                 className="bg-slate-950 text-white text-xs px-4 py-2 rounded-lg font-bold"
               >
-                Close Simulator Preview
+                Close
               </button>
             </div>
           </div>
