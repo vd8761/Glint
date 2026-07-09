@@ -208,7 +208,8 @@ export function AuthPage({ onLoginSuccess, onBackToHome }: AuthPageProps) {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@gmail.com"
+                placeholder="you@organisation.com"
+                autoComplete="email"
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-11 pr-4 text-slate-800 text-xs placeholder-slate-400 focus:outline-none focus:border-slate-950 focus:bg-white transition-all"
               />
             </div>
@@ -227,6 +228,8 @@ export function AuthPage({ onLoginSuccess, onBackToHome }: AuthPageProps) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
+                autoComplete={isLogin ? 'current-password' : 'new-password'}
+                minLength={isLogin ? undefined : 12}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-11 pr-11 text-slate-800 text-xs placeholder-slate-400 focus:outline-none focus:border-slate-950 focus:bg-white transition-all"
               />
               <button
@@ -237,6 +240,10 @@ export function AuthPage({ onLoginSuccess, onBackToHome }: AuthPageProps) {
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
+            {/* Length, not composition rules — NIST SP 800-63B. The server enforces the same. */}
+            {!isLogin && (
+              <p className="text-[10px] text-slate-400">At least 12 characters. A passphrase is fine.</p>
+            )}
           </div>
 
           {/* Submit Button */}

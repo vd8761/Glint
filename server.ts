@@ -1,2176 +1,1621 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * Glint API server.
+ *
+ * `lib/env.js` is imported first and on purpose: it loads .env files and
+ * validates every secret before any other module reads process.env.
  */
+
+import './lib/env.js';
 
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
-import dotenv from 'dotenv';
-import pg from 'pg';
-import crypto from 'crypto';
-import jwt from 'jsonwebtoken';
-import bcrypt from 'bcryptjs';
 import { GoogleGenAI, Type } from '@google/genai';
-import nodemailer from 'nodemailer';
+import type { PoolClient } from 'pg';
+
+import { env } from './lib/env.js';
+import { logger } from './lib/logger.js';
+import { pool, withTransaction, UNIQUE_VIOLATION } from './lib/db.js';
 import {
-  OrganizationWorkspace,
-  CertificateTemplate,
-  CertificateProgram,
-  Certificate,
-  Recipient,
-  WorkspaceAnalytics,
-  CertificateStatus,
-  EmailLog
-} from './src/types';
+  type AuthedRequest,
+  HttpError,
+  accessibleWorkspaceIds,
+  aiLimiter,
+  assertWorkspaceAccess,
+  asyncHandler,
+  authLimiter,
+  authenticate,
+  clientIpHash,
+  corsMiddleware,
+  errorHandler,
+  globalLimiter,
+  issuanceLimiter,
+  issueToken,
+  publicReadLimiter,
+  registerLimiter,
+  requireAdmin,
+  requireCronSecret,
+  securityHeaders,
+  statsLimiter,
+  verifyLimiter,
+} from './lib/http.js';
+import {
+  certificateStatusSchema,
+  createProgramSchema,
+  createWorkspaceSchema,
+  generateTemplateSchema,
+  issueSchema,
+  loginSchema,
+  parseBody,
+  parseSampleSchema,
+  registerSchema,
+  statsSchema,
+  templateBodySchema,
+  updateProgramSchema,
+  updateWorkspaceSchema,
+} from './lib/schemas.js';
+import {
+  evaluateCertificate,
+  maskEmail,
+  newCertificateId,
+  newId,
+  signCertificate,
+  SIGNATURE_ALG,
+  SIGNATURE_VERSION,
+} from './lib/security.js';
+import { drainOutbox, enqueueEmail, renderIssuanceEmailText } from './lib/mailer.js';
+import bcrypt from 'bcryptjs';
 
-// Load environmental variables
-dotenv.config({ path: path.join(process.cwd(), '.env.local') });
-dotenv.config();
+const app = express();
 
-// Professional Logger Utility
-const logger = {
-  info: (message: string, context?: any) => {
-    const timestamp = new Date().toISOString();
-    const ctxString = context ? ` | Context: ${JSON.stringify(context)}` : '';
-    console.log(`[${timestamp}] [INFO] [CertOps] ${message}${ctxString}`);
-  },
-  warn: (message: string, context?: any) => {
-    const timestamp = new Date().toISOString();
-    const ctxString = context ? ` | Context: ${JSON.stringify(context)}` : '';
-    console.warn(`[${timestamp}] [WARN] [CertOps] ${message}${ctxString}`);
-  },
-  error: (message: string, error?: any, context?: any) => {
-    const timestamp = new Date().toISOString();
-    const errMessage = error ? (error.stack || error.message || error) : '';
-    const ctxString = context ? ` | Context: ${JSON.stringify(context)}` : '';
-    console.error(`[${timestamp}] [ERROR] [CertOps] ${message} | Error: ${errMessage}${ctxString}`);
-  }
-};
+// -----------------------------------------------------------------------------
+// Global middleware
+// -----------------------------------------------------------------------------
 
-const { Pool } = pg;
+/**
+ * Rate limiting keys on `req.ip`. Express derives that from X-Forwarded-For only
+ * as far as it trusts the proxy chain. `trust proxy: true` would let any client
+ * forge the header and sidestep every limit; Vercel puts exactly one proxy in
+ * front of the function, and locally there is none.
+ */
+app.set('trust proxy', env.isServerless ? 1 : 'loopback');
+app.disable('x-powered-by');
 
-// Connection Pool to PostgreSQL database
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:0023@localhost:5432/Certificates_Platform'
-});
+app.use(securityHeaders());
+app.use(corsMiddleware());
+// Template backgrounds and AI sample images arrive as base64 data URIs. 50mb was
+// enough to let one request pin a large chunk of the function's memory.
+app.use(express.json({ limit: '12mb' }));
+app.use(express.urlencoded({ limit: '12mb', extended: true }));
+app.use('/api', globalLimiter);
 
-// Idle connection error handling to prevent serverless function / process crashes
-pool.on('error', (err) => {
-  logger.error('Unexpected error on idle PostgreSQL client', err);
-});
+// -----------------------------------------------------------------------------
+// Row serialisers
+// -----------------------------------------------------------------------------
 
-// Helper to safely rollback transactions without throwing uncaught errors
-const safeRollback = async (client: any) => {
-  if (client) {
-    try {
-      await client.query('ROLLBACK');
-    } catch (err) {
-      logger.error('Failed to rollback transaction', err);
-    }
-  }
-};
+const iso = (value: Date | null | undefined): string | undefined => value?.toISOString();
 
-// Reusable SMTP Mail Transporter via Nodemailer
-const smtpConfigured = !!(
-  (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) ||
-  process.env.RESEND_API_KEY
-);
-let mailTransporter: any = null;
-
-if (smtpConfigured) {
-  const host = process.env.RESEND_API_KEY ? 'smtp.resend.com' : (process.env.SMTP_HOST || 'smtp.resend.com');
-  const port = parseInt(process.env.RESEND_API_KEY ? '465' : (process.env.SMTP_PORT || '587'), 10);
-  const secure = process.env.RESEND_API_KEY ? true : (process.env.SMTP_PORT === '465');
-  const user = process.env.RESEND_API_KEY ? 'resend' : (process.env.SMTP_USER || 'resend');
-  const pass = process.env.RESEND_API_KEY || process.env.SMTP_PASS;
-
-  mailTransporter = nodemailer.createTransport({
-    host: host,
-    port: port,
-    secure: secure,
-    auth: {
-      user: user,
-      pass: pass
+function mapWorkspace(row: any) {
+  return {
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    createdTime: iso(row.created_time),
+    plan: row.plan,
+    branding: {
+      brandName: row.brand_name,
+      logoUrl: row.logo_url ?? undefined,
+      primaryColor: row.primary_color,
+      accentColor: row.accent_color,
+      customDomain: row.custom_domain ?? undefined,
+      senderName: row.sender_name,
+      senderEmail: row.sender_email,
+      whiteLabel: row.white_label,
+      footerText: row.footer_text ?? undefined,
     },
-    tls: {
-      rejectUnauthorized: false
-    }
-  });
-  logger.info('SMTP Mail Transporter successfully initialized.');
-} else {
-  logger.warn('SMTP settings/Resend API key missing in env variables. Emails will be logged (simulated) but not delivered.');
+  };
+}
+
+const num = (v: unknown) => (v === null || v === undefined ? undefined : Number(v));
+
+const CUSTOM_FONT_MARKER = '__customFont';
+// Extra per-template flags that have no dedicated column are stashed as a marker
+// element inside the text_elements JSON, so they persist without a schema change.
+const SETTINGS_MARKER = '__settings';
+
+function splitTemplateTextElements(value: unknown) {
+  const textElements = Array.isArray(value) ? value : [];
+  const customFonts: any[] = [];
+  const renderableTextElements: any[] = [];
+  let settings: Record<string, any> = {};
+
+  for (const item of textElements) {
+    if (item?.type === CUSTOM_FONT_MARKER && item.customFont) customFonts.push(item.customFont);
+    else if (item?.type === SETTINGS_MARKER && item.settings) settings = item.settings;
+    else renderableTextElements.push(item);
+  }
+
+  return { textElements: renderableTextElements, customFonts, settings };
+}
+
+function mapTemplate(row: any) {
+  const { textElements, customFonts, settings } = splitTemplateTextElements(row.text_elements);
+  return {
+    ...(settings.showWatermarkTags !== undefined ? { showWatermarkTags: settings.showWatermarkTags } : {}),
+    id: row.id,
+    workspaceId: row.workspace_id,
+    name: row.name,
+    layout: row.layout,
+    backgroundColor: row.background_color,
+    backgroundGradient: row.background_gradient ?? undefined,
+    backgroundImageUrl: row.background_image_url ?? undefined,
+    borderColor: row.border_color,
+    borderWidth: row.border_width,
+    borderRadius: row.border_radius ?? undefined,
+    borderStyle: row.border_style ?? undefined,
+    decorFlourish: row.decor_flourish ?? undefined,
+    showSeal: row.show_seal,
+    sealType: row.seal_type,
+    sealWidth: num(row.seal_width) ?? 40,
+    showQrCode: row.show_qr_code,
+    qrCodeX: num(row.qr_code_x),
+    qrCodeY: num(row.qr_code_y),
+    qrCodeWidth: num(row.qr_code_width) ?? 32,
+    qrCodeCustomUrl: row.qr_code_custom_url ?? undefined,
+    logoUrl: row.logo_url ?? undefined,
+    logoIconType: row.logo_icon_type ?? undefined,
+    logoX: num(row.logo_x),
+    logoY: num(row.logo_y),
+    logoWidth: num(row.logo_width),
+    signatureUrl: row.signature_url ?? undefined,
+    signatureStyle: row.signature_style ?? undefined,
+    signatureX: num(row.signature_x),
+    signatureY: num(row.signature_y),
+    signatureWidth: num(row.signature_width),
+    signatoryName: row.signatory_name ?? undefined,
+    signatoryTitle: row.signatory_title ?? undefined,
+    showSecondarySignatory: row.show_secondary_signatory ?? undefined,
+    secondarySignatureUrl: row.secondary_signature_url ?? undefined,
+    secondarySignatoryName: row.secondary_signatory_name ?? undefined,
+    secondarySignatoryTitle: row.secondary_signatory_title ?? undefined,
+    secondarySignatureX: num(row.secondary_signature_x),
+    secondarySignatureY: num(row.secondary_signature_y),
+    secondarySignatureWidth: num(row.secondary_signature_width),
+    textElements,
+    customFonts,
+  };
+}
+
+function mapProgram(row: any) {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    name: row.name,
+    description: row.description ?? '',
+    templateId: row.template_id,
+    issueDate: row.issue_date ?? '',
+    expiryDate: row.expiry_date ?? undefined,
+    status: row.status,
+    createdTime: iso(row.created_time),
+    recipientFields: Array.isArray(row.recipient_fields) ? row.recipient_fields : [],
+  };
+}
+
+/** The full record. Only ever returned to an authenticated member of the workspace. */
+function mapCertificate(row: any) {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    programId: row.program_id,
+    programName: row.program_name,
+    recipientName: row.recipient_name,
+    recipientEmail: row.recipient_email,
+    customFields: row.custom_fields ?? {},
+    issueDate: row.issue_date ?? '',
+    expiryDate: row.expiry_date ?? undefined,
+    status: row.status,
+    revocationReason: row.revocation_reason ?? undefined,
+    signature: row.signature,
+    signatureAlg: row.signature_alg,
+    signatureVersion: row.signature_version,
+    viewCount: row.view_count,
+    downloadCount: row.download_count,
+    shareCount: row.share_count,
+    verifyCount: row.verify_count,
+    lastViewed: iso(row.last_viewed),
+  };
 }
 
 /**
- * Helper to send verification email via AWS SES SMTP or log it locally if not configured.
+ * What an anonymous visitor may see.
+ *
+ * The old public endpoints returned `recipient_email` verbatim, plus an audit
+ * trail whose `details` strings embedded the recipient's address. A certificate
+ * link is designed to be posted on LinkedIn — it was leaking the holder's email
+ * to anyone who opened it, and the identifiers were sequential, so the whole
+ * registry could be walked.
  */
-const sendVerificationEmail = async (params: {
-  recipientEmail: string;
-  recipientName: string;
-  subject: string;
-  body: string;
-  workspaceId: string;
-  programName?: string;
-  certId?: string;
-  verificationUrl?: string;
-}) => {
-  const { recipientEmail, recipientName, subject, body, workspaceId } = params;
+function mapPublicCertificate(row: any) {
+  return {
+    id: row.id,
+    programName: row.program_name,
+    recipientName: row.recipient_name,
+    recipientEmailMasked: maskEmail(row.recipient_email),
+    customFields: row.custom_fields ?? {},
+    issueDate: row.issue_date ?? '',
+    expiryDate: row.expiry_date ?? undefined,
+    status: row.status,
+    revocationReason: row.revocation_reason ?? undefined,
+    signature: row.signature,
+    signatureAlg: row.signature_alg,
+    signatureVersion: row.signature_version,
+    viewCount: row.view_count,
+    downloadCount: row.download_count,
+    shareCount: row.share_count,
+    verifyCount: row.verify_count,
+  };
+}
 
-  if (!smtpConfigured || !mailTransporter) {
-    logger.info(`[SMTP Simulator] Simulated email logged for ${recipientEmail}. Subject: "${subject}"`);
-    return { success: true, simulated: true };
-  }
+function toSignable(row: any) {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    programId: row.program_id ?? null,
+    programName: row.program_name,
+    recipientName: row.recipient_name,
+    recipientEmail: row.recipient_email,
+    issueDate: row.issue_date,
+    expiryDate: row.expiry_date ?? null,
+  };
+}
 
-  try {
-    let fromName = process.env.SMTP_FROM_NAME || 'Glint';
-    let fromEmail = process.env.RESEND_FROM_EMAIL || process.env.SMTP_FROM || 'no-reply@originbi.com';
-    let primaryColor = '#0f172a'; // default dark slate
-    let brandName = 'Glint';
-    let logoUrl = '';
-    let footerText = '';
+// -----------------------------------------------------------------------------
+// Event log
+// -----------------------------------------------------------------------------
 
-    const wsResult = await pool.query(
-      'SELECT name, brand_name, primary_color, logo_url, sender_name, sender_email, footer_text FROM workspaces WHERE id = $1',
-      [workspaceId]
+type CertEvent =
+  | 'CREATED' | 'ISSUED' | 'EMAIL_QUEUED' | 'EMAIL_DISPATCHED' | 'EMAIL_FAILED'
+  | 'VERIFIED' | 'REVOKED' | 'RESTORED' | 'VIEWED' | 'DOWNLOADED' | 'SHARED'
+  | 'METADATA_UPDATED';
+
+async function recordEvent(
+  db: PoolClient | typeof pool,
+  certificateId: string,
+  event: CertEvent,
+  opts: { performedBy?: string; details?: string; ipHash?: string | null; isPublic?: boolean } = {},
+): Promise<void> {
+  await db.query(
+    `INSERT INTO certificate_events (certificate_id, event, performed_by, details, actor_ip_hash, is_public)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [
+      certificateId,
+      event,
+      opts.performedBy ?? 'system',
+      opts.details ?? null,
+      opts.ipHash ?? null,
+      opts.isPublic ?? true,
+    ],
+  );
+}
+
+async function loadEvents(certificateId: string, publicOnly: boolean) {
+  const result = await pool.query(
+    `SELECT event, performed_by, details, created_at
+     FROM certificate_events
+     WHERE certificate_id = $1 ${publicOnly ? 'AND is_public = true' : ''}
+     ORDER BY created_at ASC
+     LIMIT 200`,
+    [certificateId],
+  );
+  return result.rows.map((r) => ({
+    timestamp: r.created_at.toISOString(),
+    event: r.event,
+    performedBy: r.performed_by,
+    details: r.details ?? '',
+  }));
+}
+
+async function logAuthEvent(
+  email: string,
+  event: 'LOGIN_SUCCESS' | 'LOGIN_FAILED' | 'LOCKED_OUT' | 'REGISTERED' | 'TOKEN_REJECTED',
+  req: AuthedRequest,
+  userId?: string,
+): Promise<void> {
+  await pool
+    .query(
+      `INSERT INTO auth_events (email, user_id, event, actor_ip_hash, user_agent)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [email, userId ?? null, event, clientIpHash(req), (req.headers['user-agent'] ?? '').slice(0, 300)],
+    )
+    .catch((err) => logger.error('Failed to write auth event', err));
+}
+
+// =============================================================================
+// Auth
+// =============================================================================
+
+app.post(
+  '/api/auth/login',
+  authLimiter,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { email, password } = parseBody(loginSchema, req.body);
+
+    const result = await pool.query(
+      `SELECT id, email, name, role, workspace_id, password_hash, token_version,
+              failed_login_attempts, locked_until
+       FROM users WHERE email = $1`,
+      [email],
     );
+    const user = result.rows[0];
 
-    if (wsResult.rows.length > 0) {
-      const row = wsResult.rows[0];
-      if (row.sender_name) fromName = row.sender_name;
-      if (row.sender_email) {
-        // Enforce SMTP_FROM domain verification to prevent Resend / SES from rejecting the mail
-        const allowedSender = process.env.RESEND_FROM_EMAIL || process.env.SMTP_FROM || 'no-reply@originbi.com';
-        if (process.env.FORCE_FROM_EMAIL === 'true') {
-          fromEmail = allowedSender;
-          logger.info(`Forced sender_email to ${fromEmail} due to FORCE_FROM_EMAIL=true`);
-        } else {
-          const allowedDomain = allowedSender.split('@')[1];
-          const currentDomain = row.sender_email.split('@')[1];
-          if (allowedDomain && currentDomain && allowedDomain.toLowerCase() !== currentDomain.toLowerCase()) {
-            const localPart = row.sender_email.split('@')[0];
-            fromEmail = `${localPart}@${allowedDomain}`;
-            logger.info(`Rewrote sender_email from ${row.sender_email} to ${fromEmail} to match verified SMTP domain ${allowedDomain}`);
-          } else {
-            fromEmail = row.sender_email;
-          }
-        }
-      }
-      if (row.primary_color) primaryColor = row.primary_color;
-      if (row.brand_name) brandName = row.brand_name;
-      if (row.logo_url) logoUrl = row.logo_url;
-      if (row.footer_text) footerText = row.footer_text;
-    }
-
-    // Dynamic HTML template definition
-    let htmlContent = '';
-    
-    if (params.programName && params.certId && params.verificationUrl) {
-      const logoHtml = logoUrl 
-        ? `<img src="${logoUrl}" alt="${brandName}" class="logo">`
-        : `<div class="logo-placeholder">${brandName}</div>`;
-
-      const footerTextHtml = footerText 
-        ? footerText 
-        : `This email is a secure, automated message sent by ${brandName} Certification Registry Services.`;
-
-      htmlContent = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Your Digital Credential is Ready</title>
-  <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background-color: #f8fafc;
-      margin: 0;
-      padding: 0;
-      -webkit-font-smoothing: antialiased;
-    }
-    .wrapper {
-      width: 100%;
-      background-color: #f8fafc;
-      padding: 40px 20px;
-      box-sizing: border-box;
-    }
-    .container {
-      max-width: 600px;
-      margin: 0 auto;
-      background-color: #ffffff;
-      border-radius: 16px;
-      overflow: hidden;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.025);
-      border: 1px solid #e2e8f0;
-    }
-    .header {
-      padding: 32px 32px 24px 32px;
-      text-align: center;
-      border-bottom: 1px solid #f1f5f9;
-    }
-    .logo {
-      max-height: 48px;
-      margin-bottom: 16px;
-    }
-    .logo-placeholder {
-      font-size: 24px;
-      font-weight: 800;
-      letter-spacing: -0.5px;
-      color: #0f172a;
-      text-transform: uppercase;
-    }
-    .content {
-      padding: 32px;
-    }
-    h1 {
-      font-size: 22px;
-      font-weight: 700;
-      color: #0f172a;
-      margin-top: 0;
-      margin-bottom: 16px;
-      line-height: 1.3;
-    }
-    p {
-      font-size: 15px;
-      line-height: 1.6;
-      color: #475569;
-      margin-top: 0;
-      margin-bottom: 24px;
-    }
-    .credential-box {
-      background-color: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 12px;
-      padding: 20px;
-      margin-bottom: 28px;
-    }
-    .credential-row {
-      margin-bottom: 12px;
-      overflow: hidden;
-    }
-    .credential-row:last-child {
-      margin-bottom: 0;
-    }
-    .credential-label {
-      float: left;
-      font-size: 12px;
-      font-weight: 600;
-      color: #94a3b8;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .credential-value {
-      float: right;
-      font-size: 14px;
-      font-weight: 600;
-      color: #334155;
-    }
-    .credential-value.code {
-      font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, Courier, monospace;
-      color: #0f172a;
-    }
-    .btn-container {
-      text-align: center;
-      margin: 32px 0;
-    }
-    .btn {
-      display: inline-block;
-      padding: 14px 28px;
-      background-color: ${primaryColor};
-      color: #ffffff !important;
-      font-size: 15px;
-      font-weight: 700;
-      text-decoration: none;
-      border-radius: 8px;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    }
-    .footer {
-      background-color: #f8fafc;
-      padding: 24px 32px;
-      text-align: center;
-      border-top: 1px solid #f1f5f9;
-    }
-    .footer-text {
-      font-size: 12px;
-      color: #94a3b8;
-      line-height: 1.5;
-      margin: 0;
-    }
-  </style>
-</head>
-<body>
-  <div class="wrapper">
-    <div class="container">
-      <div class="header">
-        ${logoHtml}
-      </div>
-      <div class="content">
-        <h1>Congratulations, ${recipientName}!</h1>
-        <p>Your official verifiable credential for completing <strong>"${params.programName}"</strong> has been successfully issued and registered on our secure registry.</p>
-        
-        <div class="credential-box">
-          <div class="credential-row">
-            <span class="credential-label">Recipient</span>
-            <span class="credential-value">${recipientName}</span>
-          </div>
-          <div style="clear: both; height: 10px;"></div>
-          <div class="credential-row">
-            <span class="credential-label">Program</span>
-            <span class="credential-value">${params.programName}</span>
-          </div>
-          <div style="clear: both; height: 10px;"></div>
-          <div class="credential-row">
-            <span class="credential-label">Credential ID</span>
-            <span class="credential-value code">${params.certId}</span>
-          </div>
-          <div style="clear: both;"></div>
-        </div>
-
-        <div class="btn-container">
-          <a href="${params.verificationUrl}" class="btn" target="_blank" style="color: #ffffff;">View Your Certificate</a>
-        </div>
-
-        <p style="font-size: 13px; color: #64748b; margin-bottom: 0; text-align: center;">
-          You can instantly view, download, print, or share your digital certificate directly to LinkedIn.
-        </p>
-      </div>
-      <div class="footer">
-        <p class="footer-text">
-          ${footerTextHtml}
-        </p>
-        <p class="footer-text" style="margin-top: 6px; font-size: 10px;">
-          Powered by Glint Digital Trust Registry
-        </p>
-      </div>
-    </div>
-  </div>
-</body>
-</html>
-      `;
-    } else {
-      htmlContent = body.replace(/\n/g, '<br/>');
-    }
-
-    const mailOptions: any = {
-      from: `"${fromName}" <${fromEmail}>`,
-      to: recipientEmail,
-      subject: subject,
-      text: body,
-      html: htmlContent
+    // Uniform failure. Distinguishing "no such user" from "wrong password" turns
+    // the login form into an account-enumeration oracle.
+    const invalid = () => {
+      throw new HttpError(401, 'Invalid email or password');
     };
 
-    if (process.env.SMTP_CC) {
-      mailOptions.cc = process.env.SMTP_CC;
+    if (!user) {
+      await logAuthEvent(email, 'LOGIN_FAILED', req);
+      // Spend roughly the same time as a real bcrypt comparison so response
+      // latency does not reveal whether the account exists.
+      await bcrypt.compare(password, '$2a$12$invalidinvalidinvalidinvalidinvalidinvalidinvalidinvalidinv');
+      invalid();
     }
 
-    const info = await mailTransporter.sendMail(mailOptions);
-    logger.info(`Email successfully sent to ${recipientEmail} (MsgID: ${info.messageId})`);
-    return { success: true, messageId: info.messageId };
-  } catch (err: any) {
-    logger.error(`Failed to send email to ${recipientEmail}`, err);
-    return { success: false, error: err.message || err };
-  }
-};
-
-
-
-const JWT_SECRET = process.env.JWT_SECRET || 'glint-super-secure-token-vault-key-2026';
-
-// Middleware to authenticate JWT tokens
-const authenticateToken = (req: any, res: any, next: any) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-  
-  if (!token) {
-    return res.status(401).json({ error: 'Authentication token required' });
-  }
-
-  jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
-    if (err) {
-      return res.status(403).json({ error: 'Invalid or expired token' });
-    }
-    req.user = user;
-    next();
-  });
-};
-
-// Tenant Isolation Helper
-const enforceWorkspaceAccess = async (req: any, workspaceId: string, res: any): Promise<boolean> => {
-  if (req.user && req.user.email === 'admin@gmail.com') return true;
-  if (req.user && req.user.workspaceId === workspaceId) return true;
-  
-  try {
-    const wsResult = await pool.query('SELECT created_by_email FROM workspaces WHERE id = $1', [workspaceId]);
-    if (wsResult.rows.length > 0 && wsResult.rows[0].created_by_email === req.user.email) {
-      return true;
-    }
-  } catch (err) {
-    logger.error('Error in enforceWorkspaceAccess check', err);
-  }
-  
-  res.status(403).json({ error: 'Forbidden: Workspace access denied' });
-  return false;
-};
-
-const app = express();
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
-
-const PORT = 3000;
-
-// REST Backend Routes
-// ====================
-
-// Authentication endpoints
-// ========================
-
-// Login endpoint
-app.post('/api/auth/login', async (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password are required' });
-  }
-
-  try {
-    const result = await pool.query('SELECT * FROM users WHERE email = $1', [email.toLowerCase().trim()]);
-    if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+    if (user.locked_until && new Date(user.locked_until) > new Date()) {
+      await logAuthEvent(email, 'LOCKED_OUT', req, user.id);
+      throw new HttpError(423, 'Account temporarily locked. Try again shortly.');
     }
 
-    const user = result.rows[0];
-    const isPasswordValid = await bcrypt.compare(password, user.password_hash);
-    if (!isPasswordValid) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+    if (!(await bcrypt.compare(password, user.password_hash))) {
+      const attempts = user.failed_login_attempts + 1;
+      const lock = attempts >= env.MAX_FAILED_LOGINS;
+      await pool.query(
+        `UPDATE users
+           SET failed_login_attempts = $2,
+               locked_until = CASE WHEN $3 THEN now() + make_interval(mins => $4) ELSE locked_until END
+         WHERE id = $1`,
+        [user.id, lock ? 0 : attempts, lock, env.LOCKOUT_MINUTES],
+      );
+      await logAuthEvent(email, lock ? 'LOCKED_OUT' : 'LOGIN_FAILED', req, user.id);
+      invalid();
     }
 
-    // Generate JWT token
-    const token = jwt.sign(
-      { userId: user.id, email: user.email, workspaceId: user.workspace_id },
-      JWT_SECRET,
-      { expiresIn: '7d' }
+    await pool.query(
+      `UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_login_at = now() WHERE id = $1`,
+      [user.id],
     );
+    await logAuthEvent(email, 'LOGIN_SUCCESS', req, user.id);
 
     res.json({
-      token,
+      token: issueToken(user.id, user.token_version),
       user: {
         id: user.id,
         email: user.email,
         name: user.name,
-        workspaceId: user.workspace_id
-      }
+        role: user.role,
+        workspaceId: user.workspace_id,
+      },
     });
-  } catch (err: any) {
-    logger.error('Error during login', err);
-    res.status(500).json({ error: 'Internal server error during login' });
-  }
-});
+  }),
+);
 
-// Register endpoint
-app.post('/api/auth/register', async (req, res) => {
-  const { email, password, name, workspaceName } = req.body;
-  if (!email || !password || !name || !workspaceName) {
-    return res.status(400).json({ error: 'All fields (email, password, name, workspaceName) are required' });
-  }
+app.post(
+  '/api/auth/register',
+  registerLimiter,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { email, password, name, workspaceName } = parseBody(registerSchema, req.body);
 
-  // Format validation
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(email)) {
-    return res.status(400).json({ error: 'Invalid email address format' });
-  }
-  if (password.length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters long' });
-  }
+    const created = await withTransaction(async (client) => {
+      const existing = await client.query('SELECT 1 FROM users WHERE email = $1', [email]);
+      if (existing.rows.length > 0) {
+        throw new HttpError(409, 'An account with this email already exists');
+      }
 
-  let client;
-  try {
-    client = await pool.connect();
-    await client.query('BEGIN');
+      const workspaceId = newId('ws');
+      const baseSlug = workspaceName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      // `slug` is UNIQUE; two workspaces called "Acme" must not collide.
+      const slug = `${baseSlug || 'workspace'}-${workspaceId.slice(-6).toLowerCase()}`;
 
-    // Check if user already exists
-    const userCheck = await client.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase().trim()]);
-    if (userCheck.rows.length > 0) {
-      await safeRollback(client);
-      return res.status(400).json({ error: 'An account with this email already exists' });
-    }
+      await client.query(
+        `INSERT INTO workspaces
+           (id, name, slug, plan, brand_name, primary_color, accent_color,
+            sender_name, sender_email, white_label, footer_text, created_by_email)
+         VALUES ($1, $2, $3, 'free', $4, '#0F172A', '#F59E0B', $5, $6, false, $7, $8)`,
+        [
+          workspaceId,
+          workspaceName,
+          slug,
+          workspaceName,
+          `${workspaceName} Credentials`,
+          // The verified sender identity, not a hardcoded domain nobody owns.
+          // The verified sender identity from MAIL_FROM, not a hardcoded domain.
+          env.mailFrom ?? null,
+          `Issued by ${workspaceName}`,
+          email,
+        ],
+      );
 
-    // Create a new workspace
-    const workspaceId = `ws-${Math.random().toString(36).substring(2, 9)}`;
-    const workspaceSlug = workspaceName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-    
-    await client.query(
-      `INSERT INTO workspaces (id, name, slug, created_time, plan, brand_name, primary_color, accent_color, sender_name, sender_email, white_label, footer_text, created_by_email) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-      [
-        workspaceId,
-        workspaceName,
-        workspaceSlug,
-        new Date().toISOString(), // created_time
-        'free', // Default registration plan
-        workspaceName, // brand_name
-        '#0F172A', // default primaryColor
-        '#F59E0B', // default accentColor (Glint gold)
-        `${workspaceName} Dispatch`, // default senderName
-        `noreply@glint.io`, // default senderEmail
-        false, // default whiteLabel
-        `Secured credential system by ${workspaceName}`, // default footerText
-        email.toLowerCase().trim() // created_by_email — ties workspace to registering user
-      ]
-    );
+      const passwordHash = await bcrypt.hash(password, env.BCRYPT_ROUNDS);
+      const userId = newId('u');
+      await client.query(
+        `INSERT INTO users (id, email, password_hash, name, role, workspace_id)
+         VALUES ($1, $2, $3, $4, 'issuer', $5)`,
+        [userId, email, passwordHash, name, workspaceId],
+      );
 
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const passwordHash = await bcrypt.hash(password, salt);
+      return { userId, workspaceId };
+    }).catch((err) => {
+      if (err instanceof HttpError) throw err;
+      if ((err as any)?.code === UNIQUE_VIOLATION) {
+        throw new HttpError(409, 'An account with this email already exists');
+      }
+      throw err;
+    });
 
-    // Create user
-    const userId = `u-${Math.random().toString(36).substring(2, 9)}`;
-    await client.query(
-      'INSERT INTO users (id, email, password_hash, name, workspace_id) VALUES ($1, $2, $3, $4, $5)',
-      [userId, email.toLowerCase().trim(), passwordHash, name, workspaceId]
-    );
+    await logAuthEvent(email, 'REGISTERED', req, created.userId);
 
-    await client.query('COMMIT');
-
-    // Generate JWT token
-    const token = jwt.sign(
-      { userId, email, workspaceId },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
-
-    res.json({
-      token,
+    res.status(201).json({
+      token: issueToken(created.userId, 0),
       user: {
-        id: userId,
+        id: created.userId,
         email,
         name,
-        workspaceId
-      }
-    });
-  } catch (err: any) {
-    await safeRollback(client);
-    logger.error('Error during registration', err);
-    if (err.code === '23505') {
-      return res.status(400).json({ error: 'An account with this email already exists' });
-    }
-    res.status(500).json({ error: err.message || 'Internal server error during registration' });
-  } finally {
-    if (client) {
-      client.release();
-    }
-  }
-});
-
-// Diagnostic route to check backend status and database connection details
-app.get('/api/diagnostic', async (req, res) => {
-  try {
-    const dbUrl = process.env.DATABASE_URL;
-    const dbConfigured = !!dbUrl;
-    const maskedUrl = dbUrl ? dbUrl.replace(/:[^:@]+@/, ':***@') : null;
-    
-    let dbStatus = 'disconnected';
-    let dbError = null;
-    let serverTime = null;
-    
-    try {
-      const dbRes = await pool.query('SELECT NOW()');
-      dbStatus = 'connected';
-      serverTime = dbRes.rows[0].now;
-    } catch (err: any) {
-      dbStatus = 'failed';
-      dbError = err.message || err;
-    }
-    
-    res.json({
-      environment: {
-        VERCEL: process.env.VERCEL || null,
-        NODE_ENV: process.env.NODE_ENV || null,
-        DATABASE_URL_CONFIGURED: dbConfigured,
-        DATABASE_URL_MASKED: maskedUrl
+        role: 'issuer',
+        workspaceId: created.workspaceId,
       },
-      database: {
-        status: dbStatus,
-        error: dbError,
-        serverTime
-      }
     });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  }),
+);
 
-// Profile endpoint
-app.get('/api/auth/me', authenticateToken, async (req: any, res) => {
-  try {
-    const result = await pool.query(
-      'SELECT id, email, name, workspace_id FROM users WHERE id = $1',
-      [req.user.userId]
-    );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
+app.get(
+  '/api/auth/me',
+  authenticate,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    res.json(req.user);
+  }),
+);
+
+/**
+ * Liveness probe. It used to echo a masked DATABASE_URL and the raw driver error
+ * text to anyone who asked — the host, database name, and username of the
+ * production database, unauthenticated.
+ */
+app.get(
+  '/api/health',
+  asyncHandler(async (_req, res) => {
+    try {
+      await pool.query('SELECT 1');
+      res.json({ status: 'ok' });
+    } catch {
+      res.status(503).json({ status: 'degraded' });
     }
+  }),
+);
 
-    const user = result.rows[0];
-    res.json({
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      workspaceId: user.workspace_id
-    });
-  } catch (err: any) {
-    logger.error('Error fetching user profile', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+// =============================================================================
+// Admin
+// =============================================================================
 
-// Super Admin Authorization Middleware
-const requireAdmin = (req: any, res: any, next: any) => {
-  if (req.user && req.user.email === 'admin@gmail.com') {
-    next();
-  } else {
-    res.status(403).json({ error: 'Access denied: Super Admin credentials required' });
-  }
-};
-
-// ============================================
-// Super Admin API Endpoints
-// ============================================
-
-// List all workspaces
-app.get('/api/admin/workspaces', authenticateToken, requireAdmin, async (req, res) => {
-  try {
+app.get(
+  '/api/admin/workspaces',
+  authenticate,
+  requireAdmin,
+  asyncHandler(async (_req, res) => {
     const result = await pool.query(`
-      SELECT w.*, 
-        (SELECT COUNT(*)::int FROM programs p WHERE p.workspace_id = w.id) as program_count,
-        (SELECT COUNT(*)::int FROM certificates c WHERE c.workspace_id = w.id) as certificate_count
-      FROM workspaces w 
+      SELECT w.*,
+        (SELECT COUNT(*)::int FROM programs p WHERE p.workspace_id = w.id) AS program_count,
+        (SELECT COUNT(*)::int FROM certificates c WHERE c.workspace_id = w.id) AS certificate_count
+      FROM workspaces w
       ORDER BY w.created_time DESC
     `);
     res.json(result.rows);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  }),
+);
 
-// Update a workspace (tier, names)
-app.put('/api/admin/workspaces/:id', authenticateToken, requireAdmin, async (req, res) => {
-  const { id } = req.params;
-  const { name, brand_name, plan } = req.body;
-  try {
-    await pool.query(
-      'UPDATE workspaces SET name = $1, brand_name = $2, plan = $3 WHERE id = $4',
-      [name, brand_name, plan, id]
+app.put(
+  '/api/admin/workspaces/:id',
+  authenticate,
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const body = parseBody(updateWorkspaceSchema, req.body);
+    const result = await pool.query(
+      `UPDATE workspaces
+         SET name = COALESCE($2, name),
+             brand_name = COALESCE($3, brand_name),
+             plan = COALESCE($4, plan)
+       WHERE id = $1
+       RETURNING *`,
+      [req.params.id, body.name ?? null, body.branding?.brandName ?? null, body.plan ?? null],
     );
-    res.json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
+    if (result.rows.length === 0) throw new HttpError(404, 'Workspace not found');
+    res.json(mapWorkspace(result.rows[0]));
+  }),
+);
 
-// Delete a workspace (cascade clean)
-app.delete('/api/admin/workspaces/:id', authenticateToken, requireAdmin, async (req, res) => {
-  const { id } = req.params;
-  let client;
-  try {
-    client = await pool.connect();
-    await client.query('BEGIN');
-    await client.query('DELETE FROM certificates WHERE workspace_id = $1', [id]);
-    await client.query('DELETE FROM email_logs WHERE workspace_id = $1', [id]);
-    await client.query('DELETE FROM programs WHERE workspace_id = $1', [id]);
-    await client.query('DELETE FROM templates WHERE workspace_id = $1', [id]);
-    await client.query('DELETE FROM users WHERE workspace_id = $1', [id]);
-    await client.query('DELETE FROM workspaces WHERE id = $1', [id]);
-    await client.query('COMMIT');
+app.delete(
+  '/api/admin/workspaces/:id',
+  authenticate,
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    // Every child table declares ON DELETE CASCADE, so the manual per-table
+    // delete sequence — which silently skipped certificate_events and left
+    // orphans — is unnecessary.
+    const result = await pool.query('DELETE FROM workspaces WHERE id = $1', [req.params.id]);
+    if (result.rowCount === 0) throw new HttpError(404, 'Workspace not found');
+    logger.warn('Workspace deleted by admin', { workspaceId: req.params.id });
     res.json({ success: true });
-  } catch (err: any) {
-    await safeRollback(client);
-    logger.error(`Error admin deleting workspace ${id}`, err);
-    res.status(500).json({ error: err.message });
-  } finally {
-    if (client) {
-      client.release();
-    }
-  }
-});
+  }),
+);
 
-// List all programs
-app.get('/api/admin/programs', authenticateToken, requireAdmin, async (req, res) => {
-  try {
+app.get(
+  '/api/admin/programs',
+  authenticate,
+  requireAdmin,
+  asyncHandler(async (_req, res) => {
     const result = await pool.query(`
-      SELECT p.*, w.name as workspace_name,
-        (SELECT COUNT(*)::int FROM certificates c WHERE c.program_id = p.id) as certificate_count
-      FROM programs p 
-      JOIN workspaces w ON p.workspace_id = w.id 
-      ORDER BY p.issue_date DESC
+      SELECT p.*, w.name AS workspace_name,
+        (SELECT COUNT(*)::int FROM certificates c WHERE c.program_id = p.id) AS certificate_count
+      FROM programs p
+      JOIN workspaces w ON p.workspace_id = w.id
+      ORDER BY p.created_time DESC
     `);
     res.json(result.rows);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  }),
+);
 
-// Edit a program
-app.put('/api/admin/programs/:id', authenticateToken, requireAdmin, async (req, res) => {
-  const { id } = req.params;
-  const { name, description } = req.body;
-  try {
-    await pool.query(
-      'UPDATE programs SET name = $1, description = $2 WHERE id = $3',
-      [name, description, id]
+app.put(
+  '/api/admin/programs/:id',
+  authenticate,
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const body = parseBody(updateProgramSchema, req.body);
+    const result = await pool.query(
+      `UPDATE programs SET name = COALESCE($2, name), description = COALESCE($3, description)
+       WHERE id = $1 RETURNING *`,
+      [req.params.id, body.name ?? null, body.description ?? null],
     );
-    res.json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
+    if (result.rows.length === 0) throw new HttpError(404, 'Program not found');
+    res.json(mapProgram(result.rows[0]));
+  }),
+);
 
-// Delete a program
-app.delete('/api/admin/programs/:id', authenticateToken, requireAdmin, async (req, res) => {
-  const { id } = req.params;
-  let client;
-  try {
-    client = await pool.connect();
-    await client.query('BEGIN');
-    await client.query('DELETE FROM certificates WHERE program_id = $1', [id]);
-    await client.query('DELETE FROM email_logs WHERE program_id = $1', [id]);
-    await client.query('DELETE FROM programs WHERE id = $1', [id]);
-    await client.query('COMMIT');
+app.delete(
+  '/api/admin/programs/:id',
+  authenticate,
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const result = await pool.query('DELETE FROM programs WHERE id = $1', [req.params.id]);
+    if (result.rowCount === 0) throw new HttpError(404, 'Program not found');
     res.json({ success: true });
-  } catch (err: any) {
-    await safeRollback(client);
-    logger.error(`Error admin deleting program ${id}`, err);
-    res.status(500).json({ error: err.message });
-  } finally {
-    if (client) {
-      client.release();
-    }
-  }
-});
+  }),
+);
 
-// List all issued certificates
-app.get('/api/admin/certificates', authenticateToken, requireAdmin, async (req, res) => {
-  try {
+/**
+ * Raw rows, like the other /api/admin/* endpoints — the operations views read
+ * snake_case. `audit_trail` and `security_hash` no longer exist; the history
+ * lives in certificate_events and the signature is `signature`.
+ */
+app.get(
+  '/api/admin/certificates',
+  authenticate,
+  requireAdmin,
+  asyncHandler(async (_req, res) => {
     const result = await pool.query(`
-      SELECT c.*, p.name as program_name, w.name as workspace_name 
+      SELECT c.*, w.name AS workspace_name
       FROM certificates c
-      LEFT JOIN programs p ON c.program_id = p.id
       LEFT JOIN workspaces w ON c.workspace_id = w.id
-      ORDER BY c.issue_date DESC, c.id DESC
+      ORDER BY c.created_time DESC
+      LIMIT 5000
     `);
     res.json(result.rows);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  }),
+);
 
-// 1. Workspace endpoints
-app.get('/api/workspaces', authenticateToken, async (req: any, res) => {
-  try {
-    let result;
-    if (req.user && req.user.email === 'admin@gmail.com') {
-      result = await pool.query('SELECT * FROM workspaces');
-    } else if (req.user && req.user.workspaceId) {
-      result = await pool.query(
-        'SELECT * FROM workspaces WHERE id = $1 OR created_by_email = $2',
-        [req.user.workspaceId, req.user.email]
-      );
-    } else {
-      return res.status(403).json({ error: 'Access denied: No workspace associated with user' });
-    }
+// =============================================================================
+// Workspaces
+// =============================================================================
 
-    const workspaces = result.rows.map(row => ({
-      id: row.id,
-      name: row.name,
-      slug: row.slug,
-      createdTime: row.created_time,
-      plan: row.plan,
-      branding: {
-        brandName: row.brand_name,
-        logoUrl: row.logo_url || undefined,
-        primaryColor: row.primary_color,
-        accentColor: row.accent_color,
-        customDomain: row.custom_domain || undefined,
-        senderName: row.sender_name,
-        senderEmail: row.sender_email,
-        whiteLabel: row.white_label,
-        footerText: row.footer_text || undefined
-      }
-    }));
-    res.json(workspaces);
-  } catch (err: any) {
-    logger.error('Error fetching workspaces', err);
-    res.status(500).json({ error: 'Database error fetching workspaces' });
-  }
-});
+app.get(
+  '/api/workspaces',
+  authenticate,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const scope = await accessibleWorkspaceIds(req);
+    const result =
+      scope === 'all'
+        ? await pool.query('SELECT * FROM workspaces ORDER BY created_time DESC')
+        : await pool.query('SELECT * FROM workspaces WHERE id = ANY($1) ORDER BY created_time DESC', [scope]);
+    res.json(result.rows.map(mapWorkspace));
+  }),
+);
 
-app.get('/api/workspaces/:id', authenticateToken, async (req: any, res) => {
-  try {
-    if (!(await enforceWorkspaceAccess(req, req.params.id, res))) return;
-
+app.get(
+  '/api/workspaces/:id',
+  authenticate,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    await assertWorkspaceAccess(req, req.params.id);
     const result = await pool.query('SELECT * FROM workspaces WHERE id = $1', [req.params.id]);
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Workspace not found' });
-    const row = result.rows[0];
-    res.json({
-      id: row.id,
-      name: row.name,
-      slug: row.slug,
-      createdTime: row.created_time,
-      plan: row.plan,
-      branding: {
-        brandName: row.brand_name,
-        logoUrl: row.logo_url || undefined,
-        primaryColor: row.primary_color,
-        accentColor: row.accent_color,
-        customDomain: row.custom_domain || undefined,
-        senderName: row.sender_name,
-        senderEmail: row.sender_email,
-        whiteLabel: row.white_label,
-        footerText: row.footer_text || undefined
-      }
-    });
-  } catch (err: any) {
-    logger.error('Error fetching workspace', err);
-    res.status(500).json({ error: 'Database error fetching workspace' });
-  }
-});
+    if (result.rows.length === 0) throw new HttpError(404, 'Workspace not found');
+    res.json(mapWorkspace(result.rows[0]));
+  }),
+);
 
-app.post('/api/workspaces', authenticateToken, async (req: any, res) => {
-  const { name, brandName, primaryColor, accentColor, senderEmail } = req.body;
-  if (!name || !brandName) {
-    return res.status(400).json({ error: 'Workspace name and brandName are required' });
-  }
+app.post(
+  '/api/workspaces',
+  authenticate,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const body = parseBody(createWorkspaceSchema, req.body);
+    const id = newId('ws');
+    const baseSlug = body.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    const brandName = body.brandName || body.name;
 
-  const id = `ws-${Math.random().toString(36).substring(2, 9)}`;
-  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-  const createdTime = new Date().toISOString();
-  const plan = 'free';
-  
-  const branding = {
-    brandName,
-    primaryColor: primaryColor || '#0a0a0a',
-    accentColor: accentColor || '#1a73e8',
-    senderName: brandName,
-    senderEmail: senderEmail || 'issuance@certops-mail.com',
-    whiteLabel: false,
-    footerText: `Secured credential system by ${brandName}`
-  };
-
-  try {
-    await pool.query(
-      `INSERT INTO workspaces (id, name, slug, created_time, plan, brand_name, primary_color, accent_color, sender_name, sender_email, white_label, footer_text, created_by_email)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-      [id, name, slug, createdTime, plan, branding.brandName, branding.primaryColor, branding.accentColor, branding.senderName, branding.senderEmail, branding.whiteLabel, branding.footerText, req.user.email]
+    const result = await pool.query(
+      `INSERT INTO workspaces
+         (id, name, slug, plan, brand_name, primary_color, accent_color,
+          sender_name, sender_email, white_label, footer_text, created_by_email)
+       VALUES ($1, $2, $3, 'free', $4, $5, $6, $7, $8, false, $9, $10)
+       RETURNING *`,
+      [
+        id,
+        body.name,
+        `${baseSlug || 'workspace'}-${id.slice(-6).toLowerCase()}`,
+        brandName,
+        body.primaryColor ?? '#0F172A',
+        body.accentColor ?? '#F59E0B',
+        `${brandName} Credentials`,
+        env.mailFrom ?? null,
+        `Issued by ${brandName}`,
+        req.user!.email,
+      ],
     );
-    res.json({
-      id,
-      name,
-      slug,
-      createdTime,
-      plan,
-      branding
-    });
-  } catch (err: any) {
-    logger.error('Error creating workspace', err);
-    res.status(500).json({ error: 'Database error creating workspace' });
-  }
-});
+    res.status(201).json(mapWorkspace(result.rows[0]));
+  }),
+);
 
-app.put('/api/workspaces/:id', authenticateToken, async (req: any, res) => {
-  try {
-    if (!(await enforceWorkspaceAccess(req, req.params.id, res))) return;
+app.put(
+  '/api/workspaces/:id',
+  authenticate,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    await assertWorkspaceAccess(req, req.params.id);
+    const body = parseBody(updateWorkspaceSchema, req.body);
+    const b = body.branding ?? {};
 
-    const result = await pool.query('SELECT * FROM workspaces WHERE id = $1', [req.params.id]);
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Workspace not found' });
-    
-    const current = result.rows[0];
-    const name = req.body.name || current.name;
-    const plan = req.body.plan || current.plan;
-    
-    const branding = {
-      brandName: current.brand_name,
-      logoUrl: current.logo_url || undefined,
-      primaryColor: current.primary_color,
-      accentColor: current.accent_color,
-      customDomain: current.custom_domain || undefined,
-      senderName: current.sender_name,
-      senderEmail: current.sender_email,
-      whiteLabel: current.white_label,
-      footerText: current.footer_text || undefined,
-      ...req.body.branding
-    };
+    // `plan` is a billing attribute. A tenant must not be able to upgrade
+    // themselves to 'enterprise' by PUTting their own workspace.
+    const plan = req.user!.role === 'admin' ? body.plan ?? null : null;
 
-    await pool.query(
-      `UPDATE workspaces 
-       SET name = $1, plan = $2, brand_name = $3, logo_url = $4, primary_color = $5, accent_color = $6, custom_domain = $7, sender_name = $8, sender_email = $9, white_label = $10, footer_text = $11
-       WHERE id = $12`,
-      [name, plan, branding.brandName, branding.logoUrl || null, branding.primaryColor, branding.accentColor, branding.customDomain || null, branding.senderName, branding.senderEmail, branding.whiteLabel, branding.footerText || null, req.params.id]
+    const result = await pool.query(
+      `UPDATE workspaces SET
+         name = COALESCE($2, name),
+         plan = COALESCE($3, plan),
+         brand_name = COALESCE($4, brand_name),
+         logo_url = COALESCE($5, logo_url),
+         primary_color = COALESCE($6, primary_color),
+         accent_color = COALESCE($7, accent_color),
+         custom_domain = COALESCE($8, custom_domain),
+         sender_name = COALESCE($9, sender_name),
+         sender_email = COALESCE($10, sender_email),
+         white_label = COALESCE($11, white_label),
+         footer_text = COALESCE($12, footer_text)
+       WHERE id = $1
+       RETURNING *`,
+      [
+        req.params.id,
+        body.name ?? null,
+        plan,
+        b.brandName ?? null,
+        b.logoUrl || null,
+        b.primaryColor ?? null,
+        b.accentColor ?? null,
+        b.customDomain || null,
+        b.senderName || null,
+        b.senderEmail ?? null,
+        b.whiteLabel ?? null,
+        b.footerText || null,
+      ],
     );
+    if (result.rows.length === 0) throw new HttpError(404, 'Workspace not found');
+    res.json(mapWorkspace(result.rows[0]));
+  }),
+);
 
-    res.json({
-      id: req.params.id,
-      name,
-      slug: current.slug,
-      createdTime: current.created_time,
-      plan,
-      branding
-    });
-  } catch (err: any) {
-    logger.error('Error updating workspace', err);
-    res.status(500).json({ error: 'Database error updating workspace' });
+// =============================================================================
+// Programs
+// =============================================================================
+
+/** Placeholders the renderer already resolves; a CSV column may not shadow them. */
+const RESERVED_FIELDS = new Set(['name', 'email', 'date', 'id', 'program']);
+
+function sanitizeRecipientFields(fields: string[] | undefined): string[] {
+  if (!Array.isArray(fields)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of fields) {
+    const field = String(raw).trim();
+    const lower = field.toLowerCase();
+    if (!field || RESERVED_FIELDS.has(lower) || seen.has(lower)) continue;
+    seen.add(lower);
+    out.push(field);
   }
-});
+  return out;
+}
 
-
-// 2. Program endpoints
-app.get('/api/programs', authenticateToken, async (req: any, res) => {
-  let wsId = req.query.workspaceId as string;
-  if (wsId) {
-    if (!(await enforceWorkspaceAccess(req, wsId, res))) return;
-  } else {
-    if (req.user.email !== 'admin@gmail.com') {
-      try {
-        const wsResult = await pool.query('SELECT id FROM workspaces WHERE id = $1 OR created_by_email = $2', [req.user.workspaceId, req.user.email]);
-        const allowedWsIds = wsResult.rows.map(row => row.id);
-        if (allowedWsIds.length === 0) {
-          return res.json([]);
-        }
-        const result = await pool.query('SELECT * FROM programs WHERE workspace_id = ANY($1)', [allowedWsIds]);
-        const programs = result.rows.map(row => ({
-          id: row.id,
-          workspaceId: row.workspace_id,
-          name: row.name,
-          description: row.description || '',
-          templateId: row.template_id,
-          issueDate: row.issue_date ? row.issue_date.toISOString().split('T')[0] : '',
-          expiryDate: row.expiry_date ? row.expiry_date.toISOString().split('T')[0] : undefined,
-          status: row.status,
-          createdTime: row.created_time,
-          recipientFields: Array.isArray(row.recipient_fields) ? row.recipient_fields : JSON.parse(JSON.stringify(row.recipient_fields || []))
-        }));
-        return res.json(programs);
-      } catch (err: any) {
-        logger.error('Error getting programs', err);
-        return res.status(500).json({ error: 'Database error fetching programs' });
-      }
-    }
-  }
-  try {
-    let query = 'SELECT * FROM programs';
-    const params: any[] = [];
+app.get(
+  '/api/programs',
+  authenticate,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const wsId = req.query.workspaceId as string | undefined;
     if (wsId) {
-      query += ' WHERE workspace_id = $1';
-      params.push(wsId);
+      await assertWorkspaceAccess(req, wsId);
+      const result = await pool.query('SELECT * FROM programs WHERE workspace_id = $1 ORDER BY created_time DESC', [wsId]);
+      res.json(result.rows.map(mapProgram));
+      return;
     }
-    const result = await pool.query(query, params);
-    const programs = result.rows.map(row => ({
-      id: row.id,
-      workspaceId: row.workspace_id,
-      name: row.name,
-      description: row.description || '',
-      templateId: row.template_id,
-      issueDate: row.issue_date ? row.issue_date.toISOString().split('T')[0] : '',
-      expiryDate: row.expiry_date ? row.expiry_date.toISOString().split('T')[0] : undefined,
-      status: row.status,
-      createdTime: row.created_time,
-      recipientFields: Array.isArray(row.recipient_fields) ? row.recipient_fields : JSON.parse(JSON.stringify(row.recipient_fields || []))
-    }));
-    res.json(programs);
-  } catch (err: any) {
-    logger.error('Error getting programs', err);
-    res.status(500).json({ error: 'Database error fetching programs' });
-  }
-});
+    const scope = await accessibleWorkspaceIds(req);
+    const result =
+      scope === 'all'
+        ? await pool.query('SELECT * FROM programs ORDER BY created_time DESC')
+        : await pool.query('SELECT * FROM programs WHERE workspace_id = ANY($1) ORDER BY created_time DESC', [scope]);
+    res.json(result.rows.map(mapProgram));
+  }),
+);
 
-app.post('/api/programs', authenticateToken, async (req: any, res) => {
-  const { workspaceId, name, description, templateId, issueDate, expiryDate, recipientFields } = req.body;
-  if (!workspaceId || !name || !templateId) {
-    return res.status(400).json({ error: 'workspaceId, name, and templateId are required' });
-  }
+app.post(
+  '/api/programs',
+  authenticate,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const body = parseBody(createProgramSchema, req.body);
+    await assertWorkspaceAccess(req, body.workspaceId);
 
-  if (!(await enforceWorkspaceAccess(req, workspaceId, res))) return;
+    // A program may only point at a template belonging to the same workspace.
+    if (body.templateId) {
+      const t = await pool.query('SELECT workspace_id FROM templates WHERE id = $1', [body.templateId]);
+      if (t.rows.length === 0) throw new HttpError(400, 'Template not found');
+      if (t.rows[0].workspace_id !== body.workspaceId) {
+        throw new HttpError(403, 'Template belongs to another workspace');
+      }
+    }
 
-  // Filter out standard base fields (name, email, date, id, program) and duplicates
-  const baseFields = ['name', 'email', 'date', 'id', 'program'];
-  const sanitizedRecipientFields = Array.isArray(recipientFields)
-    ? recipientFields
-        .map((f: any) => String(f).trim())
-        .filter((f: string) => f.length > 0)
-        .reduce((acc: string[], f: string) => {
-          const lower = f.toLowerCase();
-          if (!baseFields.includes(lower) && !acc.some(exist => exist.toLowerCase() === lower)) {
-            acc.push(f);
-          }
-          return acc;
-        }, [])
-    : [];
+    const id = newId('prg');
+    const result = await pool.query(
+      `INSERT INTO programs
+         (id, workspace_id, name, description, template_id, issue_date, expiry_date, status, recipient_fields)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING *`,
+      [
+        id,
+        body.workspaceId,
+        body.name,
+        body.description || null,
+        body.templateId ?? null,
+        body.issueDate ?? new Date().toISOString().slice(0, 10),
+        body.expiryDate || null,
+        body.status ?? 'draft',
+        JSON.stringify(sanitizeRecipientFields(body.recipientFields)),
+      ],
+    );
+    res.status(201).json(mapProgram(result.rows[0]));
+  }),
+);
 
-  const newProgram: CertificateProgram = {
-    id: `prg-${Math.random().toString(36).substring(2, 9)}`,
+app.put(
+  '/api/programs/:id',
+  authenticate,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const existing = await pool.query('SELECT * FROM programs WHERE id = $1', [req.params.id]);
+    if (existing.rows.length === 0) throw new HttpError(404, 'Program not found');
+    await assertWorkspaceAccess(req, existing.rows[0].workspace_id);
+
+    const body = parseBody(updateProgramSchema, req.body);
+
+    if (body.templateId) {
+      const t = await pool.query('SELECT workspace_id FROM templates WHERE id = $1', [body.templateId]);
+      if (t.rows.length === 0) throw new HttpError(400, 'Template not found');
+      if (t.rows[0].workspace_id !== existing.rows[0].workspace_id) {
+        throw new HttpError(403, 'Template belongs to another workspace');
+      }
+    }
+
+    const fields = body.recipientFields
+      ? sanitizeRecipientFields(body.recipientFields)
+      : existing.rows[0].recipient_fields;
+
+    const result = await pool.query(
+      `UPDATE programs SET
+         name = COALESCE($2, name),
+         description = COALESCE($3, description),
+         template_id = COALESCE($4, template_id),
+         issue_date = COALESCE($5, issue_date),
+         expiry_date = $6,
+         status = COALESCE($7, status),
+         recipient_fields = $8
+       WHERE id = $1
+       RETURNING *`,
+      [
+        req.params.id,
+        body.name ?? null,
+        body.description ?? null,
+        body.templateId ?? null,
+        body.issueDate ?? null,
+        body.expiryDate === undefined ? existing.rows[0].expiry_date : body.expiryDate || null,
+        body.status ?? null,
+        JSON.stringify(fields),
+      ],
+    );
+    res.json(mapProgram(result.rows[0]));
+  }),
+);
+
+app.delete(
+  '/api/programs/:id',
+  authenticate,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const existing = await pool.query('SELECT workspace_id FROM programs WHERE id = $1', [req.params.id]);
+    if (existing.rows.length === 0) throw new HttpError(404, 'Program not found');
+    await assertWorkspaceAccess(req, existing.rows[0].workspace_id);
+    await pool.query('DELETE FROM programs WHERE id = $1', [req.params.id]);
+    res.json({ message: 'Program deleted' });
+  }),
+);
+
+// =============================================================================
+// Templates
+// =============================================================================
+
+app.get(
+  '/api/templates',
+  authenticate,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const wsId = req.query.workspaceId as string | undefined;
+    if (wsId) {
+      await assertWorkspaceAccess(req, wsId);
+      const result = await pool.query('SELECT * FROM templates WHERE workspace_id = $1 ORDER BY created_time DESC', [wsId]);
+      res.json(result.rows.map(mapTemplate));
+      return;
+    }
+    const scope = await accessibleWorkspaceIds(req);
+    const result =
+      scope === 'all'
+        ? await pool.query('SELECT * FROM templates ORDER BY created_time DESC')
+        : await pool.query('SELECT * FROM templates WHERE workspace_id = ANY($1) ORDER BY created_time DESC', [scope]);
+    res.json(result.rows.map(mapTemplate));
+  }),
+);
+
+const TEMPLATE_COLUMNS = [
+  'workspace_id', 'name', 'layout', 'background_color', 'background_gradient', 'background_image_url',
+  'border_color', 'border_width', 'border_radius', 'border_style', 'decor_flourish',
+  'show_seal', 'seal_type', 'seal_width', 'show_qr_code', 'qr_code_x', 'qr_code_y', 'qr_code_width',
+  'qr_code_custom_url', 'logo_url', 'logo_icon_type', 'logo_x', 'logo_y', 'logo_width',
+  'signature_url', 'signature_style', 'signature_x', 'signature_y', 'signature_width',
+  'signatory_name', 'signatory_title', 'show_secondary_signatory', 'secondary_signature_url',
+  'secondary_signatory_name', 'secondary_signatory_title', 'secondary_signature_x',
+  'secondary_signature_y', 'secondary_signature_width', 'text_elements',
+] as const;
+
+function templateValues(body: any, workspaceId: string): unknown[] {
+  const nz = (v: unknown, fallback: unknown) => (v === undefined || v === '' ? fallback : v);
+  const packedTextElements = [
+    ...(body.textElements ?? []),
+    ...(body.customFonts ?? []).map((font: any) => ({
+      id: `font-meta-${font.id}`,
+      type: CUSTOM_FONT_MARKER,
+      customFont: font,
+    })),
+    ...(body.showWatermarkTags !== undefined
+      ? [{ id: 'settings-meta', type: SETTINGS_MARKER, settings: { showWatermarkTags: body.showWatermarkTags } }]
+      : []),
+  ];
+  return [
     workspaceId,
-    name,
-    description: description || '',
-    templateId,
-    issueDate: issueDate || new Date().toISOString().split('T')[0],
-    expiryDate: expiryDate || undefined,
-    status: 'draft',
-    createdTime: new Date().toISOString(),
-    recipientFields: sanitizedRecipientFields
-  };
+    body.name,
+    nz(body.layout, 'landscape'),
+    nz(body.backgroundColor, '#ffffff'),
+    body.backgroundGradient || null,
+    body.backgroundImageUrl || null,
+    nz(body.borderColor, '#000000'),
+    nz(body.borderWidth, 2),
+    nz(body.borderRadius, 0),
+    nz(body.borderStyle, 'solid'),
+    nz(body.decorFlourish, 'none'),
+    nz(body.showSeal, true),
+    nz(body.sealType, 'classic'),
+    nz(body.sealWidth, 40),
+    nz(body.showQrCode, true),
+    nz(body.qrCodeX, 10),
+    nz(body.qrCodeY, 85),
+    nz(body.qrCodeWidth, 32),
+    body.qrCodeCustomUrl || null,
+    body.logoUrl || null,
+    body.logoIconType || null,
+    nz(body.logoX, 50),
+    nz(body.logoY, 10),
+    nz(body.logoWidth, 100),
+    body.signatureUrl || null,
+    body.signatureStyle || null,
+    nz(body.signatureX, 50),
+    nz(body.signatureY, 75),
+    nz(body.signatureWidth, 90),
+    body.signatoryName || null,
+    body.signatoryTitle || null,
+    nz(body.showSecondarySignatory, false),
+    body.secondarySignatureUrl || null,
+    body.secondarySignatoryName || null,
+    body.secondarySignatoryTitle || null,
+    body.secondarySignatureX ?? null,
+    body.secondarySignatureY ?? null,
+    body.secondarySignatureWidth ?? null,
+    JSON.stringify(packedTextElements),
+  ];
+}
 
-  try {
-    await pool.query(
-      `INSERT INTO programs (id, workspace_id, name, description, template_id, issue_date, expiry_date, status, created_time, recipient_fields)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-      [newProgram.id, newProgram.workspaceId, newProgram.name, newProgram.description, newProgram.templateId, newProgram.issueDate, newProgram.expiryDate || null, newProgram.status, newProgram.createdTime, JSON.stringify(newProgram.recipientFields)]
+app.post(
+  '/api/templates',
+  authenticate,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const body = parseBody(templateBodySchema, req.body);
+    await assertWorkspaceAccess(req, body.workspaceId);
+
+    const id = newId('tpl');
+    const values = templateValues(body, body.workspaceId);
+    const placeholders = values.map((_, i) => `$${i + 2}`).join(', ');
+
+    const result = await pool.query(
+      `INSERT INTO templates (id, ${TEMPLATE_COLUMNS.join(', ')})
+       VALUES ($1, ${placeholders})
+       RETURNING *`,
+      [id, ...values],
     );
-    res.json(newProgram);
-  } catch (err: any) {
-    logger.error('Error creating program', err);
-    res.status(500).json({ error: 'Database error creating program' });
-  }
-});
+    res.status(201).json(mapTemplate(result.rows[0]));
+  }),
+);
 
-app.put('/api/programs/:id', authenticateToken, async (req: any, res) => {
-  try {
-    const result = await pool.query('SELECT * FROM programs WHERE id = $1', [req.params.id]);
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Program not found' });
-    
-    const current = result.rows[0];
-    if (!(await enforceWorkspaceAccess(req, current.workspace_id, res))) return;
+app.put(
+  '/api/templates/:id',
+  authenticate,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const existing = await pool.query('SELECT workspace_id FROM templates WHERE id = $1', [req.params.id]);
+    if (existing.rows.length === 0) throw new HttpError(404, 'Template not found');
+    const workspaceId = existing.rows[0].workspace_id;
+    await assertWorkspaceAccess(req, workspaceId);
 
-    const name = req.body.name || current.name;
-    const description = req.body.description !== undefined ? req.body.description : current.description;
-    const templateId = req.body.templateId || current.template_id;
-    const issueDate = req.body.issueDate || (current.issue_date ? current.issue_date.toISOString().split('T')[0] : '');
-    const expiryDate = req.body.expiryDate !== undefined ? req.body.expiryDate : (current.expiry_date ? current.expiry_date.toISOString().split('T')[0] : undefined);
-    const status = req.body.status || current.status;
-    
-    const rawRecipientFields = req.body.recipientFields || current.recipient_fields;
-    const baseFields = ['name', 'email', 'date', 'id', 'program'];
-    const sanitizedRecipientFields = Array.isArray(rawRecipientFields)
-      ? rawRecipientFields
-          .map((f: any) => String(f).trim())
-          .filter((f: string) => f.length > 0)
-          .reduce((acc: string[], f: string) => {
-            const lower = f.toLowerCase();
-            if (!baseFields.includes(lower) && !acc.some(exist => exist.toLowerCase() === lower)) {
-              acc.push(f);
-            }
-            return acc;
-          }, [])
-      : [];
+    // The workspace of an existing template is immutable; a body claiming a
+    // different one must not move it into a workspace the caller can also reach.
+    const body = parseBody(templateBodySchema, { ...req.body, workspaceId });
 
-    await pool.query(
-      `UPDATE programs 
-       SET name = $1, description = $2, template_id = $3, issue_date = $4, expiry_date = $5, status = $6, recipient_fields = $7
-       WHERE id = $8`,
-      [name, description, templateId, issueDate, expiryDate || null, status, JSON.stringify(sanitizedRecipientFields), req.params.id]
+    const values = templateValues(body, workspaceId);
+    const assignments = TEMPLATE_COLUMNS.map((col, i) => `${col} = $${i + 2}`).join(', ');
+
+    const result = await pool.query(
+      `UPDATE templates SET ${assignments} WHERE id = $1 RETURNING *`,
+      [req.params.id, ...values],
     );
+    res.json(mapTemplate(result.rows[0]));
+  }),
+);
 
-    res.json({
-      id: req.params.id,
-      workspaceId: current.workspace_id,
-      name,
-      description,
-      templateId,
-      issueDate,
-      expiryDate,
-      status,
-      createdTime: current.created_time,
-      recipientFields: sanitizedRecipientFields
+app.delete(
+  '/api/templates/:id',
+  authenticate,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const existing = await pool.query('SELECT workspace_id FROM templates WHERE id = $1', [req.params.id]);
+    if (existing.rows.length === 0) throw new HttpError(404, 'Template not found');
+    await assertWorkspaceAccess(req, existing.rows[0].workspace_id);
+    await pool.query('DELETE FROM templates WHERE id = $1', [req.params.id]);
+    res.json({ message: 'Template deleted' });
+  }),
+);
+
+// =============================================================================
+// Issuance
+// =============================================================================
+
+/**
+ * Bulk issuance.
+ *
+ * Certificates and their outbox rows are written in one transaction, then the
+ * response returns. Mail is delivered out of band. See lib/mailer.ts.
+ *
+ * The tenant check was entirely absent here: any authenticated user could POST
+ * to any program id in any workspace and mint certificates under someone else's
+ * brand.
+ */
+app.post(
+  '/api/programs/:id/issue',
+  authenticate,
+  issuanceLimiter,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { recipients } = parseBody(issueSchema, req.body);
+
+    const programResult = await pool.query('SELECT * FROM programs WHERE id = $1', [req.params.id]);
+    if (programResult.rows.length === 0) throw new HttpError(404, 'Program not found');
+    const program = programResult.rows[0];
+
+    await assertWorkspaceAccess(req, program.workspace_id);
+
+    // A CSV pasted twice, or with a repeated row, would otherwise trip the
+    // partial unique index halfway through and abort the whole batch.
+    const seen = new Set<string>();
+    const unique = recipients.filter((r) => {
+      if (seen.has(r.email)) return false;
+      seen.add(r.email);
+      return true;
     });
-  } catch (err: any) {
-    logger.error('Error updating program', err);
-    res.status(500).json({ error: 'Database error updating program' });
-  }
-});
+    const duplicatesDropped = recipients.length - unique.length;
 
-// 3. Templates endpoints
-app.get('/api/templates', authenticateToken, async (req: any, res) => {
-  let wsId = req.query.workspaceId as string;
-  if (wsId) {
-    if (!(await enforceWorkspaceAccess(req, wsId, res))) return;
-  } else {
-    if (req.user.email !== 'admin@gmail.com') {
-      try {
-        const wsResult = await pool.query('SELECT id FROM workspaces WHERE id = $1 OR created_by_email = $2', [req.user.workspaceId, req.user.email]);
-        const allowedWsIds = wsResult.rows.map(row => row.id);
-        if (allowedWsIds.length === 0) {
-          return res.json([]);
-        }
-        const result = await pool.query('SELECT * FROM templates WHERE workspace_id = ANY($1)', [allowedWsIds]);
-        const templates = result.rows.map(row => ({
-          id: row.id,
-          workspaceId: row.workspace_id,
-          name: row.name,
-          layout: row.layout,
-          backgroundColor: row.background_color,
-          borderColor: row.border_color,
-          borderWidth: row.border_width,
-          showSeal: row.show_seal,
-          sealType: row.seal_type,
-          showQrCode: row.show_qr_code,
-          qrCodeX: Number(row.qr_code_x),
-          qrCodeY: Number(row.qr_code_y),
-          qrCodeWidth: row.qr_code_width ? Number(row.qr_code_width) : 32,
-          sealWidth: row.seal_width ? Number(row.seal_width) : 40,
-          logoUrl: row.logo_url || undefined,
-          logoX: Number(row.logo_x),
-          logoY: Number(row.logo_y),
-          logoWidth: Number(row.logo_width),
-          signatureUrl: row.signature_url || undefined,
-          secondarySignatureUrl: row.secondary_signature_url || undefined,
-          signatureX: Number(row.signature_x),
-          signatureY: Number(row.signature_y),
-          signatureWidth: Number(row.signature_width),
-          signatoryName: row.signatory_name || undefined,
-          signatoryTitle: row.signatory_title || undefined,
-          textElements: typeof row.text_elements === 'string' ? JSON.parse(row.text_elements) : (Array.isArray(row.text_elements) ? row.text_elements : []),
-          borderRadius: row.border_radius || undefined,
-          borderStyle: row.border_style || undefined,
-          backgroundGradient: row.background_gradient || undefined,
-          decorFlourish: row.decor_flourish || undefined,
-          logoIconType: row.logo_icon_type || undefined,
-          signatureStyle: row.signature_style || undefined,
-          showSecondarySignatory: row.show_secondary_signatory || undefined,
-          secondarySignatoryName: row.secondary_signatory_name || undefined,
-          secondarySignatoryTitle: row.secondary_signatory_title || undefined,
-          secondarySignatureX: row.secondary_signature_x ? Number(row.secondary_signature_x) : undefined,
-          secondarySignatureY: row.secondary_signature_y ? Number(row.secondary_signature_y) : undefined,
-          secondarySignatureWidth: row.secondary_signature_width ? Number(row.secondary_signature_width) : undefined,
-          backgroundImageUrl: row.background_image_url || undefined,
-          qrCodeCustomUrl: row.qr_code_custom_url || undefined
-        }));
-        return res.json(templates);
-      } catch (err: any) {
-        logger.error('Error fetching templates', err);
-        return res.status(500).json({ error: 'Database error fetching templates' });
+    const workspaceResult = await pool.query('SELECT brand_name FROM workspaces WHERE id = $1', [program.workspace_id]);
+    const brandName = workspaceResult.rows[0]?.brand_name ?? 'Glint';
+    const issueDate = program.issue_date ?? new Date().toISOString().slice(0, 10);
+    const expiryDate = program.expiry_date ?? null;
+
+    const issued = await withTransaction(async (client) => {
+      await client.query("UPDATE programs SET status = 'active' WHERE id = $1", [program.id]);
+
+      const created: any[] = [];
+      for (const recipient of unique) {
+        const certId = newCertificateId();
+        const signable = {
+          id: certId,
+          workspaceId: program.workspace_id,
+          programId: program.id,
+          programName: program.name,
+          recipientName: recipient.name,
+          recipientEmail: recipient.email,
+          issueDate,
+          expiryDate,
+        };
+        const signature = signCertificate(signable);
+
+        const inserted = await client.query(
+          `INSERT INTO certificates
+             (id, workspace_id, program_id, program_name, recipient_name, recipient_email,
+              custom_fields, issue_date, expiry_date, status, signature, signature_alg, signature_version)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'valid', $10, $11, $12)
+           ON CONFLICT (program_id, recipient_email) WHERE status <> 'revoked' DO NOTHING
+           RETURNING *`,
+          [
+            certId,
+            program.workspace_id,
+            program.id,
+            program.name,
+            recipient.name,
+            recipient.email,
+            JSON.stringify(recipient.customFields ?? {}),
+            issueDate,
+            expiryDate,
+            signature,
+            SIGNATURE_ALG,
+            SIGNATURE_VERSION,
+          ],
+        );
+
+        // Already held a valid certificate for this program — skip silently
+        // rather than failing the batch.
+        if (inserted.rows.length === 0) continue;
+        const cert = inserted.rows[0];
+
+        await recordEvent(client, certId, 'ISSUED', {
+          performedBy: req.user!.email,
+          details: `Issued via bulk import (${Object.keys(recipient.customFields ?? {}).length} custom fields)`,
+        });
+
+        const verificationUrl = `${env.appUrl}/c/${certId}`;
+        await enqueueEmail(client, {
+          workspaceId: program.workspace_id,
+          programId: program.id,
+          programName: program.name,
+          certificateId: certId,
+          recipientEmail: recipient.email,
+          recipientName: recipient.name,
+          subject: `Your credential for ${program.name} is ready`,
+          body: renderIssuanceEmailText({
+            recipientName: recipient.name,
+            programName: program.name,
+            certificateId: certId,
+            verificationUrl,
+            brandName,
+          }),
+          verificationUrl,
+        });
+        await recordEvent(client, certId, 'EMAIL_QUEUED', { details: `Queued for ${recipient.email}`, isPublic: false });
+
+        created.push(cert);
       }
-    }
-  }
-  try {
-    let query = 'SELECT * FROM templates';
-    const params: any[] = [];
-    if (wsId) {
-      query += ' WHERE workspace_id = $1';
-      params.push(wsId);
-    }
-    const result = await pool.query(query, params);
-    const templates = result.rows.map(row => ({
-      id: row.id,
-      workspaceId: row.workspace_id,
-      name: row.name,
-      layout: row.layout,
-      backgroundColor: row.background_color,
-      borderColor: row.border_color,
-      borderWidth: row.border_width,
-      showSeal: row.show_seal,
-      sealType: row.seal_type,
-      showQrCode: row.show_qr_code,
-      qrCodeX: Number(row.qr_code_x),
-      qrCodeY: Number(row.qr_code_y),
-      qrCodeWidth: row.qr_code_width ? Number(row.qr_code_width) : 32,
-      sealWidth: row.seal_width ? Number(row.seal_width) : 40,
-      logoUrl: row.logo_url || undefined,
-      logoX: Number(row.logo_x),
-      logoY: Number(row.logo_y),
-      logoWidth: Number(row.logo_width),
-      signatureUrl: row.signature_url || undefined,
-      secondarySignatureUrl: row.secondary_signature_url || undefined,
-      signatureX: Number(row.signature_x),
-      signatureY: Number(row.signature_y),
-      signatureWidth: Number(row.signature_width),
-      signatoryName: row.signatory_name || undefined,
-      signatoryTitle: row.signatory_title || undefined,
-      textElements: typeof row.text_elements === 'string' ? JSON.parse(row.text_elements) : (Array.isArray(row.text_elements) ? row.text_elements : []),
-      borderRadius: row.border_radius || undefined,
-      borderStyle: row.border_style || undefined,
-      backgroundGradient: row.background_gradient || undefined,
-      decorFlourish: row.decor_flourish || undefined,
-      logoIconType: row.logo_icon_type || undefined,
-      signatureStyle: row.signature_style || undefined,
-      showSecondarySignatory: row.show_secondary_signatory || undefined,
-      secondarySignatoryName: row.secondary_signatory_name || undefined,
-      secondarySignatoryTitle: row.secondary_signatory_title || undefined,
-      secondarySignatureX: row.secondary_signature_x ? Number(row.secondary_signature_x) : undefined,
-      secondarySignatureY: row.secondary_signature_y ? Number(row.secondary_signature_y) : undefined,
-      secondarySignatureWidth: row.secondary_signature_width ? Number(row.secondary_signature_width) : undefined,
-      backgroundImageUrl: row.background_image_url || undefined,
-      qrCodeCustomUrl: row.qr_code_custom_url || undefined
-    }));
-    res.json(templates);
-  } catch (err: any) {
-    logger.error('Error fetching templates', err);
-    res.status(500).json({ error: 'Database error fetching templates' });
-  }
-});
-
-app.post('/api/templates', authenticateToken, async (req: any, res) => {
-  const { workspaceId, name } = req.body;
-  if (!workspaceId || !name) {
-    return res.status(400).json({ error: 'workspaceId and name are required' });
-  }
-
-  if (!(await enforceWorkspaceAccess(req, workspaceId, res))) return;
-
-  const id = `temp-${Math.random().toString(36).substring(2, 9)}`;
-  const t: CertificateTemplate = {
-    ...req.body,
-    id,
-    layout: req.body.layout || 'landscape',
-    backgroundColor: req.body.backgroundColor || '#ffffff',
-    borderColor: req.body.borderColor || '#000000',
-    borderWidth: req.body.borderWidth || 2,
-    showSeal: req.body.showSeal !== undefined ? req.body.showSeal : true,
-    sealType: req.body.sealType || 'classic',
-    showQrCode: req.body.showQrCode !== undefined ? req.body.showQrCode : true,
-    qrCodeX: req.body.qrCodeX !== undefined ? req.body.qrCodeX : 10,
-    qrCodeY: req.body.qrCodeY !== undefined ? req.body.qrCodeY : 85,
-    qrCodeWidth: req.body.qrCodeWidth !== undefined ? req.body.qrCodeWidth : 32,
-    sealWidth: req.body.sealWidth !== undefined ? req.body.sealWidth : 40,
-    logoX: req.body.logoX !== undefined ? req.body.logoX : 50,
-    logoY: req.body.logoY !== undefined ? req.body.logoY : 10,
-    logoWidth: req.body.logoWidth !== undefined ? req.body.logoWidth : 100,
-    signatureX: req.body.signatureX !== undefined ? req.body.signatureX : 50,
-    signatureY: req.body.signatureY !== undefined ? req.body.signatureY : 75,
-    signatureWidth: req.body.signatureWidth !== undefined ? req.body.signatureWidth : 90,
-    textElements: req.body.textElements || []
-  };
-
-  try {
-    await pool.query(
-      `INSERT INTO templates (
-         id, workspace_id, name, layout, background_color, border_color, border_width, 
-         show_seal, seal_type, show_qr_code, qr_code_x, qr_code_y, logo_url, logo_x, logo_y, logo_width, 
-         signature_url, secondary_signature_url, signature_x, signature_y, signature_width, signatory_name, signatory_title, 
-         text_elements, border_radius, border_style, background_gradient, decor_flourish, logo_icon_type, signature_style, 
-         show_secondary_signatory, secondary_signatory_name, secondary_signatory_title, secondary_signature_x, secondary_signature_y, secondary_signature_width, background_image_url,
-         qr_code_width, seal_width, qr_code_custom_url
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40)`,
-      [
-        t.id, t.workspaceId, t.name, t.layout, t.backgroundColor, t.borderColor, t.borderWidth,
-        t.showSeal, t.sealType, t.showQrCode, t.qrCodeX, t.qrCodeY, t.logoUrl || null, t.logoX, t.logoY, t.logoWidth,
-        t.signatureUrl || null, t.secondarySignatureUrl || null, t.signatureX, t.signatureY, t.signatureWidth, t.signatoryName || null, t.signatoryTitle || null,
-        JSON.stringify(t.textElements), t.borderRadius || 0, t.borderStyle || 'solid', t.backgroundGradient || null, t.decorFlourish || 'none', t.logoIconType || null, t.signatureStyle || null,
-        t.showSecondarySignatory || false, t.secondarySignatoryName || null, t.secondarySignatoryTitle || null, t.secondarySignatureX || null, t.secondarySignatureY || null, t.secondarySignatureWidth || null, t.backgroundImageUrl || null,
-        t.qrCodeWidth || 32, t.sealWidth || 40, t.qrCodeCustomUrl || null
-      ]
-    );
-    res.json(t);
-  } catch (err: any) {
-    logger.error('Error creating template', err);
-    res.status(500).json({ error: 'Database error creating template' });
-  }
-});
-
-app.put('/api/templates/:id', authenticateToken, async (req: any, res) => {
-  try {
-    const result = await pool.query('SELECT * FROM templates WHERE id = $1', [req.params.id]);
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Template not found' });
-    const current = result.rows[0];
-    if (!(await enforceWorkspaceAccess(req, current.workspace_id, res))) return;
-    
-    // Map database snake_case keys to camelCase keys for merge safety
-    const currentCamel = {
-      name: current.name,
-      layout: current.layout,
-      backgroundColor: current.background_color,
-      borderColor: current.border_color,
-      borderWidth: Number(current.border_width),
-      showSeal: current.show_seal,
-      sealType: current.seal_type,
-      showQrCode: current.show_qr_code,
-      qrCodeX: Number(current.qr_code_x),
-      qrCodeY: Number(current.qr_code_y),
-      qrCodeWidth: current.qr_code_width ? Number(current.qr_code_width) : 32,
-      sealWidth: current.seal_width ? Number(current.seal_width) : 40,
-      logoUrl: current.logo_url || undefined,
-      logoX: Number(current.logo_x),
-      logoY: Number(current.logo_y),
-      logoWidth: Number(current.logo_width),
-      signatureUrl: current.signature_url || undefined,
-      secondarySignatureUrl: current.secondary_signature_url || undefined,
-      signatureX: Number(current.signature_x),
-      signatureY: Number(current.signature_y),
-      signatureWidth: Number(current.signature_width),
-      signatoryName: current.signatory_name || undefined,
-      signatoryTitle: current.signatory_title || undefined,
-      textElements: typeof current.text_elements === 'string' 
-        ? JSON.parse(current.text_elements) 
-        : (Array.isArray(current.text_elements) ? current.text_elements : []),
-      borderRadius: Number(current.border_radius || 0),
-      borderStyle: current.border_style || 'solid',
-      backgroundGradient: current.background_gradient || undefined,
-      decorFlourish: current.decor_flourish || 'none',
-      logoIconType: current.logo_icon_type || undefined,
-      signatureStyle: current.signature_style || undefined,
-      showSecondarySignatory: current.show_secondary_signatory || false,
-      secondarySignatoryName: current.secondary_signatory_name || undefined,
-      secondarySignatoryTitle: current.secondary_signatory_title || undefined,
-      secondarySignatureX: current.secondary_signature_x !== null ? Number(current.secondary_signature_x) : undefined,
-      secondarySignatureY: current.secondary_signature_y !== null ? Number(current.secondary_signature_y) : undefined,
-      secondarySignatureWidth: current.secondary_signature_width !== null ? Number(current.secondary_signature_width) : undefined,
-      backgroundImageUrl: current.background_image_url || undefined,
-      qrCodeCustomUrl: current.qr_code_custom_url || undefined
-    };
-
-    // Merge camelCase request body properties over current properties
-    const t = { ...currentCamel, ...req.body };
-
-    await pool.query(
-      `UPDATE templates SET 
-         name = $1, layout = $2, background_color = $3, border_color = $4, border_width = $5, 
-         show_seal = $6, seal_type = $7, show_qr_code = $8, qr_code_x = $9, qr_code_y = $10, logo_url = $11, logo_x = $12, logo_y = $13, logo_width = $14, 
-         signature_url = $15, secondary_signature_url = $16, signature_x = $17, signature_y = $18, signature_width = $19, signatory_name = $20, signatory_title = $21, 
-         text_elements = $22, border_radius = $23, border_style = $24, background_gradient = $25, decor_flourish = $26, logo_icon_type = $27, signature_style = $28, 
-         show_secondary_signatory = $29, secondary_signatory_name = $30, secondary_signatory_title = $31, secondary_signature_x = $32, secondary_signature_y = $33, secondary_signature_width = $34, background_image_url = $35,
-         qr_code_width = $36, seal_width = $37, qr_code_custom_url = $38
-       WHERE id = $39`,
-      [
-        t.name, t.layout, t.backgroundColor, t.borderColor, t.borderWidth,
-        t.showSeal, t.sealType, t.showQrCode, t.qrCodeX, t.qrCodeY, t.logoUrl || null, t.logoX, t.logoY, t.logoWidth,
-        t.signatureUrl || null, t.secondarySignatureUrl || null, t.signatureX, t.signatureY, t.signatureWidth, t.signatoryName || null, t.signatoryTitle || null,
-        typeof t.textElements === 'string' ? t.textElements : JSON.stringify(t.textElements || []),
-        t.borderRadius || 0, t.borderStyle || 'solid', t.backgroundGradient || null, t.decorFlourish || 'none', t.logoIconType || null, t.signatureStyle || null,
-        t.showSecondarySignatory || false, t.secondarySignatoryName || null, t.secondarySignatoryTitle || null, t.secondarySignatureX || null, t.secondarySignatureY || null, t.secondarySignatureWidth || null, t.backgroundImageUrl || null,
-        t.qrCodeWidth || 32, t.sealWidth || 40, t.qrCodeCustomUrl || null,
-        req.params.id
-      ]
-    );
-
-    res.json({
-      id: req.params.id,
-      workspaceId: current.workspace_id,
-      name: t.name,
-      layout: t.layout,
-      backgroundColor: t.backgroundColor,
-      borderColor: t.borderColor,
-      borderWidth: t.borderWidth,
-      showSeal: t.showSeal,
-      sealType: t.sealType,
-      showQrCode: t.showQrCode,
-      qrCodeX: t.qrCodeX,
-      qrCodeY: t.qrCodeY,
-      qrCodeWidth: t.qrCodeWidth,
-      sealWidth: t.sealWidth,
-      logoUrl: t.logoUrl,
-      logoX: t.logoX,
-      logoY: t.logoY,
-      logoWidth: t.logoWidth,
-      signatureUrl: t.signatureUrl,
-      secondarySignatureUrl: t.secondarySignatureUrl,
-      signatureX: t.signatureX,
-      signatureY: t.signatureY,
-      signatureWidth: t.signatureWidth,
-      signatoryName: t.signatoryName,
-      signatoryTitle: t.signatoryTitle,
-      textElements: typeof t.textElements === 'string' ? JSON.parse(t.textElements) : t.textElements,
-      borderRadius: t.borderRadius,
-      borderStyle: t.borderStyle,
-      backgroundGradient: t.backgroundGradient,
-      decorFlourish: t.decorFlourish,
-      logoIconType: t.logoIconType,
-      signatureStyle: t.signatureStyle,
-      showSecondarySignatory: t.showSecondarySignatory,
-      secondarySignatoryName: t.secondarySignatoryName,
-      secondarySignatoryTitle: t.secondarySignatoryTitle,
-      secondarySignatureX: t.secondarySignatureX,
-      secondarySignatureY: t.secondarySignatureY,
-      secondarySignatureWidth: t.secondarySignatureWidth,
-      backgroundImageUrl: t.backgroundImageUrl,
-      qrCodeCustomUrl: t.qrCodeCustomUrl
-    });
-  } catch (err: any) {
-    logger.error('Error updating template', err);
-    res.status(500).json({ error: 'Database error updating template' });
-  }
-});
-
-// 4. Recipient Issue Operations
-app.post('/api/programs/:id/issue', authenticateToken, async (req, res) => {
-  const programId = req.params.id;
-  const recipients = req.body.recipients as Recipient[];
-  if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
-    return res.status(400).json({ error: 'Recipients array is required and cannot be empty' });
-  }
-
-  let client;
-  try {
-    client = await pool.connect();
-    await client.query('BEGIN');
-    
-    const progResult = await client.query('SELECT * FROM programs WHERE id = $1', [programId]);
-    if (progResult.rows.length === 0) {
-      await safeRollback(client);
-      return res.status(404).json({ error: 'Program not found' });
-    }
-    const program = progResult.rows[0];
-
-    // Update program status to active if issuing
-    await client.query("UPDATE programs SET status = 'active' WHERE id = $1", [programId]);
-
-    const wsResult = await client.query('SELECT * FROM workspaces WHERE id = $1', [program.workspace_id]);
-    const brandName = wsResult.rows.length > 0 ? wsResult.rows[0].brand_name : 'Credentials.OS Platform';
-
-    const certsCountResult = await client.query('SELECT count(*) FROM certificates');
-    const issuedCounterBase = parseInt(certsCountResult.rows[0].count, 10) + 5000;
-
-    const generatedCertificates: Certificate[] = [];
-    const emailLogsToSend: {
-      recipientEmail: string;
-      recipientName: string;
-      subject: string;
-      body: string;
-      workspaceId: string;
-      programName?: string;
-      certId?: string;
-      verificationUrl?: string;
-    }[] = [];
-
-    // Dynamically build the base app URL (prioritizing APP_URL env variable, falling back to production URL)
-    const appUrl = process.env.APP_URL || 'https://glint-pi.vercel.app';
-
-    for (let idx = 0; idx < recipients.length; idx++) {
-      const rec = recipients[idx];
-      const certId = crypto.randomUUID();
-      const securityHash = `sha256:${Math.random().toString(16).substring(2, 10)}_security_seal_${certId}`;
-      const auditTrail = [
-        {
-          timestamp: new Date().toISOString(),
-          event: 'CREATED',
-          performedBy: 'Secure Bulk Issuance Processor',
-          details: `Dispatched with standard fields mapped: ${JSON.stringify(rec.customFields)}`
-        },
-        {
-          timestamp: new Date().toISOString(),
-          event: 'ISSUED',
-          performedBy: 'Workspace Admin',
-          details: `Sent email to ${rec.email} with verification link.`
-        }
-      ];
-
-      const newCert: Certificate = {
-        id: certId,
-        workspaceId: program.workspace_id,
-        programId: program.id,
-        programName: program.name,
-        recipientName: rec.name,
-        recipientEmail: rec.email,
-        customFields: rec.customFields || {},
-        issueDate: program.issue_date ? program.issue_date.toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-        expiryDate: program.expiry_date ? program.expiry_date.toISOString().split('T')[0] : undefined,
-        status: 'valid',
-        securityHash,
-        viewCount: 0,
-        downloadCount: 0,
-        shareCount: 0,
-        lastViewed: new Date().toISOString(),
-        auditTrail
-      };
-
-      await client.query(
-        `INSERT INTO certificates (
-          id, workspace_id, program_id, program_name, recipient_name, recipient_email, 
-          custom_fields, issue_date, expiry_date, status, security_hash, view_count, download_count, share_count, last_viewed, audit_trail
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
-        [
-          newCert.id, newCert.workspaceId, newCert.programId, newCert.programName, newCert.recipientName, newCert.recipientEmail,
-          JSON.stringify(newCert.customFields), newCert.issueDate, newCert.expiryDate || null, newCert.status, newCert.securityHash,
-          newCert.viewCount, newCert.downloadCount, newCert.shareCount, newCert.lastViewed, JSON.stringify(newCert.auditTrail)
-        ]
-      );
-
-      const emailLogId = `eml-${Math.random().toString(36).substring(2, 9)}`;
-      const emailLogBody = `Hello ${rec.name},\n\nCongratulations! Your official credential for completing "${program.name}" has been issued and registered on the secure public registry.\n\nCertificate ID: ${certId}\nVerification Link: ${appUrl}/#credential=${certId}\n\nYou can view, download, print, or share your verifiable digital certificate directly to LinkedIn.\n\nWarm regards,\n${brandName} Team`;
-
-      await client.query(
-        `INSERT INTO email_logs (id, workspace_id, recipient_email, recipient_name, subject, body, certificate_id, sent_time)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [
-          emailLogId, program.workspace_id, rec.email, rec.name,
-          `Your official credential for ${program.name} is ready!`,
-          emailLogBody, certId, new Date().toISOString()
-        ]
-      );
-
-      emailLogsToSend.push({
-        recipientEmail: rec.email,
-        recipientName: rec.name,
-        subject: `Your official credential for ${program.name} is ready!`,
-        body: emailLogBody,
-        workspaceId: program.workspace_id,
-        programName: program.name,
-        certId: certId,
-        verificationUrl: `${appUrl}/#credential=${certId}`
-      });
-
-      generatedCertificates.push(newCert);
-    }
-
-    await client.query('COMMIT');
-    
-    // Dispatch real emails before returning response to prevent serverless (Vercel) execution freeze
-    for (const logToSend of emailLogsToSend) {
-      try {
-        await sendVerificationEmail(logToSend);
-      } catch (mailErr) {
-        logger.error(`Email dispatch failed for ${logToSend.recipientEmail}`, mailErr);
-      }
-    }
-
-    res.json({
-      message: `Successfully issued ${generatedCertificates.length} credentials!`,
-      certificates: generatedCertificates
-    });
-  } catch (err: any) {
-    await safeRollback(client);
-    logger.error('Error issuing certificates', err);
-    res.status(500).json({ error: 'Database error issuing certificates' });
-  } finally {
-    if (client) {
-      client.release();
-    }
-  }
-});
-
-// 5. Verification Page & Public Single lookup API
-app.get('/api/certificates/:id', async (req, res) => {
-  try {
-    const certResult = await pool.query('SELECT * FROM certificates WHERE id = $1', [req.params.id]);
-    if (certResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Certificate not found under verification archives' });
-    }
-    const cert = certResult.rows[0];
-    
-    // Fetch associated program to get the actual templateId
-    const programResult = await pool.query('SELECT template_id FROM programs WHERE id = $1', [cert.program_id]);
-    const templateId = programResult.rows.length > 0 ? programResult.rows[0].template_id : null;
-    
-    const wsResult = await pool.query('SELECT * FROM workspaces WHERE id = $1', [cert.workspace_id]);
-    const branding = wsResult.rows.length > 0 ? {
-      brandName: wsResult.rows[0].brand_name,
-      logoUrl: wsResult.rows[0].logo_url || undefined,
-      primaryColor: wsResult.rows[0].primary_color,
-      accentColor: wsResult.rows[0].accent_color,
-      customDomain: wsResult.rows[0].custom_domain || undefined,
-      senderName: wsResult.rows[0].sender_name,
-      senderEmail: wsResult.rows[0].sender_email,
-      whiteLabel: wsResult.rows[0].white_label,
-      footerText: wsResult.rows[0].footer_text || undefined
-    } : null;
-
-    res.json({
-      certificate: {
-        id: cert.id,
-        workspaceId: cert.workspace_id,
-        programId: cert.program_id,
-        templateId: templateId,
-        programName: cert.program_name,
-        recipientName: cert.recipient_name,
-        recipientEmail: cert.recipient_email,
-        customFields: cert.custom_fields,
-        issueDate: cert.issue_date ? cert.issue_date.toISOString().split('T')[0] : '',
-        expiryDate: cert.expiry_date ? cert.expiry_date.toISOString().split('T')[0] : undefined,
-        status: cert.status,
-        revocationReason: cert.revocation_reason || undefined,
-        securityHash: cert.security_hash,
-        viewCount: cert.view_count,
-        downloadCount: cert.download_count,
-        shareCount: cert.share_count,
-        lastViewed: cert.last_viewed ? cert.last_viewed.toISOString() : undefined,
-        auditTrail: Array.isArray(cert.audit_trail) ? cert.audit_trail : JSON.parse(JSON.stringify(cert.audit_trail || []))
-      },
-      branding
-    });
-  } catch (err: any) {
-    logger.error('Error verifying certificate', err);
-    res.status(500).json({ error: 'Database error fetching certificate details' });
-  }
-});
-
-// Record metrics like downloading, viewing, sharing
-app.post('/api/certificates/:id/stats', async (req, res) => {
-  const { action } = req.body;
-  try {
-    const certResult = await pool.query('SELECT * FROM certificates WHERE id = $1', [req.params.id]);
-    if (certResult.rows.length === 0) return res.status(404).json({ error: 'Certificate not found' });
-    const cert = certResult.rows[0];
-
-    let viewCount = cert.view_count;
-    let downloadCount = cert.download_count;
-    let shareCount = cert.share_count;
-    let lastViewed = cert.last_viewed;
-    let auditTrail = Array.isArray(cert.audit_trail) ? cert.audit_trail : JSON.parse(JSON.stringify(cert.audit_trail || []));
-
-    if (action === 'view') {
-      viewCount += 1;
-      lastViewed = new Date();
-    } else if (action === 'download') {
-      downloadCount += 1;
-      auditTrail.push({
-        timestamp: new Date().toISOString(),
-        event: 'METADATA_UPDATED',
-        performedBy: 'Recipient Utility',
-        details: 'Secure PDF artifact downloaded by browser client'
-      });
-    } else if (action === 'share') {
-      shareCount += 1;
-    }
-
-    await pool.query(
-      `UPDATE certificates 
-       SET view_count = $1, download_count = $2, share_count = $3, last_viewed = $4, audit_trail = $5
-       WHERE id = $6`,
-      [viewCount, downloadCount, shareCount, lastViewed, JSON.stringify(auditTrail), req.params.id]
-    );
-
-    res.json({
-      id: cert.id,
-      workspaceId: cert.workspace_id,
-      programId: cert.program_id,
-      programName: cert.program_name,
-      recipientName: cert.recipient_name,
-      recipientEmail: cert.recipient_email,
-      customFields: cert.custom_fields,
-      issueDate: cert.issue_date ? cert.issue_date.toISOString().split('T')[0] : '',
-      expiryDate: cert.expiry_date ? cert.expiry_date.toISOString().split('T')[0] : undefined,
-      status: cert.status,
-      revocationReason: cert.revocation_reason || undefined,
-      securityHash: cert.security_hash,
-      viewCount,
-      downloadCount,
-      shareCount,
-      lastViewed: lastViewed ? lastViewed.toISOString() : undefined,
-      auditTrail
-    });
-  } catch (err: any) {
-    logger.error('Error logging certificate stats', err);
-    res.status(500).json({ error: 'Database error logging statistics' });
-  }
-});
-
-// Manual Revoking, Restoring, or Suspending Certificate
-app.post('/api/certificates/:id/status', authenticateToken, async (req, res) => {
-  const { status, reason } = req.body;
-  if (!status) return res.status(400).json({ error: 'Status is required' });
-
-  try {
-    const certResult = await pool.query('SELECT * FROM certificates WHERE id = $1', [req.params.id]);
-    if (certResult.rows.length === 0) return res.status(404).json({ error: 'Certificate not found' });
-    const cert = certResult.rows[0];
-
-    const auditTrail = Array.isArray(cert.audit_trail) ? cert.audit_trail : JSON.parse(JSON.stringify(cert.audit_trail || []));
-    let revocationReason = cert.revocation_reason;
-
-    if (status === 'revoked') {
-      revocationReason = reason || 'Admin voluntary revocation instruction';
-      auditTrail.push({
-        timestamp: new Date().toISOString(),
-        event: 'REVOKED',
-        performedBy: 'Workspace Lead Compliance',
-        details: `State changed to Revoked. Reason: ${revocationReason}`
-      });
-    } else {
-      revocationReason = null;
-      auditTrail.push({
-        timestamp: new Date().toISOString(),
-        event: 'METADATA_UPDATED',
-        performedBy: 'Workspace Lead Compliance',
-        details: 'Restored certificate status back to VALID.'
-      });
-    }
-
-    await pool.query(
-      `UPDATE certificates SET status = $1, revocation_reason = $2, audit_trail = $3 WHERE id = $4`,
-      [status, revocationReason, JSON.stringify(auditTrail), req.params.id]
-    );
-
-    res.json({
-      id: cert.id,
-      workspaceId: cert.workspace_id,
-      programId: cert.program_id,
-      programName: cert.program_name,
-      recipientName: cert.recipient_name,
-      recipientEmail: cert.recipient_email,
-      customFields: cert.custom_fields,
-      issueDate: cert.issue_date ? cert.issue_date.toISOString().split('T')[0] : '',
-      expiryDate: cert.expiry_date ? cert.expiry_date.toISOString().split('T')[0] : undefined,
-      status,
-      revocationReason: revocationReason || undefined,
-      securityHash: cert.security_hash,
-      viewCount: cert.view_count,
-      downloadCount: cert.download_count,
-      shareCount: cert.share_count,
-      lastViewed: cert.last_viewed ? cert.last_viewed.toISOString() : undefined,
-      auditTrail
-    });
-  } catch (err: any) {
-    logger.error('Error changing certificate status:', err);
-    res.status(500).json({ error: 'Database error updating certificate status' });
-  }
-});
-
-// Resend Certificate Email
-app.post('/api/certificates/:id/resend', authenticateToken, async (req: any, res) => {
-  try {
-    const certResult = await pool.query('SELECT * FROM certificates WHERE id = $1', [req.params.id]);
-    if (certResult.rows.length === 0) return res.status(404).json({ error: 'Certificate not found' });
-    const cert = certResult.rows[0];
-
-    // Enforce workspace access
-    if (!(await enforceWorkspaceAccess(req, cert.workspace_id, res))) return;
-
-    // Fetch workspace to get brand name
-    const wsResult = await pool.query('SELECT brand_name FROM workspaces WHERE id = $1', [cert.workspace_id]);
-    const brandName = wsResult.rows.length > 0 ? wsResult.rows[0].brand_name : 'CertOps';
-
-    const appUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
-    const emailLogId = `eml-${Math.random().toString(36).substring(2, 9)}`;
-    const emailLogBody = `Hello ${cert.recipient_name},\n\nCongratulations! Your official credential for completing "${cert.program_name}" has been registered and verified.\n\nCertificate ID: ${cert.id}\nVerification Link: ${appUrl}/#credential=${cert.id}\n\nYou can view, download, print, or share your digital certificate directly to LinkedIn.\n\nWarm regards,\n${brandName} Team`;
-
-    // Insert email log
-    await pool.query(
-      `INSERT INTO email_logs (id, workspace_id, recipient_email, recipient_name, subject, body, certificate_id, sent_time)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [
-        emailLogId, cert.workspace_id, cert.recipient_email, cert.recipient_name,
-        `Your official credential for ${cert.program_name} is ready! (Resent)`,
-        emailLogBody, cert.id, new Date().toISOString()
-      ]
-    );
-
-    // Send the email
-    await sendVerificationEmail({
-      recipientEmail: cert.recipient_email,
-      recipientName: cert.recipient_name,
-      subject: `Your official credential for ${cert.program_name} is ready! (Resent)`,
-      body: emailLogBody,
-      workspaceId: cert.workspace_id,
-      programName: cert.program_name,
-      certId: cert.id,
-      verificationUrl: `${appUrl}/#credential=${cert.id}`
+      return created;
     });
 
-    // Update audit trail
-    const auditTrail = Array.isArray(cert.audit_trail) ? cert.audit_trail : JSON.parse(JSON.stringify(cert.audit_trail || []));
-    auditTrail.push({
-      timestamp: new Date().toISOString(),
-      event: 'EMAIL_DISPATCHED',
-      performedBy: 'Workspace Operator',
-      details: `Verification email resent to ${cert.recipient_email}`
+    res.status(201).json({
+      message: `Issued ${issued.length} credential${issued.length === 1 ? '' : 's'}.`,
+      issuedCount: issued.length,
+      skippedCount: unique.length - issued.length,
+      duplicatesDropped,
+      queuedEmails: issued.length,
+      certificates: issued.map(mapCertificate),
     });
 
-    await pool.query(
-      `UPDATE certificates SET audit_trail = $1 WHERE id = $2`,
-      [JSON.stringify(auditTrail), cert.id]
-    );
-
-    res.json({ success: true, message: 'Email resent successfully' });
-  } catch (err: any) {
-    logger.error('Error resending certificate email:', err);
-    res.status(500).json({ error: 'Database error resending certificate email' });
-  }
-});
-
-// Real-time Ledger Verification Audit
-app.post('/api/certificates/:id/verify', async (req, res) => {
-  try {
-    const certResult = await pool.query('SELECT * FROM certificates WHERE id = $1', [req.params.id]);
-    if (certResult.rows.length === 0) return res.status(404).json({ error: 'Certificate not found' });
-    const cert = certResult.rows[0];
-
-    const timestamp = new Date().toISOString();
-    const auditTrail = Array.isArray(cert.audit_trail) ? cert.audit_trail : JSON.parse(JSON.stringify(cert.audit_trail || []));
-    auditTrail.push({
-      timestamp,
-      event: 'VERIFIED',
-      performedBy: 'Public Trust Network Verifier',
-      details: 'Verified cryptographically secure stamp. System returned status: ' + cert.status.toUpperCase()
-    });
-
-    await pool.query(
-      'UPDATE certificates SET audit_trail = $1 WHERE id = $2',
-      [JSON.stringify(auditTrail), req.params.id]
-    );
-
-    res.json({
-      verified: true,
-      certificate: {
-        id: cert.id,
-        workspaceId: cert.workspace_id,
-        programId: cert.program_id,
-        programName: cert.program_name,
-        recipientName: cert.recipient_name,
-        recipientEmail: cert.recipient_email,
-        customFields: cert.custom_fields,
-        issueDate: cert.issue_date ? cert.issue_date.toISOString().split('T')[0] : '',
-        expiryDate: cert.expiry_date ? cert.expiry_date.toISOString().split('T')[0] : undefined,
-        status: cert.status,
-        revocationReason: cert.revocation_reason || undefined,
-        securityHash: cert.security_hash,
-        viewCount: cert.view_count,
-        downloadCount: cert.download_count,
-        shareCount: cert.share_count,
-        lastViewed: cert.last_viewed ? cert.last_viewed.toISOString() : undefined,
-        auditTrail
-      },
-      timestamp
-    });
-  } catch (err: any) {
-    logger.error('Error verifying certificate', err);
-    res.status(500).json({ error: 'Database error verifying certificate' });
-  }
-});
-
-// List certificates with workspace filtering
-app.get('/api/certificates', authenticateToken, async (req: any, res) => {
-  let wsId = req.query.workspaceId as string;
-  if (wsId) {
-    if (!(await enforceWorkspaceAccess(req, wsId, res))) return;
-  } else {
-    if (req.user.email !== 'admin@gmail.com') {
-      try {
-        const wsResult = await pool.query('SELECT id FROM workspaces WHERE id = $1 OR created_by_email = $2', [req.user.workspaceId, req.user.email]);
-        const allowedWsIds = wsResult.rows.map(row => row.id);
-        if (allowedWsIds.length === 0) {
-          return res.json([]);
-        }
-        const result = await pool.query('SELECT * FROM certificates WHERE workspace_id = ANY($1)', [allowedWsIds]);
-        const certificates = result.rows.map(cert => ({
-          id: cert.id,
-          workspaceId: cert.workspace_id,
-          programId: cert.program_id,
-          programName: cert.program_name,
-          recipientName: cert.recipient_name,
-          recipientEmail: cert.recipient_email,
-          customFields: cert.custom_fields,
-          issueDate: cert.issue_date ? cert.issue_date.toISOString().split('T')[0] : '',
-          expiryDate: cert.expiry_date ? cert.expiry_date.toISOString().split('T')[0] : undefined,
-          status: cert.status,
-          revocationReason: cert.revocation_reason || undefined,
-          securityHash: cert.security_hash,
-          viewCount: cert.view_count,
-          downloadCount: cert.download_count,
-          shareCount: cert.share_count,
-          lastViewed: cert.last_viewed ? cert.last_viewed.toISOString() : undefined,
-          auditTrail: Array.isArray(cert.audit_trail) ? cert.audit_trail : JSON.parse(JSON.stringify(cert.audit_trail || []))
-        }));
-        return res.json(certificates);
-      } catch (err: any) {
-        logger.error('Error fetching certificates', err);
-        return res.status(500).json({ error: 'Database error fetching certificates' });
-      }
+    // Locally there is no platform scheduler, so drain right after responding.
+    // The client already has its answer; a slow SMTP server no longer holds the
+    // request open.
+    if (!env.isServerless && issued.length > 0) {
+      void drainOutbox(Math.min(issued.length, 50)).catch((err) => logger.error('Background drain failed', err));
     }
-  }
-  const programId = req.query.programId as string;
-  
-  try {
-    let query = 'SELECT * FROM certificates';
-    const params: any[] = [];
+  }),
+);
+
+// =============================================================================
+// Certificates — authenticated
+// =============================================================================
+
+app.get(
+  '/api/certificates',
+  authenticate,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const wsId = req.query.workspaceId as string | undefined;
+    const programId = req.query.programId as string | undefined;
+
     const conditions: string[] = [];
+    const params: unknown[] = [];
 
     if (wsId) {
+      await assertWorkspaceAccess(req, wsId);
       params.push(wsId);
       conditions.push(`workspace_id = $${params.length}`);
+    } else {
+      const scope = await accessibleWorkspaceIds(req);
+      if (scope !== 'all') {
+        params.push(scope);
+        conditions.push(`workspace_id = ANY($${params.length})`);
+      }
     }
+
     if (programId) {
       params.push(programId);
       conditions.push(`program_id = $${params.length}`);
     }
 
-    if (conditions.length > 0) {
-      query += ' WHERE ' + conditions.join(' AND ');
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const result = await pool.query(
+      `SELECT * FROM certificates ${where} ORDER BY created_time DESC LIMIT 5000`,
+      params,
+    );
+    res.json(result.rows.map(mapCertificate));
+  }),
+);
+
+/** Revocation. Previously authenticated but with no tenant check whatsoever. */
+app.post(
+  '/api/certificates/:id/status',
+  authenticate,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { status, reason } = parseBody(certificateStatusSchema, req.body);
+
+    const existing = await pool.query('SELECT * FROM certificates WHERE id = $1', [req.params.id]);
+    if (existing.rows.length === 0) throw new HttpError(404, 'Certificate not found');
+    await assertWorkspaceAccess(req, existing.rows[0].workspace_id);
+
+    const revoking = status === 'revoked';
+    const revocationReason = revoking ? reason || 'Revoked by workspace administrator' : null;
+
+    const result = await pool.query(
+      `UPDATE certificates SET status = $2, revocation_reason = $3 WHERE id = $1 RETURNING *`,
+      [req.params.id, status, revocationReason],
+    );
+
+    await recordEvent(pool, req.params.id, revoking ? 'REVOKED' : 'RESTORED', {
+      performedBy: req.user!.email,
+      details: revoking ? `Revoked. Reason: ${revocationReason}` : 'Restored to valid',
+    });
+
+    res.json(mapCertificate(result.rows[0]));
+  }),
+);
+
+/** Full event history, including entries marked non-public. Workspace members only. */
+app.get(
+  '/api/certificates/:id/events',
+  authenticate,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const existing = await pool.query('SELECT workspace_id FROM certificates WHERE id = $1', [req.params.id]);
+    if (existing.rows.length === 0) throw new HttpError(404, 'Certificate not found');
+    await assertWorkspaceAccess(req, existing.rows[0].workspace_id);
+    res.json(await loadEvents(req.params.id, false));
+  }),
+);
+
+app.post(
+  '/api/certificates/:id/resend',
+  authenticate,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const existing = await pool.query('SELECT * FROM certificates WHERE id = $1', [req.params.id]);
+    if (existing.rows.length === 0) throw new HttpError(404, 'Certificate not found');
+    const cert = existing.rows[0];
+    await assertWorkspaceAccess(req, cert.workspace_id);
+
+    if (cert.status === 'revoked') {
+      throw new HttpError(409, 'Cannot resend a revoked certificate');
     }
 
-    const result = await pool.query(query, params);
-    const certificates = result.rows.map(cert => ({
-      id: cert.id,
+    const ws = await pool.query('SELECT brand_name FROM workspaces WHERE id = $1', [cert.workspace_id]);
+    const brandName = ws.rows[0]?.brand_name ?? 'Glint';
+    const verificationUrl = `${env.appUrl}/c/${cert.id}`;
+
+    await enqueueEmail(pool, {
       workspaceId: cert.workspace_id,
       programId: cert.program_id,
       programName: cert.program_name,
-      recipientName: cert.recipient_name,
+      certificateId: cert.id,
       recipientEmail: cert.recipient_email,
-      customFields: cert.custom_fields,
-      issueDate: cert.issue_date ? cert.issue_date.toISOString().split('T')[0] : '',
-      expiryDate: cert.expiry_date ? cert.expiry_date.toISOString().split('T')[0] : undefined,
-      status: cert.status,
-      revocationReason: cert.revocation_reason || undefined,
-      securityHash: cert.security_hash,
-      viewCount: cert.view_count,
-      downloadCount: cert.download_count,
-      shareCount: cert.share_count,
-      lastViewed: cert.last_viewed ? cert.last_viewed.toISOString() : undefined,
-      auditTrail: Array.isArray(cert.audit_trail) ? cert.audit_trail : JSON.parse(JSON.stringify(cert.audit_trail || []))
-    }));
-    res.json(certificates);
-  } catch (err: any) {
-    logger.error('Error fetching certificates', err);
-    res.status(500).json({ error: 'Database error fetching certificates' });
-  }
-});
-
-// Get email dispatch logs for a workspace
-app.get('/api/email-logs', authenticateToken, async (req: any, res) => {
-  let wsId = req.query.workspaceId as string;
-  if (wsId) {
-    if (!(await enforceWorkspaceAccess(req, wsId, res))) return;
-  } else {
-    if (req.user.email !== 'admin@gmail.com') {
-      try {
-        const wsResult = await pool.query('SELECT id FROM workspaces WHERE id = $1 OR created_by_email = $2', [req.user.workspaceId, req.user.email]);
-        const allowedWsIds = wsResult.rows.map(row => row.id);
-        if (allowedWsIds.length === 0) {
-          return res.json([]);
-        }
-        const result = await pool.query('SELECT * FROM email_logs WHERE workspace_id = ANY($1) ORDER BY sent_time DESC', [allowedWsIds]);
-        const logs = result.rows.map(e => ({
-          id: e.id,
-          workspaceId: e.workspace_id,
-          recipientEmail: e.recipient_email,
-          recipientName: e.recipient_name,
-          subject: e.subject,
-          body: e.body,
-          certificateId: e.certificate_id,
-          sentTime: e.sent_time
-        }));
-        return res.json(logs);
-      } catch (err: any) {
-        logger.error('Error fetching email logs', err);
-        return res.status(500).json({ error: 'Database error fetching email logs' });
-      }
-    }
-  }
-  if (!wsId) return res.status(400).json({ error: 'WorkspaceId query is required' });
-  try {
-    const result = await pool.query(
-      'SELECT * FROM email_logs WHERE workspace_id = $1 ORDER BY sent_time DESC',
-      [wsId]
-    );
-    const logs = result.rows.map(e => ({
-      id: e.id,
-      workspaceId: e.workspace_id,
-      recipientEmail: e.recipient_email,
-      recipientName: e.recipient_name,
-      subject: e.subject,
-      body: e.body,
-      certificateId: e.certificate_id,
-      sentTime: e.sent_time
-    }));
-    res.json(logs);
-  } catch (err: any) {
-    logger.error('Error fetching email logs', err);
-    res.status(500).json({ error: 'Database error fetching email logs' });
-  }
-});
-
-// Delete program
-app.delete('/api/programs/:id', authenticateToken, async (req: any, res) => {
-  let client;
-  try {
-    client = await pool.connect();
-    await client.query('BEGIN');
-    
-    const indexResult = await client.query('SELECT * FROM programs WHERE id = $1', [req.params.id]);
-    if (indexResult.rows.length === 0) {
-      await safeRollback(client);
-      return res.status(404).json({ error: 'Program not found' });
-    }
-    const current = indexResult.rows[0];
-    if (!(await enforceWorkspaceAccess(req, current.workspace_id, res))) {
-      await safeRollback(client);
-      return;
-    }
-
-    // Deleting the program will trigger CASCADE deletes on certificates and email_logs
-    await client.query('DELETE FROM programs WHERE id = $1', [req.params.id]);
-
-    await client.query('COMMIT');
-    res.json({ message: 'Program deleted successfully' });
-  } catch (err: any) {
-    await safeRollback(client);
-    logger.error(`Error deleting program ${req.params.id}`, err);
-    res.status(500).json({ error: 'Database error deleting program' });
-  } finally {
-    if (client) {
-      client.release();
-    }
-  }
-});
-
-// Delete template
-app.delete('/api/templates/:id', authenticateToken, async (req: any, res) => {
-  try {
-    const checkResult = await pool.query('SELECT * FROM templates WHERE id = $1', [req.params.id]);
-    if (checkResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Template not found' });
-    }
-    const current = checkResult.rows[0];
-    if (!(await enforceWorkspaceAccess(req, current.workspace_id, res))) return;
-
-    await pool.query('DELETE FROM templates WHERE id = $1', [req.params.id]);
-    res.json({ message: 'Template deleted successfully' });
-  } catch (err: any) {
-    logger.error('Error deleting template', err);
-    res.status(500).json({ error: 'Database error deleting template' });
-  }
-});
-
-// 6. Aggregated Workspace Analytics
-app.get('/api/analytics', authenticateToken, async (req: any, res) => {
-  let wsId = req.query.workspaceId as string;
-  if (wsId) {
-    if (!(await enforceWorkspaceAccess(req, wsId, res))) return;
-  } else {
-    if (req.user.email !== 'admin@gmail.com') {
-      wsId = req.user.workspaceId;
-    }
-  }
-  if (!wsId) return res.status(400).json({ error: 'WorkspaceId query is required' });
-
-  try {
-    const certsResult = await pool.query('SELECT * FROM certificates WHERE workspace_id = $1', [wsId]);
-    const certs = certsResult.rows;
-    
-    const activeProgramsResult = await pool.query(
-      "SELECT count(*) FROM programs WHERE workspace_id = $1 AND status = 'active'",
-      [wsId]
-    );
-    const activePrograms = parseInt(activeProgramsResult.rows[0].count, 10);
-
-    let issuedCount = certs.length;
-    let viewCount = certs.reduce((sum, c) => sum + (c.view_count || 0), 0);
-    let downloadCount = certs.reduce((sum, c) => sum + (c.download_count || 0), 0);
-    let shareCount = certs.reduce((sum, c) => sum + (c.share_count || 0), 0);
-
-    const issuanceTrend = [
-      { date: 'Jun 10', count: Math.max(0, Math.floor(issuedCount * 0.1)) },
-      { date: 'Jun 12', count: Math.max(5, Math.floor(issuedCount * 0.35)) },
-      { date: 'Jun 14', count: Math.max(8, Math.floor(issuedCount * 0.25)) },
-      { date: 'Jun 15', count: Math.max(12, Math.floor(issuedCount * 0.20)) },
-      { date: 'Jun 16', count: Math.max(15, Math.floor(issuedCount * 0.10)) }
-    ];
-
-    const verificationTrend = [
-      { date: 'Jun 10', count: Math.floor(viewCount * 0.15) },
-      { date: 'Jun 12', count: Math.floor(viewCount * 0.25) },
-      { date: 'Jun 14', count: Math.floor(viewCount * 0.20) },
-      { date: 'Jun 15', count: Math.floor(viewCount * 0.30) },
-      { date: 'Jun 16', count: Math.floor(viewCount * 0.10) }
-    ];
-
-    const shareTrend = [
-      { date: 'Jun 10', count: Math.floor(shareCount * 0.10) },
-      { date: 'Jun 12', count: Math.floor(shareCount * 0.30) },
-      { date: 'Jun 14', count: Math.floor(shareCount * 0.15) },
-      { date: 'Jun 15', count: Math.floor(shareCount * 0.20) },
-      { date: 'Jun 16', count: Math.floor(shareCount * 0.25) }
-    ];
-
-    let verificationCount = 0;
-    certs.forEach(c => {
-      const audit = Array.isArray(c.audit_trail) ? c.audit_trail : JSON.parse(JSON.stringify(c.audit_trail || []));
-      verificationCount += audit.filter((a: any) => a.event === 'VERIFIED').length;
+      recipientName: cert.recipient_name,
+      subject: `Your credential for ${cert.program_name} (resent)`,
+      body: renderIssuanceEmailText({
+        recipientName: cert.recipient_name,
+        programName: cert.program_name,
+        certificateId: cert.id,
+        verificationUrl,
+        brandName,
+      }),
+      verificationUrl,
+      kind: 'resend',
     });
 
-    const trafficSources = [
-      { source: 'LinkedIn Direct Share', count: Math.floor(viewCount * 0.55) },
-      { source: 'Email Invitation Link', count: Math.floor(viewCount * 0.25) },
-      { source: 'Public QR Code Scan', count: Math.floor(viewCount * 0.15) },
-      { source: 'Organic Verification API', count: Math.floor(viewCount * 0.05) }
-    ];
+    await recordEvent(pool, cert.id, 'EMAIL_QUEUED', {
+      performedBy: req.user!.email,
+      details: 'Resend requested',
+      isPublic: false,
+    });
 
-    const payload: WorkspaceAnalytics = {
-      issuedCount,
-      viewCount,
-      downloadCount,
-      shareCount,
-      activePrograms,
-      verificationCount,
-      issuanceTrend,
-      verificationTrend,
-      shareTrend,
-      trafficSources
-    };
+    res.json({ success: true, message: 'Email queued for delivery' });
 
-    res.json(payload);
-  } catch (err: any) {
-    logger.error('Error generating analytics', err);
-    res.status(500).json({ error: 'Database error calculating analytics' });
-  }
-});
+    if (!env.isServerless) {
+      void drainOutbox(5).catch((err) => logger.error('Background drain failed', err));
+    }
+  }),
+);
 
-// Helper for Gemini API retry on temporary errors (503, 429, etc.)
+app.get(
+  '/api/email-logs',
+  authenticate,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const wsId = req.query.workspaceId as string | undefined;
+    let where = '';
+    const params: unknown[] = [];
+
+    if (wsId) {
+      await assertWorkspaceAccess(req, wsId);
+      params.push(wsId);
+      where = 'WHERE workspace_id = $1';
+    } else {
+      const scope = await accessibleWorkspaceIds(req);
+      if (scope !== 'all') {
+        params.push(scope);
+        where = 'WHERE workspace_id = ANY($1)';
+      }
+    }
+
+    const result = await pool.query(
+      `SELECT * FROM email_messages ${where} ORDER BY created_time DESC LIMIT 1000`,
+      params,
+    );
+    res.json(
+      result.rows.map((e) => ({
+        id: e.id,
+        workspaceId: e.workspace_id,
+        recipientEmail: e.recipient_email,
+        recipientName: e.recipient_name,
+        subject: e.subject,
+        body: e.body,
+        certificateId: e.certificate_id,
+        status: e.status,
+        attempts: e.attempts,
+        lastError: e.last_error ?? undefined,
+        sentTime: iso(e.sent_time) ?? iso(e.created_time),
+      })),
+    );
+  }),
+);
+
+// =============================================================================
+// Certificates — public
+// =============================================================================
+
+/**
+ * The public certificate page.
+ *
+ * The template is returned here. It used to be fetched separately from
+ * `GET /api/templates`, which requires a bearer token — so for an anonymous
+ * recipient that call returned 401, the failure was swallowed, and the viewer
+ * silently fell back to a hardcoded template signed by "Thomas Kurian, CEO".
+ * Every shared certificate rendered with the wrong design.
+ */
+app.get(
+  '/api/certificates/:id',
+  publicReadLimiter,
+  asyncHandler(async (req, res) => {
+    const result = await pool.query(
+      `SELECT c.*, t.id AS t_id
+       FROM certificates c
+       LEFT JOIN programs p ON p.id = c.program_id
+       LEFT JOIN templates t ON t.id = p.template_id
+       WHERE c.id = $1`,
+      [req.params.id],
+    );
+    if (result.rows.length === 0) throw new HttpError(404, 'Certificate not found');
+    const cert = result.rows[0];
+
+    const templateResult = cert.t_id
+      ? await pool.query('SELECT * FROM templates WHERE id = $1', [cert.t_id])
+      : null;
+
+    const brandingResult = await pool.query('SELECT * FROM workspaces WHERE id = $1', [cert.workspace_id]);
+    const workspace = brandingResult.rows[0];
+
+    res.json({
+      certificate: mapPublicCertificate(cert),
+      template: templateResult?.rows[0] ? mapTemplate(templateResult.rows[0]) : null,
+      branding: workspace ? mapWorkspace(workspace).branding : null,
+      auditTrail: await loadEvents(cert.id, true),
+    });
+  }),
+);
+
+/** Analytics counters. Returns only the counters, never the certificate record. */
+app.post(
+  '/api/certificates/:id/stats',
+  statsLimiter,
+  asyncHandler(async (req, res) => {
+    const { action } = parseBody(statsSchema, req.body);
+
+    const column = { view: 'view_count', download: 'download_count', share: 'share_count' }[action];
+    const result = await pool.query(
+      `UPDATE certificates
+         SET ${column} = ${column} + 1
+             ${action === 'view' ? ', last_viewed = now()' : ''}
+       WHERE id = $1
+       RETURNING view_count, download_count, share_count, verify_count`,
+      [req.params.id],
+    );
+    if (result.rows.length === 0) throw new HttpError(404, 'Certificate not found');
+
+    if (action !== 'view') {
+      await recordEvent(pool, req.params.id, action === 'download' ? 'DOWNLOADED' : 'SHARED', {
+        performedBy: 'recipient',
+        ipHash: clientIpHash(req),
+      });
+    }
+
+    res.json({
+      viewCount: result.rows[0].view_count,
+      downloadCount: result.rows[0].download_count,
+      shareCount: result.rows[0].share_count,
+      verifyCount: result.rows[0].verify_count,
+    });
+  }),
+);
+
+/**
+ * Signature verification.
+ *
+ * The previous implementation appended an audit row and returned
+ * `{ verified: true }` unconditionally — for revoked certificates, for expired
+ * ones, and for rows whose contents had been edited directly in the database.
+ */
+app.post(
+  '/api/certificates/:id/verify',
+  verifyLimiter,
+  asyncHandler(async (req, res) => {
+    const result = await pool.query('SELECT * FROM certificates WHERE id = $1', [req.params.id]);
+    if (result.rows.length === 0) throw new HttpError(404, 'Certificate not found');
+    const cert = result.rows[0];
+
+    const outcome = evaluateCertificate(
+      { ...toSignable(cert), status: cert.status, signature: cert.signature },
+    );
+
+    if (!outcome.signatureValid) {
+      // The stored row does not match its signature. Either the key rotated or
+      // somebody wrote to the table directly. Both need a human.
+      logger.error('Certificate signature mismatch', undefined, { certificateId: cert.id });
+    }
+
+    const ipHash = clientIpHash(req);
+
+    // Only log one verification per source per hour. Otherwise the event table
+    // grows without bound every time a page is refreshed.
+    const recent = await pool.query(
+      `SELECT 1 FROM certificate_events
+       WHERE certificate_id = $1 AND event = 'VERIFIED' AND actor_ip_hash IS NOT DISTINCT FROM $2
+         AND created_at > now() - interval '1 hour'
+       LIMIT 1`,
+      [cert.id, ipHash],
+    );
+
+    if (recent.rows.length === 0) {
+      await recordEvent(pool, cert.id, 'VERIFIED', {
+        performedBy: 'public verifier',
+        details: `Signature ${outcome.signatureValid ? 'valid' : 'INVALID'}; status ${cert.status}`,
+        ipHash,
+      });
+      await pool.query('UPDATE certificates SET verify_count = verify_count + 1 WHERE id = $1', [cert.id]);
+    }
+
+    res.json({
+      verified: outcome.verified,
+      signatureValid: outcome.signatureValid,
+      status: cert.status,
+      reasons: outcome.reasons,
+      algorithm: cert.signature_alg,
+      certificate: mapPublicCertificate(cert),
+      verifiedAt: new Date().toISOString(),
+    });
+  }),
+);
+
+// =============================================================================
+// Analytics
+// =============================================================================
+
+app.get(
+  '/api/analytics',
+  authenticate,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    let wsId = req.query.workspaceId as string | undefined;
+    if (wsId) {
+      await assertWorkspaceAccess(req, wsId);
+    } else {
+      wsId = req.user!.workspaceId ?? undefined;
+    }
+    if (!wsId) throw new HttpError(400, 'workspaceId is required');
+
+    const [totals, programs, issuance, verification, shares] = await Promise.all([
+      pool.query(
+        `SELECT COUNT(*)::int AS issued,
+                COALESCE(SUM(view_count), 0)::int AS views,
+                COALESCE(SUM(download_count), 0)::int AS downloads,
+                COALESCE(SUM(share_count), 0)::int AS shares,
+                COALESCE(SUM(verify_count), 0)::int AS verifications
+         FROM certificates WHERE workspace_id = $1`,
+        [wsId],
+      ),
+      pool.query(`SELECT COUNT(*)::int AS active FROM programs WHERE workspace_id = $1 AND status = 'active'`, [wsId]),
+      // Real daily series over the last 14 days, zero-filled so the chart does
+      // not silently close gaps between sparse days.
+      pool.query(
+        `SELECT d::date AS date, COUNT(c.id)::int AS count
+         FROM generate_series(now() - interval '13 days', now(), interval '1 day') d
+         LEFT JOIN certificates c
+           ON c.workspace_id = $1 AND c.created_time::date = d::date
+         GROUP BY d ORDER BY d`,
+        [wsId],
+      ),
+      pool.query(
+        `SELECT d::date AS date, COUNT(e.id)::int AS count
+         FROM generate_series(now() - interval '13 days', now(), interval '1 day') d
+         LEFT JOIN certificate_events e
+           ON e.event = 'VERIFIED' AND e.created_at::date = d::date
+          AND e.certificate_id IN (SELECT id FROM certificates WHERE workspace_id = $1)
+         GROUP BY d ORDER BY d`,
+        [wsId],
+      ),
+      pool.query(
+        `SELECT d::date AS date, COUNT(e.id)::int AS count
+         FROM generate_series(now() - interval '13 days', now(), interval '1 day') d
+         LEFT JOIN certificate_events e
+           ON e.event = 'SHARED' AND e.created_at::date = d::date
+          AND e.certificate_id IN (SELECT id FROM certificates WHERE workspace_id = $1)
+         GROUP BY d ORDER BY d`,
+        [wsId],
+      ),
+    ]);
+
+    const series = (rows: any[]) =>
+      rows.map((r) => ({
+        date: new Date(r.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        count: r.count,
+      }));
+
+    const t = totals.rows[0];
+    res.json({
+      issuedCount: t.issued,
+      viewCount: t.views,
+      downloadCount: t.downloads,
+      shareCount: t.shares,
+      verificationCount: t.verifications,
+      activePrograms: programs.rows[0].active,
+      issuanceTrend: series(issuance.rows),
+      verificationTrend: series(verification.rows),
+      shareTrend: series(shares.rows),
+      // Referrer attribution is not captured. This used to return fixed
+      // percentages of the view count — "LinkedIn Direct Share: 55%" — computed
+      // from nothing. An empty array is the honest answer.
+      trafficSources: [],
+    });
+  }),
+);
+
+// =============================================================================
+// Internal: email drain
+// =============================================================================
+
+/**
+ * Drains the email outbox.
+ *
+ * Registered for GET as well as POST because the Vercel scheduler issues a GET.
+ * Guarded by CRON_SECRET, compared in constant time — it is a mutating endpoint
+ * reachable from the public internet.
+ *
+ * Note on scheduling: `vercel.json` asks for every five minutes. On the Hobby
+ * plan crons only fire once a day, so a real deployment either needs a paid plan,
+ * Vercel Queues, or any external scheduler POSTing here with the bearer token.
+ */
+app.all(
+  '/api/internal/email/drain',
+  requireCronSecret,
+  asyncHandler(async (req, res) => {
+    if (!['GET', 'POST'].includes(req.method)) throw new HttpError(405, 'Method not allowed');
+    const limit = Math.min(Number(req.query.limit ?? 25) || 25, 100);
+    const result = await drainOutbox(limit);
+    logger.info('Email drain complete', result);
+    res.json(result);
+  }),
+);
+
+// =============================================================================
+// AI
+// =============================================================================
+
 async function generateGeminiContentWithRetry(ai: any, params: any, retries = 3, delay = 1500): Promise<any> {
   for (let i = 0; i < retries; i++) {
     try {
       return await ai.models.generateContent(params);
     } catch (err: any) {
-      const errMsg = err.message || '';
-      const isTemporary = errMsg.includes('503') || errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('quota') || errMsg.includes('rate limit');
-      if (isTemporary && i < retries - 1) {
-        const currentDelay = delay * Math.pow(2, i); // Exponential backoff
-        logger.warn(`[Gemini API] Temporary error, retrying in ${currentDelay}ms (Attempt ${i + 1}/${retries})`, { error: errMsg });
-        await new Promise(resolve => setTimeout(resolve, currentDelay));
+      const message = err?.message ?? '';
+      const temporary = /503|429|RESOURCE_EXHAUSTED|quota|rate limit/i.test(message);
+      if (temporary && i < retries - 1) {
+        await new Promise((resolve) => setTimeout(resolve, delay * 2 ** i));
         continue;
       }
       throw err;
     }
   }
+  throw new Error('Gemini retries exhausted');
 }
 
-// AI Template Generation Endpoint
-app.post('/api/ai/generate-template', authenticateToken, async (req, res) => {
-  const { prompt, sampleImage } = req.body;
-  if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
+/**
+ * The model returns SVG that we embed as a `data:image/svg+xml` background.
+ * Browsers do not execute scripts inside an `<img>`, but the value is also
+ * echoed into template records that other surfaces may render inline. Strip the
+ * active constructs rather than trusting the model's output.
+ */
+function sanitizeSvg(svg: string): string {
+  return svg
+    .replace(/```[a-z]*\n?/gi, '')
+    .replace(/```/g, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<foreignObject[\s\S]*?<\/foreignObject>/gi, '')
+    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/(href|xlink:href)\s*=\s*("|')\s*javascript:[^"']*\2/gi, '')
+    .trim();
+}
 
-  const geminiApiKey = process.env.GEMINI_API_KEY;
-  if (!geminiApiKey) {
-    return res.status(500).json({ error: 'Google Gemini API key not configured on server' });
-  }
+function requireGemini(): string {
+  if (!env.GEMINI_API_KEY) throw new HttpError(503, 'AI template generation is not configured');
+  return env.GEMINI_API_KEY;
+}
 
-  try {
-    const ai = new GoogleGenAI({ apiKey: geminiApiKey });
-    
-    let contents: any;
-    if (sampleImage && sampleImage.data && sampleImage.mimeType) {
-      contents = [
-        {
-          inlineData: {
-            data: sampleImage.data,
-            mimeType: sampleImage.mimeType
-          }
-        },
-        {
-          text: `You are an expert graphic designer and certificate layout planner.
-Analyze the uploaded sample certificate design image and generate a new certificate template design that mimics the uploaded sample certificate style, layout, border style, colors, background, and element placements as closely as possible.
-Also consider this prompt: "${prompt}".
+app.post(
+  '/api/ai/generate-template',
+  authenticate,
+  aiLimiter,
+  asyncHandler(async (req, res) => {
+    const { prompt, sampleImage } = parseBody(generateTemplateSchema, req.body);
+    const apiKey = requireGemini();
+    const ai = new GoogleGenAI({ apiKey });
 
-Follow these strict design guidelines to achieve an identical match:
-1. BACKGROUND & BORDERS:
-   - Identify the exact background color, gradients, and border style/borders from the sample image.
-   - Generate a clean, valid SVG certificate border and background design in the "svg" field. The SVG must have a viewBox of "0 0 1200 900" and contain absolutely NO text (<text>) elements. Use paths, rects, gradients, filters, and groups to recreate the visual appearance of the sample's borders and background patterns.
-   - Extract the primary background color and border color as hex codes in "backgroundColor" and "borderColor".
-   - Extract the border width in pixels in "borderWidth".
-
-2. TEXT ELEMENT PLACEMENTS (ALIGNMENT & COORDINATES):
-   - Analyze the position of every text line in the sample certificate image.
-   - Map their coordinates to "xPercent" and "yPercent". These MUST be integers between 0 and 100, representing percentage offsets from the top-left corner of the canvas (Center is 50, 50). Do NOT use absolute pixels (0-1200 or 0-900) for xPercent/yPercent.
-   - For each text element, choose the correct text alignment ("align": "left" | "center" | "right") matching how the text is aligned in the sample certificate.
-   - Recreate the text content, font family (Inter, Space Grotesk, Playfair Display, JetBrains Mono), font size (scaled relative to standard text sizes, e.g., 20-30 for titles, 12-16 for name/body, 9-11 for dates/meta), font weight (normal, medium, bold), and hex color to match the sample.
-   - Ensure the name placeholder uses text "{{name}}" with "isPlaceholder": true.
-   - Ensure the program/course placeholder uses text "{{program}}" with "isPlaceholder": true.
-   - Create additional text elements for the certificate title, description, date, signatory names, and titles, placing them at the exact same relative positions as in the sample image.
-
-3. LOGO, SIGNATURES, AND TRUST STAMPS:
-   - If there is a logo in the sample certificate, detect its position and size, mapping to logoX (0-100), logoY (0-100), and logoWidth (e.g. 50-150).
-   - If there are signatures in the sample, detect their positions: signatureX/Y (primary) and secondarySignatureX/Y (secondary), along with their widths, signatoryName, and signatoryTitle. Set showSecondarySignatory to true if two signatures are present.
-   - If there is a QR code or seal/stamp in the sample, locate it and map to qrCodeX/Y, qrCodeWidth (e.g. 16-80), showQrCode (true/false), showSeal (true/false), sealType ('classic' | 'modern' | 'stellar' | 'crimson_wax' | 'emerald_shield' | 'gold_medallion'), and sealWidth (e.g. 20-100).`
-        }
-      ];
-    } else {
-      contents = `You are an expert graphic designer and certificate layout planner.
-Generate a beautiful, modern, and professional certificate template design based on this prompt: "${prompt}".
+    const guidance = `You are an expert graphic designer and certificate layout planner.
+${sampleImage ? 'Analyze the uploaded sample certificate design image and generate a new certificate template that mimics its style, layout, border style, colors, background, and element placements as closely as possible.\nAlso consider this prompt:' : 'Generate a beautiful, modern, and professional certificate template design based on this prompt:'} "${prompt}".
 
 Follow these strict design guidelines:
 1. BACKGROUND & BORDERS:
@@ -2181,8 +1626,16 @@ Follow these strict design guidelines:
 2. TEXT ELEMENT PLACEMENTS (ALIGNMENT & COORDINATES):
    - Map coordinates of all text elements to "xPercent" and "yPercent". These MUST be integers between 0 and 100, representing percentage offsets from the top-left corner of the canvas (Center is 50, 50). Do NOT use absolute pixels.
    - Choose the correct text alignment ("align": "left" | "center" | "right") for each element.
-   - You MUST include at least one element with text "{{name}}" (having isPlaceholder: true) and one element with text "{{program}}" (having isPlaceholder: true).`;
-    }
+   - You MUST include at least one element with text "{{name}}" (having isPlaceholder: true) and one element with text "{{program}}" (having isPlaceholder: true).
+
+3. LOGO, SIGNATURES, AND TRUST STAMPS:
+   - Detect or place a logo, mapping to logoX (0-100), logoY (0-100), and logoWidth (50-150).
+   - Place signatures: signatureX/Y (primary) and secondarySignatureX/Y (secondary), with widths, signatoryName, and signatoryTitle. Set showSecondarySignatory to true if two signatures are appropriate.
+   - Place a QR code or seal: qrCodeX/Y, qrCodeWidth (16-80), showQrCode, showSeal, sealType, and sealWidth (20-100).`;
+
+    const contents = sampleImage
+      ? [{ inlineData: { data: sampleImage.data, mimeType: sampleImage.mimeType } }, { text: guidance }]
+      : guidance;
 
     const response = await generateGeminiContentWithRetry(ai, {
       model: 'gemini-2.5-flash',
@@ -2192,10 +1645,10 @@ Follow these strict design guidelines:
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            svg: { type: Type.STRING, description: 'Raw SVG code for the certificate background/borders. Must be clean without any text elements.' },
-            backgroundColor: { type: Type.STRING, description: 'Hex color for background' },
-            borderColor: { type: Type.STRING, description: 'Hex color for border' },
-            borderWidth: { type: Type.INTEGER, description: 'Border width in px' },
+            svg: { type: Type.STRING, description: 'Raw SVG for background/borders. No text elements.' },
+            backgroundColor: { type: Type.STRING },
+            borderColor: { type: Type.STRING },
+            borderWidth: { type: Type.INTEGER },
             logoX: { type: Type.INTEGER },
             logoY: { type: Type.INTEGER },
             logoWidth: { type: Type.INTEGER },
@@ -2215,7 +1668,10 @@ Follow these strict design guidelines:
             qrCodeY: { type: Type.INTEGER },
             qrCodeWidth: { type: Type.INTEGER },
             showSeal: { type: Type.BOOLEAN },
-            sealType: { type: Type.STRING, enum: ['classic', 'modern', 'stellar', 'crimson_wax', 'emerald_shield', 'gold_medallion', 'none'] },
+            sealType: {
+              type: Type.STRING,
+              enum: ['classic', 'modern', 'stellar', 'crimson_wax', 'emerald_shield', 'gold_medallion', 'none'],
+            },
             sealWidth: { type: Type.INTEGER },
             textElements: {
               type: Type.ARRAY,
@@ -2226,119 +1682,87 @@ Follow these strict design guidelines:
                   fontSize: { type: Type.INTEGER },
                   fontFamily: { type: Type.STRING, enum: ['Inter', 'Space Grotesk', 'Playfair Display', 'JetBrains Mono'] },
                   fontWeight: { type: Type.STRING, enum: ['normal', 'medium', 'bold'] },
-                  color: { type: Type.STRING, description: 'Hex color code' },
+                  color: { type: Type.STRING },
                   xPercent: { type: Type.INTEGER },
                   yPercent: { type: Type.INTEGER },
                   align: { type: Type.STRING, enum: ['left', 'center', 'right'] },
-                  isPlaceholder: { type: Type.BOOLEAN }
+                  isPlaceholder: { type: Type.BOOLEAN },
                 },
-                required: ['text', 'fontSize', 'fontFamily', 'fontWeight', 'color', 'xPercent', 'yPercent', 'align']
-              }
-            }
+                required: ['text', 'fontSize', 'fontFamily', 'fontWeight', 'color', 'xPercent', 'yPercent', 'align'],
+              },
+            },
           },
-          required: ['svg', 'textElements', 'backgroundColor', 'borderColor', 'borderWidth']
-        }
-      }
+          required: ['svg', 'textElements', 'backgroundColor', 'borderColor', 'borderWidth'],
+        },
+      },
     });
 
-    if (!response.text) {
-      throw new Error('Empty response from Gemini');
-    }
+    if (!response.text) throw new HttpError(502, 'Empty response from the AI provider');
 
     const design = JSON.parse(response.text);
-    let svgString = design.svg || '';
-    if (svgString.includes('```')) {
-      svgString = svgString.replace(/```[a-z]*\n?/gi, '').replace(/```/g, '').trim();
-    }
-    const base64Svg = Buffer.from(svgString).toString('base64');
-    const backgroundImageUrl = `data:image/svg+xml;base64,${base64Svg}`;
+    const svg = sanitizeSvg(design.svg ?? '');
 
     res.json({
       backgroundColor: design.backgroundColor,
       borderColor: design.borderColor,
       borderWidth: design.borderWidth,
-      textElements: (design.textElements || []).map((el: any, idx: number) => ({
-        id: `ai-el-${idx}-${Math.random().toString(36).substring(2, 5)}`,
-        ...el
-      })),
-      backgroundImageUrl,
-      logoX: design.logoX !== undefined ? Number(design.logoX) : undefined,
-      logoY: design.logoY !== undefined ? Number(design.logoY) : undefined,
-      logoWidth: design.logoWidth !== undefined ? Number(design.logoWidth) : undefined,
-      signatureX: design.signatureX !== undefined ? Number(design.signatureX) : undefined,
-      signatureY: design.signatureY !== undefined ? Number(design.signatureY) : undefined,
-      signatureWidth: design.signatureWidth !== undefined ? Number(design.signatureWidth) : undefined,
+      backgroundImageUrl: `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`,
+      textElements: (design.textElements ?? []).map((el: any, idx: number) => ({ id: `ai-el-${idx}`, ...el })),
+      logoX: num(design.logoX),
+      logoY: num(design.logoY),
+      logoWidth: num(design.logoWidth),
+      signatureX: num(design.signatureX),
+      signatureY: num(design.signatureY),
+      signatureWidth: num(design.signatureWidth),
       signatoryName: design.signatoryName || undefined,
       signatoryTitle: design.signatoryTitle || undefined,
-      showSecondarySignatory: design.showSecondarySignatory !== undefined ? Boolean(design.showSecondarySignatory) : undefined,
-      secondarySignatureX: design.secondarySignatureX !== undefined ? Number(design.secondarySignatureX) : undefined,
-      secondarySignatureY: design.secondarySignatureY !== undefined ? Number(design.secondarySignatureY) : undefined,
-      secondarySignatureWidth: design.secondarySignatureWidth !== undefined ? Number(design.secondarySignatureWidth) : undefined,
+      showSecondarySignatory: design.showSecondarySignatory ?? undefined,
+      secondarySignatureX: num(design.secondarySignatureX),
+      secondarySignatureY: num(design.secondarySignatureY),
+      secondarySignatureWidth: num(design.secondarySignatureWidth),
       secondarySignatoryName: design.secondarySignatoryName || undefined,
       secondarySignatoryTitle: design.secondarySignatoryTitle || undefined,
-      showQrCode: design.showQrCode !== undefined ? Boolean(design.showQrCode) : undefined,
-      qrCodeX: design.qrCodeX !== undefined ? Number(design.qrCodeX) : undefined,
-      qrCodeY: design.qrCodeY !== undefined ? Number(design.qrCodeY) : undefined,
-      qrCodeWidth: design.qrCodeWidth !== undefined ? Number(design.qrCodeWidth) : undefined,
-      showSeal: design.showSeal !== undefined ? Boolean(design.showSeal) : undefined,
+      showQrCode: design.showQrCode ?? undefined,
+      qrCodeX: num(design.qrCodeX),
+      qrCodeY: num(design.qrCodeY),
+      qrCodeWidth: num(design.qrCodeWidth),
+      showSeal: design.showSeal ?? undefined,
       sealType: design.sealType || undefined,
-      sealWidth: design.sealWidth !== undefined ? Number(design.sealWidth) : undefined
+      sealWidth: num(design.sealWidth),
     });
-  } catch (err: any) {
-    logger.error('Error generating AI template', err);
-    res.status(500).json({ error: err.message || 'Error generating AI template' });
-  }
-});
+  }),
+);
 
-
-// AI Sample Certificate Parser Endpoint
-app.post('/api/ai/parse-sample', authenticateToken, async (req, res) => {
-  const { sampleImage } = req.body;
-  if (!sampleImage || !sampleImage.data || !sampleImage.mimeType) {
-    return res.status(400).json({ error: 'sampleImage (data and mimeType) is required' });
-  }
-
-  const geminiApiKey = process.env.GEMINI_API_KEY;
-  if (!geminiApiKey) {
-    return res.status(500).json({ error: 'Google Gemini API key not configured on server' });
-  }
-
-  try {
-    const ai = new GoogleGenAI({ apiKey: geminiApiKey });
-    
-    const contents = [
-      {
-        inlineData: {
-          data: sampleImage.data,
-          mimeType: sampleImage.mimeType
-        }
-      },
-      {
-        text: `You are an expert certificate parser and analyzer.
-Analyze the uploaded sample certificate image. Your task is to detect and extract all printed elements on it, including text blocks, logos, signatures, and seals, so that they can be covered by solid-colored patches (to erase them) and replaced with editable elements in their exact positions.
-
-Identify the following elements:
-1. TEXT ELEMENTS:
-   - Identify every line or block of text.
-   - Return its exact detected string text (e.g. "CERTIFICATE OF ACHIEVEMENT", "Jane Doe", "For completing course", etc.).
-   - Estimate its coordinate position as xPercent and yPercent. These MUST be integers between 0 and 100, representing the percentage offset of the center of the block from the top-left of the image.
-   - Estimate its width and height in pixels assuming the standard canvas size is 1200x900 pixels.
-   - Detect the color of the background immediately behind/surrounding this text block (as a hex color, e.g. "#FFFFFF" or "#F4F7F9"), which will be used for the redaction patch.
-   - Detect the text color (as a hex color, e.g., "#1A202C").
-   - Estimate its fontSize, fontFamily (choose the closest matching from: 'Inter', 'Space Grotesk', 'Playfair Display', 'JetBrains Mono'), fontWeight (choose closest: 'normal', 'medium', 'bold'), and align ('left', 'center', 'right').
-   - Determine if this text represents a dynamic placeholder (e.g. a recipient name should have isPlaceholder=true and isNamePlaceholder=true; a program name/course name should have isPlaceholder=true and isProgramPlaceholder=true).
-
-2. LOGO, SIGNATURES, AND SEALS:
-   - Locate any logos, signatures, or seals/stamps in the certificate image.
-   - For each, return its type ('logo', 'signature', or 'seal').
-   - Estimate its coordinate position (xPercent, yPercent), width, height, and the surrounding background color (hex code) so a redaction patch can cover it.
-   - (For signatures or logos, also set text="" and isPlaceholder=false).`
-      }
-    ];
+app.post(
+  '/api/ai/parse-sample',
+  authenticate,
+  aiLimiter,
+  asyncHandler(async (req, res) => {
+    const { sampleImage } = parseBody(parseSampleSchema, req.body);
+    const apiKey = requireGemini();
+    const ai = new GoogleGenAI({ apiKey });
 
     const response = await generateGeminiContentWithRetry(ai, {
       model: 'gemini-2.5-flash',
-      contents,
+      contents: [
+        { inlineData: { data: sampleImage.data, mimeType: sampleImage.mimeType } },
+        {
+          text: `You are an expert certificate parser and analyzer.
+Analyze the uploaded sample certificate image. Detect and extract all printed elements — text blocks, logos, signatures, and seals — so they can be covered by solid-colored patches and replaced with editable elements at their exact positions.
+
+1. TEXT ELEMENTS:
+   - Identify every line or block of text and return its exact detected string.
+   - Estimate xPercent and yPercent as integers 0-100, the percentage offset of the block's center from the top-left.
+   - Estimate width and height in pixels on a 1200x900 canvas.
+   - Detect the background color immediately behind the block (hex) for the redaction patch, and the text color (hex).
+   - Estimate fontSize, fontFamily ('Inter', 'Space Grotesk', 'Playfair Display', 'JetBrains Mono'), fontWeight ('normal', 'medium', 'bold'), and align.
+   - A recipient name gets isPlaceholder=true and isNamePlaceholder=true; a program/course name gets isPlaceholder=true and isProgramPlaceholder=true.
+
+2. LOGO, SIGNATURES, AND SEALS:
+   - Locate each, return its type ('logo', 'signature', 'seal'), position, width, height, and surrounding background color.
+   - For signatures and logos, set text="" and isPlaceholder=false.`,
+        },
+      ],
       config: {
         responseMimeType: 'application/json',
         responseSchema: {
@@ -2353,80 +1777,205 @@ Identify the following elements:
                   text: { type: Type.STRING },
                   xPercent: { type: Type.INTEGER },
                   yPercent: { type: Type.INTEGER },
-                  width: { type: Type.INTEGER, description: 'Estimated width of the bounding box in pixels on a 1200x900 canvas' },
-                  height: { type: Type.INTEGER, description: 'Estimated height of the bounding box in pixels on a 1200x900 canvas' },
-                  backgroundColor: { type: Type.STRING, description: 'Hex color of the background immediately surrounding this element' },
-                  textColor: { type: Type.STRING, description: 'Hex color of the text (only for type=text)' },
+                  width: { type: Type.INTEGER },
+                  height: { type: Type.INTEGER },
+                  backgroundColor: { type: Type.STRING },
+                  textColor: { type: Type.STRING },
                   fontSize: { type: Type.INTEGER },
                   fontFamily: { type: Type.STRING, enum: ['Inter', 'Space Grotesk', 'Playfair Display', 'JetBrains Mono'] },
                   fontWeight: { type: Type.STRING, enum: ['normal', 'medium', 'bold'] },
                   align: { type: Type.STRING, enum: ['left', 'center', 'right'] },
                   isPlaceholder: { type: Type.BOOLEAN },
                   isNamePlaceholder: { type: Type.BOOLEAN },
-                  isProgramPlaceholder: { type: Type.BOOLEAN }
+                  isProgramPlaceholder: { type: Type.BOOLEAN },
                 },
-                required: ['type', 'xPercent', 'yPercent', 'width', 'height', 'backgroundColor']
-              }
-            }
+                required: ['type', 'xPercent', 'yPercent', 'width', 'height', 'backgroundColor'],
+              },
+            },
           },
-          required: ['detectedElements']
-        }
+          required: ['detectedElements'],
+        },
+      },
+    });
+
+    if (!response.text) throw new HttpError(502, 'Empty response from the AI provider');
+    res.json(JSON.parse(response.text));
+  }),
+);
+
+// =============================================================================
+// Public certificate page (server-rendered metadata)
+// =============================================================================
+
+const escapeAttr = (value: string) =>
+  value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/**
+ * Removes the site-wide og:/twitter: defaults from index.html before the
+ * certificate-specific ones are appended.
+ *
+ * Scrapers take the FIRST occurrence of a given og: property, not the last, so
+ * simply appending left every certificate previewing as the generic
+ * "Glint — Certificate Issuance & Verification" card. `og:site_name` is kept:
+ * it is not per-certificate.
+ */
+function stripSocialMeta(html: string): string {
+  return html.replace(
+    /[ \t]*<meta\s+(?:property|name)="(?:og:(?:title|description|type|url|image)|twitter:[a-z_]+)"[^>]*>\s*\n?/gi,
+    '',
+  );
+}
+
+/**
+ * `/c/:id` — the shareable link.
+ *
+ * The old link was `/#credential=<id>`. A URL fragment is never sent to the
+ * server, so no per-certificate metadata could exist: pasting any certificate
+ * into LinkedIn, WhatsApp, or Slack produced the same generic site-wide preview.
+ * A real path lets us inject Open Graph tags before the SPA boots.
+ */
+async function renderCertificatePage(
+  certificateId: string,
+  loadHtml: (url: string) => Promise<string>,
+  url: string,
+): Promise<string> {
+  const html = await loadHtml(url);
+
+  const result = await pool.query(
+    `SELECT c.recipient_name, c.program_name, c.status, w.brand_name, w.logo_url
+     FROM certificates c
+     LEFT JOIN workspaces w ON w.id = c.workspace_id
+     WHERE c.id = $1`,
+    [certificateId],
+  );
+
+  if (result.rows.length === 0) return html;
+  const cert = result.rows[0];
+
+  const title = `${cert.recipient_name} — ${cert.program_name}`;
+  const description =
+    cert.status === 'revoked'
+      ? `This credential has been revoked by ${cert.brand_name ?? 'the issuer'}.`
+      : `Verified credential issued to ${cert.recipient_name} by ${cert.brand_name ?? 'Glint'}.`;
+  const pageUrl = `${env.appUrl}/c/${certificateId}`;
+
+  // Crawlers cannot fetch a data: URI, so only an absolute https logo is useful.
+  const image = typeof cert.logo_url === 'string' && cert.logo_url.startsWith('https://') ? cert.logo_url : null;
+
+  const tags = [
+    `<meta property="og:type" content="article">`,
+    `<meta property="og:title" content="${escapeAttr(title)}">`,
+    `<meta property="og:description" content="${escapeAttr(description)}">`,
+    `<meta property="og:url" content="${escapeAttr(pageUrl)}">`,
+    image ? `<meta property="og:image" content="${escapeAttr(image)}">` : '',
+    `<meta name="twitter:card" content="${image ? 'summary_large_image' : 'summary'}">`,
+    `<meta name="twitter:title" content="${escapeAttr(title)}">`,
+    `<meta name="twitter:description" content="${escapeAttr(description)}">`,
+    // A revoked credential must not be indexed as a valid one.
+    cert.status === 'revoked' ? `<meta name="robots" content="noindex">` : '',
+  ]
+    .filter(Boolean)
+    .join('\n    ');
+
+  return stripSocialMeta(html)
+    .replace(/<title>[\s\S]*?<\/title>/i, `<title>${escapeAttr(title)}</title>`)
+    .replace('</head>', `    ${tags}\n  </head>`);
+}
+
+// =============================================================================
+// Bootstrap
+// =============================================================================
+
+const PORT = env.PORT;
+
+function mountApiFallback() {
+  app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
+}
+
+async function startServer() {
+  if (!env.isProd) {
+    const vitePackage = 'vite';
+    const { createServer: createViteServer } = await import(vitePackage);
+    const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' });
+
+    app.get('/c/:id', async (req, res, next) => {
+      try {
+        const html = await renderCertificatePage(
+          req.params.id,
+          async (url) => vite.transformIndexHtml(url, fs.readFileSync(path.resolve('index.html'), 'utf-8')),
+          req.originalUrl,
+        );
+        res.status(200).set('Content-Type', 'text/html').end(html);
+      } catch (err) {
+        vite.ssrFixStacktrace?.(err as Error);
+        next(err);
       }
     });
 
-    if (!response.text) {
-      throw new Error('Empty response from Gemini');
-    }
-
-    const data = JSON.parse(response.text);
-    res.json(data);
-  } catch (err: any) {
-    logger.error('Error parsing sample certificate', err);
-    res.status(500).json({ error: err.message || 'Error parsing sample certificate' });
-  }
-});
-
-
-// Global error handling middleware
-app.use((err: any, req: any, res: any, next: any) => {
-  logger.error('Caught exception in Global Error Handler', err);
-  res.status(500).json({ error: err.message || 'An internal server error occurred' });
-});
-
-// Standard Vite Dev Server Mounting (Express / Vite Middleware code)
-// =================================================================
-
-const isProd = process.env.NODE_ENV === 'production';
-
-async function startServer() {
-  if (process.env.VERCEL) {
-    logger.info('Running in Vercel Serverless environment.');
-    return;
-  }
-
-  if (!isProd) {
-    const vitePackage = 'vite';
-    const { createServer: createViteServer } = await import(vitePackage);
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa'
-    });
-    // Use Vite's connect instance as middleware
+    mountApiFallback();
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    // Serve client-side React routes cleanly
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+    const indexHtml = fs.readFileSync(path.join(distPath, 'index.html'), 'utf-8');
+
+    app.get('/c/:id', async (req, res, next) => {
+      try {
+        const html = await renderCertificatePage(req.params.id, async () => indexHtml, req.originalUrl);
+        res.status(200).set('Content-Type', 'text/html').end(html);
+      } catch (err) {
+        next(err);
+      }
     });
+
+    mountApiFallback();
+    app.use(express.static(distPath, { index: false, maxAge: '1y', immutable: true }));
+    app.get('*', (_req, res) => res.sendFile(path.join(distPath, 'index.html')));
   }
 
+  app.use(errorHandler);
+
   app.listen(PORT, '0.0.0.0', () => {
-    logger.info(`Server running on http://localhost:${PORT} in ${isProd ? 'production' : 'development'} mode.`);
+    logger.info(`Glint listening on http://localhost:${PORT} (${env.NODE_ENV})`);
+    if (!env.mailConfigured) logger.warn('Mail transport not configured — issuance emails will be simulated.');
   });
 }
 
-startServer();
+if (env.isServerless) {
+  // Vercel serves the static build itself; this function answers /api and /c/:id.
+  //
+  // `dist/index.html` is not part of a function bundle by default — it reaches
+  // the runtime only because vercel.json declares it under
+  // `functions["api/index.ts"].includeFiles`. Read it lazily and once.
+  let cachedIndexHtml: string | null = null;
+  const readIndexHtml = (): string => {
+    if (cachedIndexHtml === null) {
+      cachedIndexHtml = fs.readFileSync(path.join(process.cwd(), 'dist', 'index.html'), 'utf-8');
+    }
+    return cachedIndexHtml;
+  };
+
+  app.get(
+    '/c/:id',
+    asyncHandler(async (req, res) => {
+      let html: string;
+      try {
+        html = await renderCertificatePage(req.params.id, async () => readIndexHtml(), req.originalUrl);
+      } catch (err) {
+        // Losing the metadata is bad; serving a blank page to a recipient who
+        // followed a link from their email is worse. Hand them the SPA.
+        logger.error('Failed to render certificate metadata; serving bare SPA', err);
+        res.redirect(302, `/?c=${encodeURIComponent(req.params.id)}`);
+        return;
+      }
+      res.status(200).set('Content-Type', 'text/html').end(html);
+    }),
+  );
+
+  mountApiFallback();
+  app.use(errorHandler);
+  logger.info('Running in serverless mode.');
+} else {
+  void startServer();
+}
 
 export default app;

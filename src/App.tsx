@@ -18,6 +18,8 @@ type RouteState =
   | { type: 'admin'; tab: 'workspaces' | 'programs' | 'certificates' }
   | { type: 'credential'; id: string };
 
+const isAdmin = (user: any): boolean => user?.role === 'admin';
+
 export default function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('glint_token'));
   const [user, setUser] = useState<any | null>(() => {
@@ -35,12 +37,34 @@ export default function App() {
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash;
-      
+
+      // `/c/<id>` is a real server route: the server injects Open Graph tags for
+      // the certificate before the SPA boots, so a link shared to LinkedIn or
+      // WhatsApp shows the recipient and program rather than a generic card.
+      const pathMatch = window.location.pathname.match(/^\/c\/([^/]+)\/?$/);
+      if (pathMatch) {
+        setRoute({ type: 'credential', id: decodeURIComponent(pathMatch[1]) });
+        return;
+      }
+
+      // Degraded path: the server could not render metadata for /c/<id> and
+      // redirected here rather than showing the recipient a blank page.
+      const fallbackId = new URLSearchParams(window.location.search).get('c');
+      if (fallbackId) {
+        setRoute({ type: 'credential', id: fallbackId });
+        return;
+      }
+
       if (hash.startsWith('#credential=')) {
+        // Links already in the wild use the old fragment form. Rewrite them to
+        // the real path so the address bar and any re-share carry metadata.
         const id = hash.replace('#credential=', '').trim();
-        setRoute({ type: 'credential', id });
-      } else if (hash.startsWith('#/admin') || hash.startsWith('#admin')) {
-        if (!token || user?.email !== 'admin@gmail.com') {
+        window.location.replace(`/c/${encodeURIComponent(id)}`);
+        return;
+      }
+
+      if (hash.startsWith('#/admin') || hash.startsWith('#admin')) {
+        if (!token || !isAdmin(user)) {
           window.location.hash = '#auth';
           setRoute({ type: 'auth' });
         } else {
@@ -56,12 +80,12 @@ export default function App() {
         if (!token) {
           window.location.hash = '#auth';
           setRoute({ type: 'auth' });
-        } else if (user?.email === 'admin@gmail.com') {
+        } else if (isAdmin(user)) {
           window.location.hash = `#/admin?tab=workspaces`;
           setRoute({ type: 'admin', tab: 'workspaces' });
         } else {
           const queryIndex = hash.indexOf('?');
-          let wsId = user?.workspaceId || 'ws-google-infra';
+          let wsId = user?.workspaceId ?? '';
           let activeTab: any = 'overview';
           if (queryIndex !== -1) {
             const params = new URLSearchParams(hash.substring(queryIndex));
@@ -72,11 +96,10 @@ export default function App() {
         }
       } else if (hash === '#auth' || hash.startsWith('#auth')) {
         if (token) {
-          if (user?.email === 'admin@gmail.com') {
+          if (isAdmin(user)) {
             window.location.hash = `#/admin?tab=workspaces`;
           } else {
-            const wsId = user?.workspaceId || 'ws-google-infra';
-            window.location.hash = `#/dashboard?workspaceId=${wsId}&tab=overview`;
+            window.location.hash = `#/dashboard?workspaceId=${user?.workspaceId ?? ''}&tab=overview`;
           }
         } else {
           setRoute({ type: 'auth' });
@@ -86,34 +109,47 @@ export default function App() {
       }
     };
 
-    // Run initial parse on mount
     handleHashChange();
 
     window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
+    // The certificate page lives at a real path, so back/forward across it are
+    // popstate events, not hashchange.
+    window.addEventListener('popstate', handleHashChange);
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange);
+      window.removeEventListener('popstate', handleHashChange);
+    };
   }, [token, user]);
 
-  // Direct custom screen state updates
+  /** Leaves `/c/<id>` back to the SPA root, which hash changes alone cannot do. */
+  const leaveCertificatePath = () => {
+    if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
+  };
+
   const navigateToHome = () => {
+    leaveCertificatePath();
     window.location.hash = '';
     setRoute({ type: 'home' });
   };
 
-  const navigateToDashboard = (workspaceId: string = 'ws-google-infra', tab: string = 'overview') => {
+  const navigateToDashboard = (workspaceId?: string, tab: string = 'overview') => {
+    leaveCertificatePath();
     if (!token) {
       window.location.hash = '#auth';
       setRoute({ type: 'auth' });
-    } else if (user?.email === 'admin@gmail.com') {
+    } else if (isAdmin(user)) {
       window.location.hash = `#/admin?tab=workspaces`;
       setRoute({ type: 'admin', tab: 'workspaces' });
     } else {
-      window.location.hash = `#/dashboard?workspaceId=${workspaceId}&tab=${tab}`;
-      setRoute({ type: 'dashboard', workspaceId, tab: tab as any });
+      const wsId = workspaceId ?? user?.workspaceId ?? '';
+      window.location.hash = `#/dashboard?workspaceId=${wsId}&tab=${tab}`;
+      setRoute({ type: 'dashboard', workspaceId: wsId, tab: tab as any });
     }
   };
 
   const navigateToAdmin = (tab: string = 'workspaces') => {
-    if (!token || user?.email !== 'admin@gmail.com') {
+    leaveCertificatePath();
+    if (!token || !isAdmin(user)) {
       window.location.hash = '#auth';
       setRoute({ type: 'auth' });
     } else {
@@ -123,11 +159,12 @@ export default function App() {
   };
 
   const navigateToCredential = (id: string) => {
-    window.location.hash = `#credential=${id}`;
+    window.history.pushState({}, '', `/c/${encodeURIComponent(id)}`);
     setRoute({ type: 'credential', id });
   };
 
   const navigateToAuth = () => {
+    leaveCertificatePath();
     window.location.hash = '#auth';
     setRoute({ type: 'auth' });
   };
@@ -137,11 +174,11 @@ export default function App() {
     localStorage.setItem('glint_user', JSON.stringify(newUser));
     setToken(newToken);
     setUser(newUser);
-    if (newUser.email === 'admin@gmail.com') {
+    leaveCertificatePath();
+    if (isAdmin(newUser)) {
       window.location.hash = `#/admin?tab=workspaces`;
     } else {
-      const wsId = newUser.workspaceId || 'ws-google-infra';
-      window.location.hash = `#/dashboard?workspaceId=${wsId}&tab=overview`;
+      window.location.hash = `#/dashboard?workspaceId=${newUser.workspaceId ?? ''}&tab=overview`;
     }
   };
 
@@ -150,6 +187,7 @@ export default function App() {
     localStorage.removeItem('glint_user');
     setToken(null);
     setUser(null);
+    leaveCertificatePath();
     window.location.hash = '';
     setRoute({ type: 'home' });
   };
@@ -163,8 +201,8 @@ export default function App() {
         </div>
       }>
         {route.type === 'home' && (
-          <LandingPage 
-            onStartFree={token ? () => navigateToDashboard(user?.workspaceId || 'ws-google-infra', 'overview') : navigateToAuth}
+          <LandingPage
+            onStartFree={token ? () => navigateToDashboard(user?.workspaceId, 'overview') : navigateToAuth}
             onViewSample={(id) => navigateToCredential(id)}
             onSelectWorkspace={token ? (id) => navigateToDashboard(id, 'overview') : navigateToAuth}
           />

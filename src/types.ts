@@ -24,14 +24,25 @@ export interface OrganizationWorkspace {
   plan: 'free' | 'pro' | 'enterprise';
 }
 
+export type TextFontWeight = 'normal' | 'medium' | 'bold' | string;
+
+export interface RichTextRun {
+  text: string;
+  color?: string;
+  fontWeight?: TextFontWeight;
+  fontStyle?: 'normal' | 'italic';
+  textDecoration?: 'none' | 'underline';
+}
+
 export interface TextElement {
   id: string;
   text: string; // text with static or variable markers like {{name}}, {{program}}, {{id}}, {{date}}
   fontSize: number;
   fontFamily: string; // Dynamic Google Fonts support
-  fontWeight: 'normal' | 'medium' | 'bold' | string;
+  fontWeight: TextFontWeight;
   fontStyle?: 'normal' | 'italic';
   textDecoration?: 'none' | 'underline';
+  richText?: RichTextRun[];
   letterSpacing?: number; // Letter spacing in pixels
   lineHeight?: number; // Line height multiplier
   opacity?: number; // Transparency multiplier (0 to 1);
@@ -46,6 +57,14 @@ export interface TextElement {
   type?: 'text' | 'image' | 'redaction';
   imageUrl?: string;
 
+}
+
+export interface CustomFontAsset {
+  id: string;
+  family: string;
+  fileName: string;
+  dataUrl: string;
+  format: 'truetype';
 }
 
 export interface CertificateTemplate {
@@ -98,6 +117,9 @@ export interface CertificateTemplate {
   
   backgroundImageUrl?: string;
   qrCodeCustomUrl?: string;
+  customFonts?: CustomFontAsset[];
+  /** Decorative corner watermark tags (e.g. "…AUTHORIZED DISPATCH"). Default on. */
+  showWatermarkTags?: boolean;
 }
 
 export type ProgramStatus = 'draft' | 'active' | 'archived';
@@ -136,7 +158,7 @@ export interface AuditLogEntry {
 }
 
 export interface Certificate {
-  id: string; // Trust payload verification UID
+  id: string;
   workspaceId: string;
   programId: string;
   programName: string;
@@ -147,12 +169,58 @@ export interface Certificate {
   expiryDate?: string;
   status: CertificateStatus;
   revocationReason?: string;
-  securityHash: string; // Cryptographic hash simulating authenticity seal
+
+  /**
+   * Lowercase hex HMAC-SHA256 over the issuance facts, keyed by a server-side
+   * secret. Replaces the old `securityHash`, which was `Math.random()` with the
+   * string "sha256:" glued to the front and was never checked by anything.
+   *
+   * It commits to id, workspace, program, recipient, and dates — not to
+   * `status`. Revoking does not break the signature; a verifier checks both.
+   */
+  signature: string;
+  signatureAlg: string;
+  signatureVersion: number;
+
   viewCount: number;
   downloadCount: number;
   shareCount: number;
+  verifyCount: number;
   lastViewed?: string;
-  auditTrail: AuditLogEntry[];
+}
+
+/** What `GET /api/certificates/:id` returns to an anonymous visitor. */
+export interface PublicCertificate {
+  id: string;
+  programName: string;
+  recipientName: string;
+  /** `j******e@example.com`. The full address is never exposed publicly. */
+  recipientEmailMasked: string;
+  customFields: Record<string, string>;
+  issueDate: string;
+  expiryDate?: string;
+  status: CertificateStatus;
+  revocationReason?: string;
+  signature: string;
+  signatureAlg: string;
+  signatureVersion: number;
+  viewCount: number;
+  downloadCount: number;
+  shareCount: number;
+  verifyCount: number;
+}
+
+export type VerificationFailure = 'signature_invalid' | 'revoked' | 'expired';
+
+export interface VerificationResult {
+  /** True only when the signature is intact AND the credential is neither revoked nor expired. */
+  verified: boolean;
+  signatureValid: boolean;
+  status: CertificateStatus;
+  reasons: VerificationFailure[];
+  algorithm: string;
+  certificate: PublicCertificate;
+  verifiedAt: string;
 }
 
 export interface WorkspaceAnalytics {

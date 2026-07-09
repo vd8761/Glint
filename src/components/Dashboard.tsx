@@ -11,9 +11,9 @@ import {
   AlertTriangle, Check, Sliders, Play, CheckCircle2, ShieldAlert, Sparkles, BookOpen,
   LogOut, Menu, X, ArrowLeft, ExternalLink, Eye, MoreHorizontal
 } from 'lucide-react';
-import { 
-  OrganizationWorkspace, CertificateProgram, CertificateTemplate, 
-  Certificate, Recipient, WorkspaceAnalytics, TextElement, EmailLog
+import {
+  OrganizationWorkspace, CertificateProgram, CertificateTemplate,
+  Certificate, Recipient, WorkspaceAnalytics, TextElement, EmailLog, AuditLogEntry
 } from '../types';
 import { CanvaEditor } from './CanvaEditor';
 
@@ -106,6 +106,11 @@ export function Dashboard({
   // Revocation workflow states
   const [revokingCertId, setRevokingCertId] = useState<string | null>(null);
   const [selectedAuditTrailCert, setSelectedAuditTrailCert] = useState<Certificate | null>(null);
+  // The audit trail is no longer a JSONB blob carried on every certificate row —
+  // it grew without bound on each public view. It lives in `certificate_events`
+  // and is fetched when the modal opens.
+  const [auditTrailLogs, setAuditTrailLogs] = useState<AuditLogEntry[]>([]);
+  const [auditTrailLoading, setAuditTrailLoading] = useState(false);
   const [resendingCertId, setResendingCertId] = useState<string | null>(null);
   const [revocationReason, setRevocationReason] = useState('');
   const [activeActionMenuId, setActiveActionMenuId] = useState<string | null>(null);
@@ -136,6 +141,23 @@ export function Dashboard({
       setSelectedProgramDetails(null);
     }
   }, [currentWorkspaceId]);
+
+  useEffect(() => {
+    if (!selectedAuditTrailCert) {
+      setAuditTrailLogs([]);
+      return;
+    }
+    let cancelled = false;
+    setAuditTrailLoading(true);
+    fetch(`/api/certificates/${encodeURIComponent(selectedAuditTrailCert.id)}/events`, { headers: authHeaders })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((logs) => !cancelled && setAuditTrailLogs(logs))
+      .catch(() => !cancelled && setAuditTrailLogs([]))
+      .finally(() => !cancelled && setAuditTrailLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAuditTrailCert]);
 
   const loadWorkspaces = async () => {
     try {
@@ -1417,7 +1439,7 @@ export function Dashboard({
             </div>
             <div className="flex-1 truncate">
               <p className="text-xs font-semibold text-slate-900 truncate">{user?.name || 'Administrator Account'}</p>
-              <p className="text-[9px] font-mono text-slate-400 truncate">{user?.email || 'admin@glint.io'}</p>
+              <p className="text-[9px] font-mono text-slate-400 truncate">{user?.email ?? ''}</p>
             </div>
             {onLogout && (
               <button
@@ -1609,25 +1631,38 @@ export function Dashboard({
                       </div>
                     </div>
 
-                    {/* Quick Traffic breakdown box */}
+                    {/*
+                      Referrer attribution is not captured anywhere. This box used to
+                      render "LinkedIn Direct Share — 55% of views", "Public QR Code
+                      Scan — 15%", and so on, computed as fixed fractions of the view
+                      count. The numbers moved when views moved, so they looked live.
+                      They measured nothing.
+                    */}
                     <div className="lg:col-span-4 bg-white border border-[#E9ECEF] rounded-2xl p-6 card-shadow space-y-6">
                       <h3 className="text-xs font-bold text-slate-950 uppercase tracking-widest">Public Referral Channels</h3>
-                      <div className="space-y-4">
-                        {analytics?.trafficSources.map((source, idx) => (
-                          <div key={idx} className="space-y-1.5">
-                            <div className="flex justify-between items-center text-xs">
-                              <span className="font-semibold text-slate-800">{source.source}</span>
-                              <span className="font-mono text-slate-400 font-bold">{source.count} clicks</span>
+                      {analytics?.trafficSources?.length ? (
+                        <div className="space-y-4">
+                          {analytics.trafficSources.map((source, idx) => (
+                            <div key={idx} className="space-y-1.5">
+                              <div className="flex justify-between items-center text-xs">
+                                <span className="font-semibold text-slate-800">{source.source}</span>
+                                <span className="font-mono text-slate-400 font-bold">{source.count} clicks</span>
+                              </div>
+                              <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                                <div
+                                  style={{ width: `${Math.min(100, (source.count / (analytics.viewCount || 1)) * 100)}%` }}
+                                  className="bg-slate-950 h-full"
+                                />
+                              </div>
                             </div>
-                            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                              <div 
-                                style={{ width: `${Math.min(100, (source.count / (analytics.viewCount || 1)) * 100)}%` }} 
-                                className="bg-slate-950 h-full"
-                              />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-slate-400 leading-relaxed">
+                          Referrer tracking is not enabled, so there is nothing to attribute yet.
+                          Views, downloads, shares, and verifications are counted on the cards above.
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -2417,7 +2452,7 @@ export function Dashboard({
                           <tr key={c.id} className="hover:bg-slate-55/40">
                             <td className="px-8 py-5">
                               <span className="font-mono font-bold text-slate-900">{c.id}</span>
-                              <p className="text-[10px] text-slate-400 font-mono italic shrink-0 truncate max-w-[120px]">{c.securityHash.substring(0, 18)}...</p>
+                              <p className="text-[10px] text-slate-400 font-mono italic shrink-0 truncate max-w-[120px]">{c.signature.slice(0, 18)}…</p>
                             </td>
                             <td className="px-6 py-5">
                               <p className="font-bold text-slate-955 text-sm leading-tight capitalize">{c.recipientName}</p>
@@ -2485,7 +2520,7 @@ export function Dashboard({
                         <div className="flex justify-between items-start">
                           <div className="space-y-1">
                             <span className="font-mono font-bold text-slate-900 text-xs">{c.id}</span>
-                            <p className="text-[9px] text-slate-400 font-mono break-all">{c.securityHash.substring(0, 32)}...</p>
+                            <p className="text-[9px] text-slate-400 font-mono break-all">{c.signature.slice(0, 32)}…</p>
                           </div>
                           {c.status === 'valid' && (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[9px] font-bold uppercase border border-emerald-100">
@@ -2726,16 +2761,24 @@ export function Dashboard({
                     </div>
                   </div>
 
-                  {/* Legal standard security details */}
+                  {/*
+                    This claimed "REGULATION: RFC-1962 LOCK" (RFC 1962 is the PPP
+                    Compression Control Protocol), "ISO-27001 SECURE" (a certification
+                    this organisation does not hold), and "ED25519 COMPLIANT" (there is
+                    no Ed25519 key anywhere in the system). Say only what is true.
+                  */}
                   <div className="bg-slate-900 text-white border border-[#E9ECEF] rounded-2xl p-8 shadow-sm card-shadow space-y-4">
-                    <h3 className="font-serif italic text-2xl">Compliance & Trust Framework</h3>
+                    <h3 className="font-serif italic text-2xl">How verification works</h3>
                     <p className="text-xs text-slate-400 leading-relaxed">
-                      Glint registers verify using cryptographically secure peer-hashes. Individual certificate actions trigger atomic audit trail logging locked to universal NTP timestamps. Perfect for highly regulated certifications, universities, and compliance auditing bodies.
+                      Each certificate is signed with HMAC-SHA256 over its recipient, program, and dates,
+                      using a secret key held only on this server. Editing any signed field invalidates the
+                      signature. Issuance, revocation, and verification are appended to a per-certificate
+                      event log with UTC timestamps.
                     </p>
                     <div className="pt-4 border-t border-white/10 text-slate-400 text-[10px] font-mono flex flex-wrap gap-x-8 gap-y-2">
-                      <span>• REGULATION: RFC-1962 LOCK</span>
-                      <span>• STANDARDS: ISO-27001 SECURE</span>
-                      <span>• KEYSTORES: ED25519 COMPLIANT</span>
+                      <span>• SIGNATURE: HMAC-SHA256</span>
+                      <span>• VERIFIER: THIS REGISTRY ONLY</span>
+                      <span>• REVOCATION: SEPARATE FROM SIGNATURE</span>
                     </div>
                   </div>
 
@@ -2891,7 +2934,7 @@ export function Dashboard({
               <div className="flex">
                 <span className="w-16 font-semibold text-slate-400 uppercase tracking-wider font-mono">From:</span>
                 <span className="font-semibold text-slate-800">
-                  {currentWorkspace?.branding?.senderName || "Glint Dispatch"} &lt;{currentWorkspace?.branding?.senderEmail || "noreply@glint.io"}&gt;
+                  {currentWorkspace?.branding?.senderName || "Glint"} &lt;{currentWorkspace?.branding?.senderEmail || "sender not configured"}&gt;
                 </span>
               </div>
               <div className="flex">
@@ -3053,21 +3096,24 @@ export function Dashboard({
               <X className="w-5 h-5" />
             </button>
             <h3 className="font-serif text-2xl italic text-slate-950 pb-3 border-b">
-              Cryptographic Audit Log Trail
+              Certificate history
             </h3>
             <p className="text-xs text-slate-500 mt-2 mb-4">
-              Immutable ledger trail for credential <span className="font-mono text-slate-800">{selectedAuditTrailCert.id}</span> issued to <span className="font-bold text-slate-800">{selectedAuditTrailCert.recipientName}</span>.
+              Recorded events for credential <span className="font-mono text-slate-800">{selectedAuditTrailCert.id}</span> issued to <span className="font-bold text-slate-800">{selectedAuditTrailCert.recipientName}</span>.
             </p>
 
             <div className="flex-1 overflow-y-auto space-y-4 pr-2">
               {(() => {
-                const logs = Array.isArray(selectedAuditTrailCert.auditTrail) 
-                  ? selectedAuditTrailCert.auditTrail 
-                  : [];
+                const logs = auditTrailLogs;
+                if (auditTrailLoading) {
+                  return (
+                    <div className="text-center py-8 text-slate-400 font-mono text-xs">Loading history…</div>
+                  );
+                }
                 if (logs.length === 0) {
                   return (
                     <div className="text-center py-8 text-slate-400 font-mono text-xs">
-                      No logs registered on secure verify channel yet.
+                      No events recorded yet.
                     </div>
                   );
                 }
@@ -3260,46 +3306,63 @@ export function Dashboard({
                 <ShieldCheck className="w-6 h-6 animate-pulse" />
               </span>
               <div>
-                <h3 className="font-serif text-2xl italic text-slate-950">Cryptographic Integrity Status</h3>
-                <p className="text-[10px] text-slate-400 font-mono tracking-wide uppercase mt-0.5">Anchored Verify Protocol V1</p>
+                <h3 className="font-serif text-2xl italic text-slate-950">Signature</h3>
+                <p className="text-[10px] text-slate-400 font-mono tracking-wide uppercase mt-0.5">
+                  {selectedCryptoProofCert.signatureAlg} · v{selectedCryptoProofCert.signatureVersion}
+                </p>
               </div>
             </div>
 
+            {/*
+              This panel claimed "ECC-Ed25519", a "Consensus Block Anchor" with a
+              Merkle root, and that no tampering had been detected — over a value
+              produced by Math.random(). There is no blockchain, no Ed25519, and
+              no asymmetric key. What exists is an HMAC, and it is described as one.
+            */}
             <div className="space-y-4 text-xs">
-              <div className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-4 flex gap-3">
-                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex gap-3">
+                <CheckCircle2 className="w-5 h-5 text-slate-500 shrink-0 mt-0.5" />
                 <div className="space-y-1">
-                  <h4 className="font-bold text-slate-900">Valid Digital Signature Ledger Proof</h4>
-                  <p className="text-slate-600 leading-normal">This credential's cryptographic fingerprint matches the digital signature generated by the workspace signing keys. No tampering detected.</p>
+                  <h4 className="font-bold text-slate-900">Keyed message authentication code</h4>
+                  <p className="text-slate-600 leading-normal">
+                    The recipient, program, and dates are signed with a secret key held on this server.
+                    Any edit to those fields invalidates the signature. Because the key is symmetric,
+                    only this registry can verify it — a third party cannot check it independently.
+                  </p>
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-2 py-2 border-y border-slate-100 font-sans">
                 <div className="space-y-0.5">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Signature Status</span>
-                  <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full text-[9px] font-bold uppercase inline-block">SECURED</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Status</span>
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-full text-[9px] font-bold uppercase inline-block">
+                    {selectedCryptoProofCert.status}
+                  </span>
                 </div>
                 <div className="space-y-0.5">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Verification Scheme</span>
-                  <span className="font-mono text-slate-800 font-semibold block text-[10px]">ECC-Ed25519</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Algorithm</span>
+                  <span className="font-mono text-slate-800 font-semibold block text-[10px]">{selectedCryptoProofCert.signatureAlg}</span>
                 </div>
                 <div className="space-y-0.5">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Verify Channel</span>
-                  <span className="font-mono text-slate-800 font-semibold block text-[10px]">Registry Ledger</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Verified</span>
+                  <span className="font-mono text-slate-800 font-semibold block text-[10px]">{selectedCryptoProofCert.verifyCount}×</span>
                 </div>
               </div>
 
               <div className="space-y-1.5 font-mono">
-                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Certificate Hash (SHA-256)</label>
+                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Signature (hex)</label>
                 <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 break-all text-[10px] text-slate-700 font-semibold">
-                  {selectedCryptoProofCert.securityHash || "0xef7a7b8e5c2b0c3f4e1f7c8d9e0b1a2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a"}
+                  {selectedCryptoProofCert.signature}
                 </div>
               </div>
 
               <div className="space-y-1.5 font-mono">
-                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Consensus Block Anchor</label>
-                <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 break-all text-[10px] text-slate-700 font-semibold">
-                  {`glint:anchor:merkle:root:${selectedCryptoProofCert.id}`}
+                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Signed fields</label>
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-[10px] text-slate-700 leading-relaxed">
+                  id · workspace · program · recipient name · recipient email · issue date · expiry date
+                  <p className="text-slate-400 mt-1 not-italic">
+                    Status is not signed. Revoking a certificate does not invalidate its signature.
+                  </p>
                 </div>
               </div>
             </div>
@@ -3329,38 +3392,44 @@ export function Dashboard({
               <X className="w-5 h-5" />
             </button>
             <div className="pb-3 border-b border-slate-100">
-              <h3 className="font-serif text-2xl italic text-slate-950">JSON Metadata Envelope</h3>
+              <h3 className="font-serif text-2xl italic text-slate-950">Credential JSON</h3>
               <p className="text-xs text-slate-500 mt-1">
-                W3C Verifiable Credentials compliance registry payload for ID: <span className="font-mono text-slate-800">{selectedJsonEnvelopeCert.id}</span>
+                Registry record for ID: <span className="font-mono text-slate-800">{selectedJsonEnvelopeCert.id}</span>
               </p>
             </div>
 
+            {/*
+              This used to emit a W3C Verifiable Credential with an
+              "Ed25519Signature2020" proof, a `did:glint:` verification method,
+              and a multibase `proofValue` faked by prefixing "z" to a random
+              string. None of it was real, and anything consuming it as a VC would
+              have failed — or worse, trusted it. This is the actual record.
+            */}
             <div className="flex-1 overflow-y-auto my-4 bg-slate-950 rounded-xl p-4 text-[11px] font-mono text-emerald-400 border border-slate-800 scrollbar-thin">
               <pre className="whitespace-pre-wrap leading-relaxed select-all">
                 {JSON.stringify({
-                  "@context": [
-                    "https://www.w3.org/2018/credentials/v1",
-                    "https://schema.glintregistry.org/v1"
-                  ],
-                  "id": `urn:uuid:${selectedJsonEnvelopeCert.id}`,
-                  "type": ["VerifiableCredential", "GlintCertificate"],
-                  "issuer": `urn:uuid:${currentWorkspaceId}`,
-                  "issuanceDate": selectedJsonEnvelopeCert.issueDate,
-                  "credentialSubject": {
-                    "id": `urn:uuid:recipient-sha256-hash`,
-                    "name": selectedJsonEnvelopeCert.recipientName,
-                    "email": selectedJsonEnvelopeCert.recipientEmail,
-                    "programId": selectedJsonEnvelopeCert.programId,
-                    "programName": selectedJsonEnvelopeCert.programName || "Certification Program",
-                    "status": selectedJsonEnvelopeCert.status
+                  id: selectedJsonEnvelopeCert.id,
+                  issuer: currentWorkspaceId,
+                  issuanceDate: selectedJsonEnvelopeCert.issueDate,
+                  expiryDate: selectedJsonEnvelopeCert.expiryDate ?? null,
+                  status: selectedJsonEnvelopeCert.status,
+                  subject: {
+                    name: selectedJsonEnvelopeCert.recipientName,
+                    email: selectedJsonEnvelopeCert.recipientEmail,
+                    programId: selectedJsonEnvelopeCert.programId,
+                    programName: selectedJsonEnvelopeCert.programName,
+                    customFields: selectedJsonEnvelopeCert.customFields ?? {},
                   },
-                  "proof": {
-                    "type": "Ed25519Signature2020",
-                    "created": `${selectedJsonEnvelopeCert.issueDate}T12:00:00Z`,
-                    "verificationMethod": `did:glint:${currentWorkspaceId}#key-1`,
-                    "proofPurpose": "assertionMethod",
-                    "proofValue": selectedJsonEnvelopeCert.securityHash ? `z${selectedJsonEnvelopeCert.securityHash.substring(0, 32)}` : "z6MksHiazACZui39yrrUiJ57L6J22312b98gB..."
-                  }
+                  signature: {
+                    algorithm: selectedJsonEnvelopeCert.signatureAlg,
+                    version: selectedJsonEnvelopeCert.signatureVersion,
+                    value: selectedJsonEnvelopeCert.signature,
+                    signedFields: [
+                      'id', 'workspaceId', 'programId', 'programName',
+                      'recipientName', 'recipientEmail', 'issueDate', 'expiryDate',
+                    ],
+                    note: 'Symmetric HMAC. Verifiable only by the issuing registry.',
+                  },
                 }, null, 2)}
               </pre>
             </div>
