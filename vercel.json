@@ -7,7 +7,8 @@
   ],
   "functions": {
     "api/index.ts": {
-      "includeFiles": "dist/index.html"
+      "includeFiles": "dist/index.html",
+      "maxDuration": 60
     }
   },
   "crons": [

@@ -21,6 +21,7 @@
 
 import nodemailer from 'nodemailer';
 import type { PoolClient } from 'pg';
+import { waitUntil } from '@vercel/functions';
 import { env } from './env.js';
 import { pool } from './db.js';
 import { logger } from './logger.js';
@@ -391,6 +392,113 @@ export async function drainOutbox(limit = 25): Promise<DrainResult> {
   }
 
   return result;
+}
+
+// -----------------------------------------------------------------------------
+// Scheduling the drain without a frequent platform cron
+// -----------------------------------------------------------------------------
+//
+// On Vercel's Hobby plan crons fire at most once a day, so the outbox cannot
+// rely on the scheduler to move mail promptly. Instead we drain from live
+// traffic:
+//
+//   • Issuance / resend calls `scheduleDrain()`. Locally that just fires
+//     `drainOutbox()` on the long-lived process. On Vercel it hands the work to
+//     `waitUntil()`, which keeps the function warm past the HTTP response while
+//     the first batch is sent.
+//   • A single invocation only has one function's worth of time, so after each
+//     batch we self-invoke the drain endpoint (`?async=1`) to continue with a
+//     fresh time budget. Each link sends one batch and triggers the next, so the
+//     whole queue clears in a chain of short invocations rather than one that
+//     times out.
+//   • The chain stops as soon as nothing is immediately claimable. Messages in
+//     backoff are left for the next trigger, opportunistic drains, or the daily
+//     cron backstop.
+
+/** Batch size per drain link. Small enough to finish inside one function run. */
+const DRAIN_BATCH = 20;
+
+/** Minimum gap between opportunistic drains kicked off by ordinary reads. */
+const OPPORTUNISTIC_INTERVAL_MS = 60_000;
+let lastOpportunisticDrain = 0;
+
+/**
+ * Runs a background task past the HTTP response.
+ *
+ * `waitUntil` is the supported way to do post-response work on Vercel; a bare
+ * un-awaited promise there is killed the moment the function freezes. Outside a
+ * Vercel request context it throws, so we fall back to letting the promise run
+ * on the (long-lived) local server.
+ */
+function backgroundRun(factory: () => Promise<unknown>): void {
+  const task = factory().catch((err) => logger.error('Background email task failed', err));
+  try {
+    waitUntil(task);
+  } catch {
+    void task;
+  }
+}
+
+/** True when at least one message is claimable right now (ignores backoff waits). */
+export async function hasClaimableEmails(): Promise<boolean> {
+  const result = await pool.query(
+    `SELECT 1 FROM email_messages
+     WHERE attempts < max_attempts
+       AND (
+         (status = 'pending' AND next_attempt_at <= now())
+         OR (status = 'sending' AND locked_at < now() - interval '${STUCK_AFTER}')
+       )
+     LIMIT 1`,
+  );
+  return result.rows.length > 0;
+}
+
+/**
+ * Spins up a fresh function invocation to continue draining. The endpoint
+ * responds before it starts sending (`?async=1`), so this fetch returns quickly
+ * and the *next* invocation owns the actual work — that is what gives each link
+ * of the chain its own time budget.
+ */
+async function triggerRemoteDrain(limit: number): Promise<void> {
+  if (!env.CRON_SECRET) return; // no way to authenticate the self-call
+  try {
+    await fetch(`${env.appUrl}/api/internal/email/drain?async=1&limit=${limit}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${env.CRON_SECRET}` },
+    });
+  } catch (err) {
+    logger.error('Failed to trigger follow-up email drain', err);
+  }
+}
+
+/** Drain one batch, then hand off to a fresh invocation if work remains. */
+async function drainAndContinue(limit: number): Promise<void> {
+  await drainOutbox(limit);
+  if (await hasClaimableEmails()) await triggerRemoteDrain(limit);
+}
+
+/**
+ * Kicks the outbox after enqueuing. Safe to call from any request handler —
+ * locally it drains in-process, on Vercel it drains via `waitUntil` and chains.
+ */
+export function scheduleDrain(limit = DRAIN_BATCH): void {
+  if (!env.isServerless) {
+    void drainOutbox(limit).catch((err) => logger.error('Background drain failed', err));
+    return;
+  }
+  backgroundRun(() => drainAndContinue(limit));
+}
+
+/**
+ * Piggybacks a drain on ordinary read traffic, throttled per warm instance.
+ * Catches messages whose backoff has elapsed between issuance chains without
+ * waiting for the once-a-day cron.
+ */
+export function maybeOpportunisticDrain(): void {
+  const now = Date.now();
+  if (now - lastOpportunisticDrain < OPPORTUNISTIC_INTERVAL_MS) return;
+  lastOpportunisticDrain = now;
+  scheduleDrain();
 }
 
 async function recordCertificateEvent(certificateId: string, event: string, details: string): Promise<void> {

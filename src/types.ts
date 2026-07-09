@@ -250,6 +250,8 @@ export interface WorkspaceAnalytics {
   trafficSources: { source: string; count: number }[];
 }
 
+export type EmailStatus = 'pending' | 'sending' | 'sent' | 'failed' | 'simulated';
+
 export interface EmailLog {
   id: string;
   workspaceId: string;
@@ -258,5 +260,8 @@ export interface EmailLog {
   subject: string;
   body: string;
   certificateId: string;
+  status: EmailStatus;
+  attempts: number;
+  lastError?: string;
   sentTime: string;
 }
