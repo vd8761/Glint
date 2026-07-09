@@ -24,6 +24,21 @@
   background: rgba(156, 163, 175, 0.45);
 }
 
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+
+button:disabled,
+[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+button:not(:disabled):active,
+[role="button"]:not([aria-disabled="true"]):active {
+  filter: brightness(0.97);
+}
+
 /* Certificate Preview Page custom styling */
 .certificate-preview-container {
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.12);
