@@ -56,6 +56,9 @@ export interface TextElement {
   height?: number; // Optional height for shapes/redaction patches
   type?: 'text' | 'image' | 'redaction';
   imageUrl?: string;
+  rotation?: number; // Clockwise rotation in degrees (default 0)
+  flipH?: boolean;   // Mirror horizontally
+  flipV?: boolean;   // Mirror vertically
 
 }
 
@@ -120,6 +123,17 @@ export interface CertificateTemplate {
   customFonts?: CustomFontAsset[];
   /** Decorative corner watermark tags (e.g. "…AUTHORIZED DISPATCH"). Default on. */
   showWatermarkTags?: boolean;
+
+  // Rotation (clockwise degrees) and mirror flags for the fixed assets.
+  logoRotation?: number;
+  logoFlipH?: boolean;
+  logoFlipV?: boolean;
+  signatureRotation?: number;
+  signatureFlipH?: boolean;
+  signatureFlipV?: boolean;
+  secondarySignatureRotation?: number;
+  secondarySignatureFlipH?: boolean;
+  secondarySignatureFlipV?: boolean;
 }
 
 export type ProgramStatus = 'draft' | 'active' | 'archived';

@@ -131,6 +131,15 @@ const TEMPLATE_SETTING_KEYS = [
   'signatoryFontSize',
   'secondarySignatoryFontFamily',
   'secondarySignatoryFontSize',
+  'logoRotation',
+  'logoFlipH',
+  'logoFlipV',
+  'signatureRotation',
+  'signatureFlipH',
+  'signatureFlipV',
+  'secondarySignatureRotation',
+  'secondarySignatureFlipH',
+  'secondarySignatureFlipV',
 ] as const;
 
 function splitTemplateTextElements(value: unknown) {

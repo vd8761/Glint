@@ -4,12 +4,13 @@ import {
   Undo2, Redo2, Sliders, Plus, Trash2, Save, ArrowLeft, Sparkles,
   Layers, Type, QrCode, Award, Check, Grid, Image, Info, User,
   MousePointerClick, AlignLeft, AlignCenter, AlignRight, Bold, Italic, Underline, HelpCircle, Eye, EyeOff, Upload,
-  ZoomIn, ZoomOut, Maximize2, GripVertical, ChevronUp, ChevronDown
+  ZoomIn, ZoomOut, Maximize2, GripVertical, ChevronUp, ChevronDown, RotateCw, FlipHorizontal2, FlipVertical2
 } from 'lucide-react';
 import type { CertificateTemplate, CustomFontAsset, RichTextRun, TextElement } from '../types';
 import { BEAUTIFUL_PRESETS } from '../presets';
 import { useQrDataUrl } from '../lib/qr';
 import { computeSnap, type Box, type Guide } from '../lib/canvasSnap';
+import { elementTransform, elementTransformSuffix } from '../lib/transform';
 import {
   applyRichTextStyleToRange,
   normalizeRichTextRuns,
@@ -98,6 +99,28 @@ function ResizeHandle({
       title="Drag to resize"
     >
       <span className="w-[9px] h-[9px] bg-indigo-600 rounded-full border-2 border-white shadow-md pointer-events-none transition-transform hover:scale-125" />
+    </div>
+  );
+}
+
+/**
+ * The rotation grip. It sits on a short stem above the element's top edge, the
+ * way PowerPoint / Canva place theirs. Because it lives inside the element box,
+ * it rotates and mirrors together with the element, so it always reads as "the
+ * top" of the current orientation.
+ */
+function RotateHandle({ onStart }: { onStart: (e: React.PointerEvent) => void }) {
+  return (
+    <div
+      onPointerDown={onStart}
+      className="absolute left-1/2 z-[56] flex flex-col items-center touch-none cursor-grab active:cursor-grabbing"
+      style={{ top: -26, transform: 'translate(-50%, -50%)' }}
+      title="Drag to rotate (hold Shift to snap to 15°)"
+    >
+      <span className="flex items-center justify-center w-[18px] h-[18px] rounded-full bg-indigo-600 border-2 border-white shadow-md pointer-events-none">
+        <RotateCw className="w-2.5 h-2.5 text-white" />
+      </span>
+      <span className="w-px h-3 bg-indigo-400 pointer-events-none" />
     </div>
   );
 }
@@ -520,6 +543,10 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
     previousTransition: string;
     previousWillChange: string;
     previousTransform: string;
+    /** Clean resting transform (`translate(-50%,-50%)` + rotate/flip) to restore on drop. */
+    restingTransform: string;
+    /** The rotate/flip part appended after the live drag translate. */
+    transformSuffix: string;
     rafId: number | null;
     lastEvent: PointerEvent | null;
   };
@@ -815,6 +842,10 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
     /** The element's centre at grab time, so the opposite edge can stay pinned. */
     startXPercent: number;
     startYPercent: number;
+    /** Orientation at grab time; preserved through the resize and needed for flip. */
+    startRotation: number;
+    startFlipH: boolean;
+    startFlipV: boolean;
   } | null>(null);
 
   // Context menu state
@@ -1057,6 +1088,100 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
     updateTemplateProperties({ [property]: value });
   };
 
+  // --- Rotation & flip -------------------------------------------------------
+
+  /** Current rotation (deg) and mirror flags for any element by id. */
+  const transformParamsFor = (id: string): { rotation: number; flipH: boolean; flipV: boolean } => {
+    if (id === 'logo')
+      return { rotation: currentTemplate.logoRotation || 0, flipH: !!currentTemplate.logoFlipH, flipV: !!currentTemplate.logoFlipV };
+    if (id === 'signature')
+      return { rotation: currentTemplate.signatureRotation || 0, flipH: !!currentTemplate.signatureFlipH, flipV: !!currentTemplate.signatureFlipV };
+    if (id === 'secondarySignature')
+      return { rotation: currentTemplate.secondarySignatureRotation || 0, flipH: !!currentTemplate.secondarySignatureFlipH, flipV: !!currentTemplate.secondarySignatureFlipV };
+    const el = currentTemplate.textElements.find((t) => t.id === id);
+    return { rotation: el?.rotation || 0, flipH: !!el?.flipH, flipV: !!el?.flipV };
+  };
+
+  /** Persist a rotation/flip change to whichever element `id` names. */
+  const commitElementTransform = (
+    id: string,
+    changes: { rotation?: number; flipH?: boolean; flipV?: boolean },
+  ) => {
+    if (id === 'logo') {
+      updateTemplateProperties({
+        ...(changes.rotation !== undefined ? { logoRotation: changes.rotation } : {}),
+        ...(changes.flipH !== undefined ? { logoFlipH: changes.flipH } : {}),
+        ...(changes.flipV !== undefined ? { logoFlipV: changes.flipV } : {}),
+      });
+    } else if (id === 'signature') {
+      updateTemplateProperties({
+        ...(changes.rotation !== undefined ? { signatureRotation: changes.rotation } : {}),
+        ...(changes.flipH !== undefined ? { signatureFlipH: changes.flipH } : {}),
+        ...(changes.flipV !== undefined ? { signatureFlipV: changes.flipV } : {}),
+      });
+    } else if (id === 'secondarySignature') {
+      updateTemplateProperties({
+        ...(changes.rotation !== undefined ? { secondarySignatureRotation: changes.rotation } : {}),
+        ...(changes.flipH !== undefined ? { secondarySignatureFlipH: changes.flipH } : {}),
+        ...(changes.flipV !== undefined ? { secondarySignatureFlipV: changes.flipV } : {}),
+      });
+    } else {
+      updateTemplateProperties({
+        textElements: currentTemplate.textElements.map((el) =>
+          el.id === id ? { ...el, ...changes } : el,
+        ),
+      });
+    }
+  };
+
+  const toggleElementFlip = (id: string, axis: 'h' | 'v') => {
+    const params = transformParamsFor(id);
+    commitElementTransform(id, axis === 'h' ? { flipH: !params.flipH } : { flipV: !params.flipV });
+    setContextMenu(null);
+  };
+
+  // Drag the rotation grip: the element spins to follow the pointer's angle
+  // around its centre. Shift snaps to 15° increments, like PowerPoint.
+  const beginRotate = (e: React.PointerEvent, id: string) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const element = document.getElementById(`canvas-item-${id}`);
+    if (!element) return;
+    const rect = element.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const params = transformParamsFor(id);
+    const startAngle = (Math.atan2(e.clientY - cy, e.clientX - cx) * 180) / Math.PI;
+    const flipSuffix = elementTransformSuffix(0, params.flipH, params.flipV);
+    const previousTransition = element.style.transition;
+    element.style.transition = 'none';
+
+    let latest = params.rotation;
+    const onMove = (ev: PointerEvent) => {
+      const angle = (Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180) / Math.PI;
+      let next = params.rotation + (angle - startAngle);
+      next = ev.shiftKey ? Math.round(next / 15) * 15 : Math.round(next);
+      // Keep it in (-180, 180] so the stored value stays tidy.
+      next = ((((next + 180) % 360) + 360) % 360) - 180;
+      latest = next;
+      element.style.transform =
+        `translate(-50%, -50%) rotate(${next}deg)${flipSuffix ? ' ' + flipSuffix : ''}`;
+    };
+    const onUp = (ev: PointerEvent) => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      element.style.transition = previousTransition;
+      try { element.releasePointerCapture(ev.pointerId); } catch { /* no capture */ }
+      commitElementTransform(id, { rotation: latest });
+    };
+    try { element.setPointerCapture(e.pointerId); } catch { /* best effort */ }
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  };
+
   const beginResize = (
     e: React.PointerEvent,
     id: string,
@@ -1108,6 +1233,8 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
 
     // Measure the element's *actual* current size so resizing starts smoothly even
     // for auto-width text (which has no explicit width until first resized).
+    // `offsetWidth/Height` is the untransformed layout box, so it is immune to the
+    // canvas zoom and to the element's own rotation — unlike getBoundingClientRect.
     const scale = kind === 'asset' || kind === 'image' ? ASSET_SCALE : TEXT_SCALE;
     const canvas = canvasRef.current;
     const element = document.getElementById(`canvas-item-${id}`);
@@ -1115,12 +1242,12 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
     let startHeight = currentHeight;
     if (canvas && element) {
       const contentW = canvas.clientWidth || 1;
-      const z = zoomRef.current || 1;
       const pxPerUnit = (scale / 100) * contentW || 1;
-      const rect = element.getBoundingClientRect();
-      startWidth = rect.width / z / pxPerUnit;
-      if (currentHeight !== undefined) startHeight = rect.height / z / pxPerUnit;
+      startWidth = element.offsetWidth / pxPerUnit;
+      if (currentHeight !== undefined) startHeight = element.offsetHeight / pxPerUnit;
     }
+
+    const orientation = transformParamsFor(id);
 
     setResizingItem({
       id,
@@ -1133,6 +1260,9 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
       startHeight,
       startXPercent,
       startYPercent,
+      startRotation: orientation.rotation,
+      startFlipH: orientation.flipH,
+      startFlipV: orientation.flipV,
     });
   };
 
@@ -1146,6 +1276,7 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
   const currentResizeHeightRef = useRef<number | null>(null);
   const currentResizeXPercentRef = useRef<number | null>(null);
   const currentResizeYPercentRef = useRef<number | null>(null);
+  const currentResizeFlipHRef = useRef<boolean | null>(null);
 
   // Document level pointer listeners to ensure smooth resizing
   useEffect(() => {
@@ -1174,9 +1305,16 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
         const contentH = canvas?.clientHeight || 600;
         const z = zoomRef.current || 1;
         const pxPerUnit = (scale / 100) * contentW || 1;
-        // Pointer delta expressed in the canvas's own pixels.
-        const dxLocal = deltaX / z;
-        const dyLocal = deltaY / z;
+        // Pointer delta in the canvas's own pixels, then projected onto the
+        // element's local axes so a rotated element still resizes along the edge
+        // the user grabbed rather than along the screen axes.
+        const rot = ((currentResize.startRotation || 0) * Math.PI) / 180;
+        const cos = Math.cos(rot);
+        const sin = Math.sin(rot);
+        const sdx = deltaX / z;
+        const sdy = deltaY / z;
+        const dxLocal = sdx * cos + sdy * sin;
+        const dyLocal = -sdx * sin + sdy * cos;
 
         const clampWidth = (w: number) => Math.min(RESIZE_MAX_WIDTH, Math.max(RESIZE_MIN_WIDTH, w));
         const clampHeight = (h: number) => Math.min(RESIZE_MAX_HEIGHT, Math.max(RESIZE_MIN_HEIGHT, h));
@@ -1188,38 +1326,63 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
         const growsBottom = handle === 'bottom' || handle === 'bottom-right' || handle === 'bottom-left';
         const growsTop = handle === 'top' || handle === 'top-right' || handle === 'top-left';
 
-        // Edge-anchored: the grabbed edge follows the pointer while the opposite edge
-        // stays put. Because the element is centred, that means the width changes by
-        // the drag AND the centre shifts by half of it (in the same direction).
-        const startWidth = currentResize.startWidth;
-        let newWidth = startWidth;
-        let widthUnits = 0; // signed change, in logical units
-        if (growsRight) widthUnits = dxLocal / pxPerUnit;
-        else if (growsLeft) widthUnits = -dxLocal / pxPerUnit;
-        newWidth = clampWidth(startWidth + widthUnits);
-        // Recompute the *applied* change after clamping so the centre stays exact.
-        const appliedWidthUnits = newWidth - startWidth;
-        // Centre shift in canvas px: half the applied width change, toward the edge.
-        const centreShiftXPx = (growsLeft ? -1 : 1) * (appliedWidthUnits * pxPerUnit) / 2;
-        const newXPercent = currentResize.startXPercent + (centreShiftXPx / contentW) * 100;
+        const horizontal = growsLeft || growsRight;
 
-        // Height only matters for redaction blocks.
-        let newHeight = currentResize.startHeight ?? 0;
+        // Edge-anchored, with mirror support: the opposite edge stays pinned while
+        // the grabbed edge follows the pointer. Track the grabbed edge as a *signed*
+        // offset from the pinned edge — when it crosses over, the width flips sign,
+        // which is exactly "drag the left side past the right side to mirror it".
+        const startWidth = currentResize.startWidth;
+        const grabSign = growsLeft ? -1 : 1; // which logical side the grabbed edge is on
+        // A mirrored element draws its logical +x on screen -x, so undo that when
+        // turning the (already local-projected) pointer delta into a logical move.
+        const flipUnitH = currentResize.startFlipH ? -1 : 1;
+        let newWidth = startWidth;
+        let centreShiftXPx = 0;
         let centreShiftYPx = 0;
+        let newFlipH = currentResize.startFlipH;
+        if (horizontal) {
+          const oppositeFromCentre = -grabSign * (startWidth / 2);
+          const grabbedFromCentre = grabSign * (startWidth / 2) + (dxLocal / pxPerUnit) * flipUnitH;
+          const signedSpan = grabbedFromCentre - oppositeFromCentre;
+          newWidth = clampWidth(Math.abs(signedSpan));
+          const spanSign = signedSpan >= 0 ? 1 : -1;
+          const grabbedClamped = oppositeFromCentre + spanSign * newWidth;
+          // Centre offset from the start centre, in logical units, then mapped back
+          // to canvas px (undo the mirror, rotate into screen space).
+          const centreLocalPx = ((grabbedClamped + oppositeFromCentre) / 2) * pxPerUnit * flipUnitH;
+          centreShiftXPx = centreLocalPx * cos;
+          centreShiftYPx = centreLocalPx * sin;
+          // The mirror toggles the instant the grabbed edge crosses the pinned one.
+          newFlipH = currentResize.startFlipH !== (spanSign !== grabSign);
+        }
+
+        // Height only matters for redaction blocks (vertical, no flip).
+        let newHeight = currentResize.startHeight ?? 0;
         if (currentResize.kind === 'redaction') {
           let heightUnits = 0;
           if (growsBottom) heightUnits = dyLocal / pxPerUnit;
           else if (growsTop) heightUnits = -dyLocal / pxPerUnit;
           newHeight = clampHeight((currentResize.startHeight ?? 0) + heightUnits);
           const appliedHeightUnits = newHeight - (currentResize.startHeight ?? 0);
-          centreShiftYPx = (growsTop ? -1 : 1) * (appliedHeightUnits * pxPerUnit) / 2;
+          const shiftLocalPx = (growsTop ? -1 : 1) * (appliedHeightUnits * pxPerUnit) / 2;
+          centreShiftXPx += -shiftLocalPx * sin;
+          centreShiftYPx += shiftLocalPx * cos;
         }
+        const newXPercent = currentResize.startXPercent + (centreShiftXPx / contentW) * 100;
         const newYPercent = currentResize.startYPercent + (centreShiftYPx / contentH) * 100;
 
+        // Preview keeps the element's rotation and (live) mirror while resizing, so
+        // there is no snap-back on release.
+        const orientationSuffix = elementTransformSuffix(
+          currentResize.startRotation,
+          newFlipH,
+          currentResize.startFlipV,
+        );
         const applyTransform = () => {
           if (!elementDom) return;
           elementDom.style.transform =
-            `translate(-50%, -50%) translate(${centreShiftXPx}px, ${centreShiftYPx}px)`;
+            `translate(-50%, -50%) translate(${centreShiftXPx}px, ${centreShiftYPx}px)${orientationSuffix ? ' ' + orientationSuffix : ''}`;
         };
 
         if (currentResize.kind === 'redaction') {
@@ -1227,6 +1390,7 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
           currentResizeHeightRef.current = newHeight;
           currentResizeXPercentRef.current = newXPercent;
           currentResizeYPercentRef.current = newYPercent;
+          if (horizontal) currentResizeFlipHRef.current = newFlipH;
           if (elementDom) {
             elementDom.style.width = `${newWidth * scale}cqw`;
             elementDom.style.height = `${newHeight * scale}cqw`;
@@ -1246,30 +1410,38 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
           }
 
           // Left/right (and corners) adjust the wrap width, edge-anchored.
-          if (handle !== 'top' && handle !== 'bottom') {
+          if (horizontal) {
             currentResizeWidthRef.current = newWidth;
             currentResizeXPercentRef.current = newXPercent;
+            currentResizeFlipHRef.current = newFlipH;
             if (elementDom) {
               elementDom.style.width = `${newWidth * scale}cqw`;
               elementDom.style.maxWidth = 'none';
               applyTransform();
             }
+          } else if (elementDom) {
+            // Font-only handle: repaint the (unchanged) orientation so a prior
+            // frame's mirror preview can't linger.
+            applyTransform();
           }
           return;
         }
 
         // image or asset (logo / signature): width only, from whichever handle. For
-        // top/bottom handles use the vertical drag to drive width.
-        if (growsTop || (growsBottom && !growsLeft && !growsRight)) {
+        // pure top/bottom handles use the vertical drag to drive width (no flip).
+        if (!horizontal && (growsTop || growsBottom)) {
           const vUnits = growsBottom ? dyLocal / pxPerUnit : -dyLocal / pxPerUnit;
           newWidth = clampWidth(startWidth + vUnits);
         }
         currentResizeWidthRef.current = newWidth;
         // Keep the grabbed side edge under the pointer for left/right handles.
-        if (growsLeft || growsRight) currentResizeXPercentRef.current = newXPercent;
+        if (horizontal) {
+          currentResizeXPercentRef.current = newXPercent;
+          currentResizeFlipHRef.current = newFlipH;
+        }
         if (elementDom) {
           elementDom.style.width = `${newWidth * scale}cqw`;
-          if (growsLeft || growsRight) applyTransform();
+          applyTransform();
           if (currentResize.kind === 'asset') {
             const imgDom = elementDom.querySelector('img');
             if (imgDom) (imgDom as HTMLElement).style.width = `${newWidth * scale}cqw`;
@@ -1285,20 +1457,41 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
       const finalHeight = currentResizeHeightRef.current;
       const finalX = currentResizeXPercentRef.current;
       const finalY = currentResizeYPercentRef.current;
+      const finalFlipH = currentResizeFlipHRef.current;
 
       if (currentResize) {
+        // Rewrite the DOM to the exact resting state React will render next. The
+        // gesture mutated `transform`/`left`/`top` directly; React does not touch
+        // `transform` (its declarative value is unchanged), so if we left the live
+        // preview transform in place the element would keep the centre-shift and
+        // appear to "teleport" on the next interaction. This is that fix.
+        const committedFlipH = finalFlipH ?? currentResize.startFlipH;
+        const elementDom = document.getElementById(`canvas-item-${currentResize.id}`);
+        if (elementDom) {
+          if (finalX !== null) elementDom.style.left = `${roundFreePercent(finalX)}%`;
+          if (finalY !== null) elementDom.style.top = `${roundFreePercent(finalY)}%`;
+          elementDom.style.transform = elementTransform(
+            currentResize.startRotation,
+            committedFlipH,
+            currentResize.startFlipV,
+          );
+        }
+
         setCurrentTemplate(prev => {
           const updated = { ...prev };
 
           if (currentResize.id === 'logo') {
             if (finalWidth !== null) updated.logoWidth = finalWidth;
             if (finalX !== null) updated.logoX = roundFreePercent(finalX);
+            if (finalFlipH !== null) updated.logoFlipH = finalFlipH;
           } else if (currentResize.id === 'signature') {
             if (finalWidth !== null) updated.signatureWidth = finalWidth;
             if (finalX !== null) updated.signatureX = roundFreePercent(finalX);
+            if (finalFlipH !== null) updated.signatureFlipH = finalFlipH;
           } else if (currentResize.id === 'secondarySignature') {
             if (finalWidth !== null) updated.secondarySignatureWidth = finalWidth;
             if (finalX !== null) updated.secondarySignatureX = roundFreePercent(finalX);
+            if (finalFlipH !== null) updated.secondarySignatureFlipH = finalFlipH;
           } else {
             updated.textElements = prev.textElements.map(el => {
               if (el.id === currentResize.id) {
@@ -1308,6 +1501,7 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
                 if (finalHeight !== null) updatedEl.height = finalHeight;
                 if (finalX !== null) updatedEl.xPercent = roundFreePercent(finalX);
                 if (finalY !== null) updatedEl.yPercent = roundFreePercent(finalY);
+                if (finalFlipH !== null) updatedEl.flipH = finalFlipH;
                 return updatedEl;
               }
               return el;
@@ -1324,6 +1518,7 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
       currentResizeHeightRef.current = null;
       currentResizeXPercentRef.current = null;
       currentResizeYPercentRef.current = null;
+      currentResizeFlipHRef.current = null;
       setResizingItem(null);
     };
 
@@ -2081,6 +2276,10 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
     const startLeft = ((elementRect.left + elementRect.width / 2 - canvasRect.left) / canvasRect.width) * 100;
     const startTop = ((elementRect.top + elementRect.height / 2 - canvasRect.top) / canvasRect.height) * 100;
 
+    const orientation = transformParamsFor(id);
+    const transformSuffix = elementTransformSuffix(orientation.rotation, orientation.flipH, orientation.flipV);
+    const restingTransform = elementTransform(orientation.rotation, orientation.flipH, orientation.flipV);
+
     const session: DragSession = {
       id,
       pointerId: e.pointerId,
@@ -2099,6 +2298,8 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
       previousTransition: element.style.transition,
       previousWillChange: element.style.willChange,
       previousTransform: element.style.transform,
+      restingTransform,
+      transformSuffix,
       rafId: null,
       lastEvent: null,
     };
@@ -2193,7 +2394,10 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
       const z = zoomRef.current || 1;
       const visualDx = (((nextX - active.startLeft) / 100) * active.canvasWidth) / z;
       const visualDy = (((nextY - active.startTop) / 100) * active.canvasHeight) / z;
-      active.element.style.transform = `translate(-50%, -50%) translate3d(${visualDx}px, ${visualDy}px, 0)`;
+      // The rotate/flip suffix trails the live translate so a rotated element keeps
+      // its orientation while it slides under the pointer.
+      active.element.style.transform =
+        `translate(-50%, -50%) translate3d(${visualDx}px, ${visualDy}px, 0)${active.transformSuffix ? ' ' + active.transformSuffix : ''}`;
     };
 
     const onPointerMove = (event: PointerEvent) => {
@@ -2223,7 +2427,10 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
         active.element.style.left = `${finalCoords.x}%`;
         active.element.style.top = `${finalCoords.y}%`;
       }
-      active.element.style.transform = active.previousTransform || 'translate(-50%, -50%)';
+      // Restore the clean resting transform (centre + rotate/flip), never the
+      // captured `previousTransform`, which may carry a stale live-preview offset
+      // from an earlier gesture that React had no reason to reconcile away.
+      active.element.style.transform = active.restingTransform;
       active.element.style.willChange = active.previousWillChange;
       requestAnimationFrame(() => {
         active.element.style.transition = active.previousTransition;
@@ -4314,7 +4521,7 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
                     position: 'absolute',
                     left: `${currentTemplate.logoX}%`,
                     top: `${currentTemplate.logoY}%`,
-                    transform: 'translate(-50%, -50%)',
+                    transform: elementTransform(currentTemplate.logoRotation, currentTemplate.logoFlipH, currentTemplate.logoFlipV),
                   }}
                   className={`cursor-pointer group z-30 ${selectedElId === 'logo' ? 'outline border-dashed outline-2 outline-indigo-500 outline-offset-4 rounded px-1' : 'hover:outline hover:outline-dashed hover:outline-1 hover:outline-slate-350 hover:outline-offset-4'}`}
                 >
@@ -4350,6 +4557,7 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
                         <Trash2 className="w-3 h-3" />
                       </button>
 
+                      <RotateHandle onStart={(e) => beginRotate(e, 'logo')} />
                       {ALL_HANDLES.map((h) => (
                         <ResizeHandle
                           key={h}
@@ -4376,7 +4584,7 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
                         position: 'absolute',
                         left: `${el.xPercent}%`,
                         top: `${el.yPercent}%`,
-                        transform: 'translate(-50%, -50%)',
+                        transform: elementTransform(el.rotation, el.flipH, el.flipV),
                         width: `${(el.width || 200) * 0.1125}cqw`,
                         height: `${(el.height || 40) * 0.1125}cqw`,
                         backgroundColor: el.color || '#FFFFFF',
@@ -4409,6 +4617,7 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
                             <Trash2 className="w-3 h-3" />
                           </button>
 
+                          <RotateHandle onStart={(e) => beginRotate(e, el.id)} />
                           {PATCH_HANDLES.map((h) => (
                             <ResizeHandle
                               key={h}
@@ -4434,7 +4643,7 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
                         position: 'absolute',
                         left: `${el.xPercent}%`,
                         top: `${el.yPercent}%`,
-                        transform: 'translate(-50%, -50%)',
+                        transform: elementTransform(el.rotation, el.flipH, el.flipV),
                         width: `${(el.width || 120) * 0.125}cqw`,
                         zIndex: isSelected ? 40 : 20,
                       }}
@@ -4470,6 +4679,7 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
                             <Trash2 className="w-3 h-3" />
                           </button>
 
+                          <RotateHandle onStart={(e) => beginRotate(e, el.id)} />
                           {CORNER_HANDLES.map((h) => (
                             <ResizeHandle
                               key={h}
@@ -4513,7 +4723,7 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
                       position: 'absolute',
                       left: `${el.xPercent}%`,
                       top: `${el.yPercent}%`,
-                      transform: 'translate(-50%, -50%)',
+                      transform: elementTransform(el.rotation, el.flipH, el.flipV),
                       cursor: editingCanvasId === el.id ? 'text' : undefined,
                       color: el.color,
                       // Same canvas-relative scale the viewer uses, so the editor
@@ -4577,6 +4787,7 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
                           font size for all handles — the move handler only applies
                           it for the handles that should change it.
                         */}
+                        <RotateHandle onStart={(e) => beginRotate(e, el.id)} />
                         {ALL_HANDLES.map((h) => (
                           <ResizeHandle
                             key={h}
@@ -4600,7 +4811,7 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
                     position: 'absolute',
                     left: `${currentTemplate.signatureX}%`,
                     top: `${currentTemplate.signatureY}%`,
-                    transform: 'translate(-50%, -50%)',
+                    transform: elementTransform(currentTemplate.signatureRotation, currentTemplate.signatureFlipH, currentTemplate.signatureFlipV),
                     width: `${currentTemplate.signatureWidth * 0.125}cqw`,
                   }}
                   className={`cursor-pointer group z-30 p-2 text-center select-none ${selectedElId === 'signature' ? 'outline border-dashed outline-2 outline-indigo-500 outline-offset-4 rounded' : 'hover:outline hover:outline-dashed hover:outline-1 hover:outline-slate-400'}`}
@@ -4646,6 +4857,7 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
                         <Trash2 className="w-3 h-3" />
                       </button>
 
+                      <RotateHandle onStart={(e) => beginRotate(e, 'signature')} />
                       {ALL_HANDLES.map((h) => (
                         <ResizeHandle
                           key={h}
@@ -4669,7 +4881,7 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
                     position: 'absolute',
                     left: `${currentTemplate.secondarySignatureX || 70}%`,
                     top: `${currentTemplate.secondarySignatureY || 78}%`,
-                    transform: 'translate(-50%, -50%)',
+                    transform: elementTransform(currentTemplate.secondarySignatureRotation, currentTemplate.secondarySignatureFlipH, currentTemplate.secondarySignatureFlipV),
                     width: `${(currentTemplate.secondarySignatureWidth || 100) * 0.125}cqw`,
                   }}
                   className={`cursor-pointer group z-30 p-2 text-center select-none ${selectedElId === 'secondarySignature' ? 'outline border-dashed outline-2 outline-indigo-500 outline-offset-4 rounded' : 'hover:outline hover:outline-dashed hover:outline-1 hover:outline-slate-400'}`}
@@ -4718,6 +4930,7 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
                         <Trash2 className="w-3 h-3" />
                       </button>
 
+                      <RotateHandle onStart={(e) => beginRotate(e, 'secondarySignature')} />
                       {ALL_HANDLES.map((h) => (
                         <ResizeHandle
                           key={h}
@@ -4868,7 +5081,30 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
               >
                 <Sliders className="w-3.5 h-3.5" /> Reset Size
               </button>
-              
+
+              <div className="h-px bg-slate-100 my-1" />
+              <div className="px-2.5 py-1 text-[9px] uppercase font-bold text-slate-400">
+                Rotate &amp; Flip
+              </div>
+              <button
+                onClick={() => toggleElementFlip(contextMenu.targetId!, 'h')}
+                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-indigo-50 hover:text-indigo-600 rounded-lg text-left"
+              >
+                <FlipHorizontal2 className="w-3.5 h-3.5" /> Flip Horizontal
+              </button>
+              <button
+                onClick={() => toggleElementFlip(contextMenu.targetId!, 'v')}
+                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-indigo-50 hover:text-indigo-600 rounded-lg text-left"
+              >
+                <FlipVertical2 className="w-3.5 h-3.5" /> Flip Vertical
+              </button>
+              <button
+                onClick={() => { commitElementTransform(contextMenu.targetId!, { rotation: 0 }); setContextMenu(null); }}
+                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-indigo-50 hover:text-indigo-600 rounded-lg text-left"
+              >
+                <RotateCw className="w-3.5 h-3.5" /> Reset Rotation
+              </button>
+
               {contextMenu.targetId.startsWith('t-') && (
                 <>
                   <div className="h-px bg-slate-100 my-1" />
