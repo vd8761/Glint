@@ -125,6 +125,13 @@ const CUSTOM_FONT_MARKER = '__customFont';
 // Extra per-template flags that have no dedicated column are stashed as a marker
 // element inside the text_elements JSON, so they persist without a schema change.
 const SETTINGS_MARKER = '__settings';
+const TEMPLATE_SETTING_KEYS = [
+  'showWatermarkTags',
+  'signatoryFontFamily',
+  'signatoryFontSize',
+  'secondarySignatoryFontFamily',
+  'secondarySignatoryFontSize',
+] as const;
 
 function splitTemplateTextElements(value: unknown) {
   const textElements = Array.isArray(value) ? value : [];
@@ -144,7 +151,11 @@ function splitTemplateTextElements(value: unknown) {
 function mapTemplate(row: any) {
   const { textElements, customFonts, settings } = splitTemplateTextElements(row.text_elements);
   return {
-    ...(settings.showWatermarkTags !== undefined ? { showWatermarkTags: settings.showWatermarkTags } : {}),
+    ...Object.fromEntries(
+      TEMPLATE_SETTING_KEYS
+        .filter((key) => settings[key] !== undefined)
+        .map((key) => [key, settings[key]]),
+    ),
     id: row.id,
     workspaceId: row.workspace_id,
     name: row.name,
@@ -898,6 +909,11 @@ const TEMPLATE_COLUMNS = [
 
 function templateValues(body: any, workspaceId: string): unknown[] {
   const nz = (v: unknown, fallback: unknown) => (v === undefined || v === '' ? fallback : v);
+  const settings = Object.fromEntries(
+    TEMPLATE_SETTING_KEYS
+      .filter((key) => body[key] !== undefined)
+      .map((key) => [key, body[key]]),
+  );
   const packedTextElements = [
     ...(body.textElements ?? []),
     ...(body.customFonts ?? []).map((font: any) => ({
@@ -905,9 +921,7 @@ function templateValues(body: any, workspaceId: string): unknown[] {
       type: CUSTOM_FONT_MARKER,
       customFont: font,
     })),
-    ...(body.showWatermarkTags !== undefined
-      ? [{ id: 'settings-meta', type: SETTINGS_MARKER, settings: { showWatermarkTags: body.showWatermarkTags } }]
-      : []),
+    ...(Object.keys(settings).length ? [{ id: 'settings-meta', type: SETTINGS_MARKER, settings }] : []),
   ];
   return [
     workspaceId,
