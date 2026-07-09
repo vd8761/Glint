@@ -4,7 +4,8 @@ import {
   Undo2, Redo2, Sliders, Plus, Trash2, Save, ArrowLeft, Sparkles,
   Layers, Type, QrCode, Award, Check, Grid, Image, Info, User,
   MousePointerClick, AlignLeft, AlignCenter, AlignRight, Bold, Italic, Underline, HelpCircle, Eye, EyeOff, Upload,
-  ZoomIn, ZoomOut, Maximize2, GripVertical, ChevronUp, ChevronDown, RotateCw, FlipHorizontal2, FlipVertical2
+  ZoomIn, ZoomOut, Maximize2, GripVertical, ChevronUp, ChevronDown, RotateCw, FlipHorizontal2, FlipVertical2,
+  X, LogOut
 } from 'lucide-react';
 import type { CertificateTemplate, CustomFontAsset, RichTextRun, TextElement } from '../types';
 import { BEAUTIFUL_PRESETS } from '../presets';
@@ -130,6 +131,19 @@ const ALL_HANDLES: HandlePos[] = [
 ];
 const CORNER_HANDLES: HandlePos[] = ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'left', 'right'];
 const PATCH_HANDLES: HandlePos[] = ['right', 'bottom', 'bottom-right'];
+
+/** Heading shown at the top of each floating tool panel. */
+const PANEL_TITLES: Record<string, string> = {
+  templates: 'Design Presets',
+  ai: 'AI Design Agent',
+  text: 'Text',
+  uploads: 'Uploads',
+  backdrop: 'Background',
+  borders: 'Borders & Frame',
+  seals: 'Stamps & QR',
+  sign: 'Signatories',
+  layers: 'Layers',
+};
 
 type HorizontalAlign = 'left' | 'center' | 'right';
 type VerticalAlign = 'top' | 'middle' | 'bottom';
@@ -395,9 +409,12 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
   const [history, setHistory] = useState<CertificateTemplate[]>([JSON.parse(JSON.stringify(template))]);
   const [historyIndex, setHistoryIndex] = useState<number>(0);
   
-  // Active Sidebar Nav Tab inside Canva Editor
-  const [activeSideTab, setActiveSideTab] = useState<'templates' | 'text' | 'borders' | 'backdrop' | 'seals' | 'sign' | 'layers' | 'ai' | 'uploads' | null>('templates');
-  
+  // Active tool tab (opens its floating settings panel). Starts closed so the
+  // canvas is unobstructed on entry — the distraction-free default.
+  const [activeSideTab, setActiveSideTab] = useState<'templates' | 'text' | 'borders' | 'backdrop' | 'seals' | 'sign' | 'layers' | 'ai' | 'uploads' | null>(null);
+  // Confirmation gate for leaving the editor without saving.
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+
   // Currently highlighted / selected element ID on visual canvas
   const [selectedElId, setSelectedElId] = useState<string | null>(null);
   // Text element currently being edited *in place* on the canvas (double-click).
@@ -2679,91 +2696,89 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
   };
 
   return (
-    <div className="bg-[#F8F9FA] text-slate-800 h-full flex flex-col overflow-hidden relative z-30 font-sans">
-      
-      {/* Editor Action Top bar */}
-      <div className="h-14 bg-white border-b border-slate-200 px-6 flex justify-between items-center z-20 shrink-0 shadow-sm">
-        <div className="flex items-center gap-2 sm:gap-4">
+    <div className="fixed inset-0 bg-[#E2E8F0] text-slate-800 overflow-hidden z-[60] font-sans">
+
+      {/* Floating brand + template title (top-left) */}
+      <div className="absolute top-3 left-3 z-40 flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/90 pl-2 pr-3 py-1.5 shadow-lg backdrop-blur">
+        <span className="grid h-7 w-7 place-items-center rounded-xl bg-slate-950 text-white shrink-0">
+          <Award className="w-4 h-4" />
+        </span>
+        <input
+          type="text"
+          value={currentTemplate.name}
+          onChange={(e) => updateTemplateProperty('name', capitalizeWords(e.target.value))}
+          className="bg-transparent text-sm font-bold text-slate-900 w-28 sm:w-52 focus:outline-none focus:bg-slate-50 rounded px-1 py-0.5 transition-all"
+          placeholder="Template title…"
+        />
+      </div>
+
+      {/* Floating actions (top-right): history, view aids, save, exit */}
+      <div className="absolute top-3 right-3 z-40 flex items-center gap-2">
+        <div className="flex items-center gap-0.5 rounded-2xl border border-slate-200 bg-white/90 p-1 shadow-lg backdrop-blur">
           <button
-            onClick={onCancel}
-            className="text-xs hover:bg-slate-100 text-slate-500 hover:text-slate-900 px-2 py-1.5 rounded transition-all flex items-center gap-1 sm:gap-1.5 font-semibold"
+            onClick={handleUndo}
+            disabled={historyIndex === 0}
+            className={`grid h-8 w-8 place-items-center rounded-xl transition-colors ${historyIndex === 0 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
+            title="Undo (Ctrl+Z)"
           >
-            <ArrowLeft className="w-4 h-4" /> <span className="hidden sm:inline">Exit Editor</span>
+            <Undo2 className="w-4 h-4" />
           </button>
-          <span className="text-slate-200 font-mono hidden sm:inline">/</span>
-          <div className="flex items-center gap-2">
-            <input 
-              type="text"
-              value={currentTemplate.name}
-              onChange={(e) => updateTemplateProperty('name', capitalizeWords(e.target.value))}
-              className="bg-slate-50 text-xs sm:text-sm font-bold text-slate-900 max-w-[80px] sm:max-w-sm border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:bg-white rounded py-1 px-1.5 sm:px-2.5 transition-all"
-              placeholder="Enter Template Title..."
-            />
-          </div>
+          <button
+            onClick={handleRedo}
+            disabled={historyIndex === history.length - 1}
+            className={`grid h-8 w-8 place-items-center rounded-xl transition-colors ${historyIndex === history.length - 1 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
+            title="Redo (Ctrl+Y)"
+          >
+            <Redo2 className="w-4 h-4" />
+          </button>
         </div>
 
-        {/* Undo, Redo, Save Deck */}
-        <div className="flex items-center gap-2 sm:gap-4">
-          <div className="flex items-center bg-slate-50 border border-slate-200 rounded p-0.5 shadow-inner">
-            <button
-              onClick={handleUndo}
-              disabled={historyIndex === 0}
-              className={`p-1.5 rounded transition-colors ${historyIndex === 0 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-650 hover:bg-slate-200 hover:text-slate-900'}`}
-              title="Undo last change"
-            >
-              <Undo2 className="w-4 h-4" />
-            </button>
-            <button
-              onClick={handleRedo}
-              disabled={historyIndex === history.length - 1}
-              className={`p-1.5 rounded transition-colors ${historyIndex === history.length - 1 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-655 hover:bg-slate-200 hover:text-slate-900'}`}
-              title="Redo previous change"
-            >
-              <Redo2 className="w-4 h-4" />
-            </button>
-          </div>
- 
-          {/* Layout Guides & Snapping Tools */}
-          <div className="flex items-center gap-1 sm:gap-1.5 bg-slate-50 border border-slate-200 rounded p-0.5 shadow-inner">
-            <button
-              type="button"
-              onClick={() => setGridVisible(!gridVisible)}
-              className={`p-1 rounded sm:p-1.5 transition-all text-xs font-bold flex items-center gap-1 cursor-pointer ${gridVisible ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-555 hover:bg-slate-200 hover:text-slate-900'}`}
-              title="Toggle Alignment Grid Dots"
-            >
-              <Grid className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline text-[10px]">Grid</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setSnapToGrid(!snapToGrid)}
-              className={`p-1 rounded sm:p-1.5 transition-all text-xs font-bold flex items-center gap-1 cursor-pointer ${snapToGrid ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-555 hover:bg-slate-200 hover:text-slate-900'}`}
-              title="Snap to Grid increments (2.5%)"
-            >
-              <MousePointerClick className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline text-[10px]">Snap</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => directSampleUploadRef.current?.click()}
-              className="p-1 rounded sm:p-1.5 transition-all text-xs font-bold flex items-center gap-1 cursor-pointer text-slate-555 hover:bg-slate-200 hover:text-slate-900"
-              title="Upload Sample Certificate"
-            >
-              <Upload className="w-3.5 h-3.5 text-emerald-600" />
-              <span className="hidden sm:inline text-[10px] text-emerald-650">Upload Sample</span>
-            </button>
-          </div>
- 
+        <div className="flex items-center gap-0.5 rounded-2xl border border-slate-200 bg-white/90 p-1 shadow-lg backdrop-blur">
           <button
             type="button"
-            onClick={() => onSave(prepareTemplateForSave())}
-            disabled={isSaving}
-            className="bg-slate-950 hover:bg-slate-850 text-white text-xs px-2.5 sm:px-5 py-2 rounded font-bold shadow transition-all flex items-center gap-1 sm:gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
+            onClick={() => setGridVisible(!gridVisible)}
+            className={`grid h-8 w-8 place-items-center rounded-xl transition-all ${gridVisible ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
+            title="Toggle alignment grid"
           >
-            {isSaving ? <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-            <span className="hidden sm:inline">{isSaving ? 'Saving...' : 'Save Canva Slate'}</span><span className="inline sm:hidden">{isSaving ? 'Saving...' : 'Save'}</span>
+            <Grid className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setSnapToGrid(!snapToGrid)}
+            className={`grid h-8 w-8 place-items-center rounded-xl transition-all ${snapToGrid ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
+            title="Snap to grid"
+          >
+            <MousePointerClick className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => directSampleUploadRef.current?.click()}
+            className="grid h-8 w-8 place-items-center rounded-xl text-emerald-600 hover:bg-emerald-50 transition-all"
+            title="Upload sample certificate"
+          >
+            <Upload className="w-4 h-4" />
           </button>
         </div>
+
+        <button
+          type="button"
+          onClick={() => onSave(prepareTemplateForSave())}
+          disabled={isSaving}
+          className="bg-slate-950 hover:bg-slate-800 text-white text-xs px-4 py-2.5 rounded-2xl font-bold shadow-lg transition-all flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
+          title="Save Canva style"
+        >
+          {isSaving ? <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+          <span className="hidden sm:inline">{isSaving ? 'Saving…' : 'Save Canva Style'}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setShowExitConfirm(true)}
+          className="grid h-[38px] w-[38px] place-items-center rounded-2xl border border-slate-200 bg-white/90 text-slate-600 hover:text-rose-600 hover:border-rose-200 shadow-lg backdrop-blur transition-all"
+          title="Exit editor"
+        >
+          <LogOut className="w-4 h-4" />
+        </button>
       </div>
       <input
           type="file"
@@ -2786,53 +2801,58 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
           style={{ display: 'none' }}
           onChange={handleCustomFontUpload}
         />
-        {/* Split core workspace content */}
-      <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-w-0">
-        
-        {/* Sidebar Nav Category Rail (Canva Style) */}
-        <div className="w-full h-16 md:w-16 md:h-full bg-slate-50 border-b md:border-b-0 md:border-r border-slate-200 flex flex-row md:flex-col items-center justify-between px-4 md:px-0 py-2 md:py-4 shrink-0 z-10 overflow-hidden">
-          <div 
-            className="flex flex-row md:flex-col gap-1 md:gap-1.5 md:space-y-1.5 w-full justify-between md:justify-start overflow-x-auto md:overflow-x-hidden md:overflow-y-auto md:flex-1 md:py-2"
-            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-          >
-            {[
-              { id: 'templates', icon: Award, label: 'Design presets' },
-              { id: 'ai', icon: Sparkles, label: 'AI Design Agent' },
-              { id: 'text', icon: Type, label: 'Add Text' },
-              { id: 'uploads', icon: Upload, label: 'Upload Elements' },
-              { id: 'backdrop', icon: Image, label: 'Backgrounds' },
-              { id: 'borders', icon: Sliders, label: 'Borders' },
-              { id: 'seals', icon: QrCode, label: 'Stamps' },
-              { id: 'sign', icon: User, label: 'Signatories' },
-              { id: 'layers', icon: Layers, label: 'Layers List' },
-            ].map(tab => {
-              const Icon = tab.icon;
-              const isActive = activeSideTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveSideTab(activeSideTab === tab.id ? null : (tab.id as any))}
-                  className={`flex-1 md:w-full flex flex-col items-center justify-center py-2 px-1 md:py-3 transition-all outline-none border-t-2 md:border-t-0 md:border-l-2 relative ${
-                    isActive ? 'border-indigo-650 text-indigo-650 bg-white font-bold' : 'border-transparent text-slate-400 hover:text-slate-800'
-                  }`}
-                  title={tab.label}
-                >
-                  <Icon className="w-5 h-5 mb-0.5 md:mb-1" />
-                  <span className="text-[8px] font-bold text-center scale-90 truncate max-w-full">{tab.id.toUpperCase()}</span>
-                </button>
-              );
-            })}
-          </div>
-          
-          <div className="text-center hidden md:block md:mt-2">
-            <HelpCircle className="w-4 h-4 text-slate-400 hover:text-slate-600 cursor-pointer mx-auto" />
-          </div>
+        {/* Full-screen free-roam workspace; every control floats over the canvas */}
+      <div className="absolute inset-0">
+
+        {/* Floating tool rail (top-center): each button opens its settings panel */}
+        <div
+          className="absolute top-3 left-1/2 -translate-x-1/2 z-40 flex items-center gap-0.5 rounded-2xl border border-slate-200 bg-white/90 p-1 shadow-lg backdrop-blur max-w-[70vw] overflow-x-auto"
+          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+        >
+          {[
+            { id: 'templates', icon: Award, label: 'Presets' },
+            { id: 'ai', icon: Sparkles, label: 'AI Agent' },
+            { id: 'text', icon: Type, label: 'Text' },
+            { id: 'uploads', icon: Upload, label: 'Uploads' },
+            { id: 'backdrop', icon: Image, label: 'Background' },
+            { id: 'borders', icon: Sliders, label: 'Borders' },
+            { id: 'seals', icon: QrCode, label: 'Stamps' },
+            { id: 'sign', icon: User, label: 'Signatories' },
+            { id: 'layers', icon: Layers, label: 'Layers' },
+          ].map(tab => {
+            const Icon = tab.icon;
+            const isActive = activeSideTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveSideTab(activeSideTab === tab.id ? null : (tab.id as any))}
+                className={`group flex items-center gap-1.5 rounded-xl px-2.5 py-2 transition-all outline-none shrink-0 ${
+                  isActive ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+                title={tab.label}
+              >
+                <Icon className="w-4 h-4 shrink-0" />
+                <span className={`text-[11px] font-bold whitespace-nowrap ${isActive ? 'inline' : 'hidden xl:inline'}`}>{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
 
-        {/* Floating properties drawer specific to the active side tab */}
-        <div className={`w-full h-48 md:w-80 md:h-full bg-white border-b md:border-b-0 md:border-r border-slate-200 flex flex-col overflow-y-auto shrink-0 z-10 shadow-sm text-xs leading-normal text-slate-700 font-sans ${activeSideTab ? 'block' : 'hidden'}`}>
-          <div className="p-5 space-y-6">
-            
+        {/* Floating settings panel for the active tool (left overlay) */}
+        {activeSideTab && (
+        <div className="absolute left-3 top-16 bottom-16 w-[92vw] sm:w-80 z-40 bg-white border border-slate-200 rounded-2xl flex flex-col overflow-hidden shadow-2xl text-xs leading-normal text-slate-700 font-sans animate-fade-in">
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 shrink-0">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{PANEL_TITLES[activeSideTab] || 'Settings'}</span>
+            <button
+              onClick={() => setActiveSideTab(null)}
+              className="grid h-6 w-6 place-items-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+              title="Close panel"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-5 space-y-6">
+
             {/* TAB: TEMPLATES */}
             {activeSideTab === 'templates' && (() => {
               const filteredPresets = BEAUTIFUL_PRESETS.filter(preset => {
@@ -4365,12 +4385,13 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
 
           </div>
         </div>
+        )}
 
-        {/* Outer Designer Stage canvas container */}
-        <div ref={stageRef} className="flex-1 min-h-0 bg-[#E2E8F0] p-3 flex items-center justify-center overflow-hidden selection:bg-slate-200 relative">
+        {/* Full-screen free-roam canvas (the pan/zoom stage sits behind all chrome) */}
+        <div ref={stageRef} className="absolute inset-0 bg-[#E2E8F0] flex items-center justify-center overflow-hidden selection:bg-slate-200">
 
           {showCanvaTip && (
-            <div className="hidden md:block absolute top-4 left-4 bg-white border border-slate-205 p-3 rounded-lg text-[10px] text-slate-500 max-w-sm space-y-1.5 shadow-md z-10 transition-all duration-300">
+            <div className="hidden md:block absolute bottom-20 left-4 z-20 bg-white border border-slate-205 p-3 rounded-xl text-[10px] text-slate-500 max-w-xs space-y-1.5 shadow-lg transition-all duration-300">
               <div className="flex justify-between items-start gap-3">
                 <h4 className="font-bold text-slate-800 flex items-center gap-1.5">
                   <MousePointerClick className="w-3.5 h-3.5 text-indigo-600" /> Interactive Canva Workspace
@@ -5043,6 +5064,45 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
         </div>
 
       </div>
+
+      {/* Exit confirmation — the only way out is Save or a deliberate discard */}
+      {showExitConfirm && (
+        <div className="absolute inset-0 z-[80] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4" onPointerDown={() => setShowExitConfirm(false)}>
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white shadow-2xl border border-slate-200 p-6 space-y-4 animate-fade-in"
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <div className="space-y-1">
+              <h3 className="text-base font-bold text-slate-900">Leave the editor?</h3>
+              <p className="text-xs text-slate-500 leading-relaxed">Save your Canva style to keep this design, or exit without saving to discard changes made in this session.</p>
+            </div>
+            <div className="flex flex-col gap-2 pt-1">
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={() => { setShowExitConfirm(false); onSave(prepareTemplateForSave()); }}
+                className="w-full bg-slate-950 hover:bg-slate-800 text-white text-sm px-4 py-2.5 rounded-xl font-bold shadow transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+              >
+                <Save className="w-4 h-4" /> Save Canva Style
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowExitConfirm(false); onCancel(); }}
+                className="w-full bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 text-sm px-4 py-2.5 rounded-xl font-bold transition-all flex items-center justify-center gap-2"
+              >
+                <LogOut className="w-4 h-4" /> Exit Without Saving
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowExitConfirm(false)}
+                className="w-full text-slate-500 hover:text-slate-800 text-xs px-4 py-2 rounded-xl font-semibold transition-all"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Custom right-click context menu */}
       {contextMenu && (
