@@ -9,13 +9,18 @@ import {
   BarChart3, Award, Users, Database, ShieldCheck, Settings, Globe, Mail, Landmark, 
   Trash2, Plus, ArrowUpRight, Upload, RefreshCw, Layers, Calendar, User, Search,
   AlertTriangle, Check, Sliders, Play, CheckCircle2, ShieldAlert, Sparkles, BookOpen,
-  LogOut, Menu, X, ArrowLeft, ExternalLink, Eye, MoreHorizontal
+  LogOut, Menu, X, ArrowLeft, ExternalLink, Eye, MoreHorizontal, Download
 } from 'lucide-react';
 import {
   OrganizationWorkspace, CertificateProgram, CertificateTemplate,
   Certificate, Recipient, WorkspaceAnalytics, TextElement, EmailLog, AuditLogEntry
 } from '../types';
 import { CanvaEditor } from './CanvaEditor';
+import { TemplatePreview, captureTemplatePreviewPng } from './TemplatePreview';
+import {
+  GLINT_FILE_EXTENSION, GlintFileError, isGlintFileName, parseGlintFile,
+  serializeGlintFile, glintFileNameFor, downloadTextFile,
+} from '../lib/glintFile';
 
 const capitalizeWords = (str: string) => {
   return str.replace(/\b\w/g, char => char.toUpperCase());
@@ -586,64 +591,20 @@ export function Dashboard({
     }
   };
   
+  // The "Upload Certificate Design" control accepts Glint template (.glint)
+  // files only. Background images are added from inside the blueprint editor.
   const handleUploadCertificateDesign = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // Clear the input up front so the same file can be re-selected after any path.
+    e.target.value = '';
     if (!file) return;
 
-    if (file.size > 3.5 * 1024 * 1024) {
-      toast.error("Image is too large. Please select an image smaller than 3.5MB for fast loading.");
+    if (!isGlintFileName(file.name)) {
+      toast.error('Please upload a Glint template (.glint) file.');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const base64Data = event.target?.result as string;
-      const actionKey = 'template:upload';
-      if (!beginAction(actionKey)) return;
-      try {
-        const res = await fetch('/api/templates', {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            ...authHeaders
-          },
-          body: JSON.stringify({
-            workspaceId: currentWorkspaceId,
-            name: `Uploaded - ${file.name.split('.')[0]}`,
-            layout: 'landscape',
-            backgroundColor: '#FFFFFF',
-            borderColor: '#0a0a0a',
-            borderWidth: 0,
-            showSeal: false,
-            sealType: 'classic',
-            signatoryName: 'Jane Doe',
-            signatoryTitle: 'Chancellor, Education Unit',
-            backgroundImageUrl: base64Data,
-            textElements: [
-              { id: 'et1', text: 'CERTIFICATE OF MASTERY', fontSize: 24, fontFamily: 'Space Grotesk', fontWeight: 'bold', color: '#0F172A', xPercent: 50, yPercent: 25, align: 'center' },
-              { id: 'et2', text: 'Granted proud recipient', fontSize: 11, fontFamily: 'Inter', fontWeight: 'normal', color: '#64748B', xPercent: 50, yPercent: 36, align: 'center' },
-              { id: 'et3', text: '{{name}}', fontSize: 34, fontFamily: 'Playfair Display', fontWeight: 'bold', color: currentWorkspace?.branding.accentColor || '#1a73e8', xPercent: 50, yPercent: 48, align: 'center', isPlaceholder: true },
-              { id: 'et4', text: 'for dedicated program participation in', fontSize: 11, fontFamily: 'Inter', fontWeight: 'normal', color: '#64748B', xPercent: 50, yPercent: 58, align: 'center' },
-              { id: 'et5', text: '{{program}}', fontSize: 18, fontFamily: 'Space Grotesk', fontWeight: 'bold', color: '#0F172A', xPercent: 50, yPercent: 66, align: 'center', isPlaceholder: true }
-            ]
-          })
-        });
-        if (res.ok) {
-          await triggerDataRefresh();
-          toast.success('Certificate design uploaded.');
-        } else {
-          const errData = await res.json().catch(() => ({}));
-          toast.error(errData.error || 'Failed to upload certificate design.');
-        }
-      } catch (err) {
-        console.error('Failed creating template from uploaded design', err);
-        toast.error('Network error uploading certificate design.');
-      } finally {
-        endAction(actionKey);
-      }
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
+    await handleImportGlintFile(file);
   };
 
   const handleDeleteTemplate = async (id: string) => {
@@ -665,6 +626,63 @@ export function Dashboard({
     } catch (err) {
       console.error(err);
       toast.error('Network error deleting template.');
+    } finally {
+      endAction(actionKey);
+    }
+  };
+
+  // Import a ".glint" template file uploaded through the "Upload Certificate
+  // Design" control. The file carries a fully self-contained design (assets and
+  // fonts inlined); we drop its embedded id/workspace, attach it to the current
+  // workspace, and let the existing template endpoint persist it.
+  const handleImportGlintFile = async (file: File) => {
+    if (file.size > 12 * 1024 * 1024) {
+      toast.error('This .glint file is too large to import (max 12MB).');
+      return;
+    }
+    const actionKey = 'template:upload';
+    if (!beginAction(actionKey)) return;
+    try {
+      const text = await file.text();
+      const { name, template } = parseGlintFile(text);
+      const res = await fetch('/api/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ ...template, workspaceId: currentWorkspaceId, name }),
+      });
+      if (res.ok) {
+        await triggerDataRefresh();
+        toast.success(`Imported "${name}" from .glint file.`);
+      } else {
+        toast.error(await readApiError(res, 'Failed to import the .glint template.'));
+      }
+    } catch (err) {
+      if (err instanceof GlintFileError) {
+        toast.error(err.message);
+      } else {
+        console.error('Failed importing .glint file', err);
+        toast.error('Could not read the .glint file.');
+      }
+    } finally {
+      endAction(actionKey);
+    }
+  };
+
+  // Export a template as a downloadable ".glint" file. A best-effort PNG
+  // thumbnail of the on-page preview is embedded for quick inspection; if the
+  // capture fails the design still exports without it.
+  const handleExportTemplate = async (temp: CertificateTemplate) => {
+    const actionKey = `template:export:${temp.id}`;
+    if (!beginAction(actionKey)) return;
+    try {
+      const node = document.getElementById(`tpl-preview-${temp.id}`);
+      const preview = node ? await captureTemplatePreviewPng(node) : null;
+      const content = serializeGlintFile(temp, preview ?? undefined);
+      downloadTextFile(glintFileNameFor(temp.name), content);
+      toast.success('Template exported as .glint file.');
+    } catch (err) {
+      console.error('Failed exporting .glint file', err);
+      toast.error('Could not export this template.');
     } finally {
       endAction(actionKey);
     }
@@ -2237,20 +2255,22 @@ export function Dashboard({
                         <div>
                           <h2 className="font-serif text-3xl italic text-slate-950">Layout Template Blueprints</h2>
                           <p className="text-slate-500 text-sm">Choose and configure highly scalable CSS certificate canvases.</p>
+                          <p className="text-slate-400 text-xs mt-1">Import or export designs as portable <span className="font-mono font-semibold text-slate-500">.glint</span> template files.</p>
                         </div>
                         <div className="flex flex-wrap gap-2">
                           <button
                             onClick={() => document.getElementById('dashboard-design-upload')?.click()}
                             disabled={isActionPending('template:upload')}
+                            title="Upload a Glint template (.glint) file"
                             className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-5 py-2.5 rounded-full font-bold shadow-sm flex items-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed"
                           >
                             {isActionPending('template:upload') ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                             {isActionPending('template:upload') ? 'Uploading...' : 'Upload Certificate Design'}
                           </button>
-                          <input 
+                          <input
                             type="file"
                             id="dashboard-design-upload"
-                            accept="image/*"
+                            accept=".glint"
                             onChange={handleUploadCertificateDesign}
                             className="hidden"
                           />
@@ -2272,22 +2292,19 @@ export function Dashboard({
                               <h3 className="font-bold text-slate-900 text-sm">{temp.name}</h3>
                               <p className="text-xs text-[#9CA3AF] font-mono uppercase">ID: {temp.id} • Mode: {temp.layout.toUpperCase()}</p>
                               
-                              {/* Small blueprint visual representation */}
-                              <div className="border border-slate-100 bg-[#F8F9FA] rounded p-4 flex flex-col justify-between h-36 relative overflow-hidden">
-                                <div className="absolute top-2 right-2 px-1 text-[8px] border font-mono">1.414 : 1</div>
-                                <div className="space-y-1">
-                                  <div className="w-1/3 bg-slate-200 h-1 rounded-full"></div>
-                                  <div className="w-1/2 bg-slate-300 h-2 rounded-full"></div>
-                                </div>
-                                <div className="w-3/4 mx-auto bg-slate-400 h-3 rounded-full mt-4"></div>
-                                <div className="flex justify-between items-end border-t border-slate-200 pt-2 text-[7px] text-slate-405">
-                                  <span>AUTHORITY SIGNED</span>
-                                  <span>QR SEAL INTEGRATED</span>
-                                </div>
+                              {/* Live, faithful image preview of the certificate design */}
+                              <div className="border border-slate-100 bg-[#F8F9FA] rounded-lg p-3 relative overflow-hidden">
+                                <div className="absolute top-2 right-2 z-10 px-1 text-[8px] border bg-white/70 font-mono rounded-sm">1.414 : 1</div>
+                                <TemplatePreview
+                                  template={temp}
+                                  domId={`tpl-preview-${temp.id}`}
+                                  brandName={currentWorkspace?.branding?.brandName || currentWorkspace?.name}
+                                  className="rounded-md shadow-sm"
+                                />
                               </div>
                             </div>
 
-                            <div className="flex justify-end gap-3 pt-2">
+                            <div className="flex justify-end items-center gap-3 pt-2">
                               <button
                                 onClick={() => handleDeleteTemplate(temp.id)}
                                 disabled={isActionPending(`template:delete:${temp.id}`)}
@@ -2295,6 +2312,17 @@ export function Dashboard({
                                 title="Delete template form"
                               >
                                 {isActionPending(`template:delete:${temp.id}`) ? 'Deleting...' : 'Delete'}
+                              </button>
+                              <button
+                                onClick={() => handleExportTemplate(temp)}
+                                disabled={isActionPending(`template:export:${temp.id}`)}
+                                className="bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 p-2 rounded border text-xs inline-flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="Download this design as a .glint template file"
+                              >
+                                {isActionPending(`template:export:${temp.id}`)
+                                  ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                  : <Download className="w-3.5 h-3.5" />}
+                                {isActionPending(`template:export:${temp.id}`) ? 'Exporting...' : '.glint'}
                               </button>
                               <button
                                 onClick={() => selectTemplateForEditor(temp)}
