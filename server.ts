@@ -66,7 +66,14 @@ import {
   SIGNATURE_ALG,
   SIGNATURE_VERSION,
 } from './lib/security.js';
-import { drainOutbox, enqueueEmail, renderIssuanceEmailText } from './lib/mailer.js';
+import {
+  drainOutbox,
+  enqueueEmail,
+  hasClaimableEmails,
+  maybeOpportunisticDrain,
+  renderIssuanceEmailText,
+  scheduleDrain,
+} from './lib/mailer.js';
 import bcrypt from 'bcryptjs';
 
 const app = express();
@@ -1159,12 +1166,11 @@ app.post(
       certificates: issued.map(mapCertificate),
     });
 
-    // Locally there is no platform scheduler, so drain right after responding.
-    // The client already has its answer; a slow SMTP server no longer holds the
-    // request open.
-    if (!env.isServerless && issued.length > 0) {
-      void drainOutbox(Math.min(issued.length, 50)).catch((err) => logger.error('Background drain failed', err));
-    }
+    // The client already has its answer; delivery happens out of band. On a
+    // long-lived server this drains in-process; on Vercel it drains via
+    // waitUntil and self-chains fresh invocations until the outbox is empty,
+    // so bulk mail goes out in minutes rather than waiting for the daily cron.
+    if (issued.length > 0) scheduleDrain();
   }),
 );
 
@@ -1292,9 +1298,7 @@ app.post(
 
     res.json({ success: true, message: 'Email queued for delivery' });
 
-    if (!env.isServerless) {
-      void drainOutbox(5).catch((err) => logger.error('Background drain failed', err));
-    }
+    scheduleDrain();
   }),
 );
 
@@ -1322,6 +1326,12 @@ app.get(
       `SELECT * FROM email_messages ${where} ORDER BY created_time DESC LIMIT 1000`,
       params,
     );
+
+    // Opening the outbox is a natural moment to nudge any messages whose retry
+    // backoff has elapsed since the last issuance chain ran. Throttled and
+    // fire-and-forget, so it never slows the response.
+    maybeOpportunisticDrain();
+
     res.json(
       result.rows.map((e) => ({
         id: e.id,
@@ -1569,9 +1579,13 @@ app.get(
  * Guarded by CRON_SECRET, compared in constant time — it is a mutating endpoint
  * reachable from the public internet.
  *
- * Note on scheduling: `vercel.json` asks for every five minutes. On the Hobby
- * plan crons only fire once a day, so a real deployment either needs a paid plan,
- * Vercel Queues, or any external scheduler POSTing here with the bearer token.
+ * Two modes:
+ *   • Default (the daily cron, or a manual call): drains one batch synchronously
+ *     and reports the counts. If a backlog remains it kicks a background chain so
+ *     one cron run can clear more than a single batch.
+ *   • `?async=1` (the self-chaining links fired by `scheduleDrain`): schedules
+ *     the drain via waitUntil and returns immediately, so the *calling* function
+ *     is not billed for the send and each link gets its own fresh time budget.
  */
 app.all(
   '/api/internal/email/drain',
@@ -1579,8 +1593,16 @@ app.all(
   asyncHandler(async (req, res) => {
     if (!['GET', 'POST'].includes(req.method)) throw new HttpError(405, 'Method not allowed');
     const limit = Math.min(Number(req.query.limit ?? 25) || 25, 100);
+
+    if (req.query.async === '1') {
+      scheduleDrain(limit);
+      res.json({ scheduled: true });
+      return;
+    }
+
     const result = await drainOutbox(limit);
     logger.info('Email drain complete', result);
+    if (await hasClaimableEmails()) scheduleDrain(limit);
     res.json(result);
   }),
 );
