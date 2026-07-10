@@ -17,6 +17,7 @@ import type {
 } from '../types';
 import { resolveRichTextRuns } from '../lib/richText';
 import { elementTransform } from '../lib/transform';
+import { formatCertificateDate } from '../lib/certificateDate';
 
 interface CertificateViewerProps {
   certificateId: string;
@@ -149,15 +150,15 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
   };
 
   const verificationSummary = (result: VerificationResult): string => {
-    if (result.verified) return 'Signature valid. This credential is authentic and currently in force.';
+    if (result.verified) return 'Signature valid. This certificate is authentic and currently in force.';
     if (!result.signatureValid) {
       return 'Signature does NOT match. This record has been altered since it was issued, or was not issued by this registry.';
     }
     if (result.reasons.includes('revoked')) {
-      return 'Signature is valid, but the issuer has revoked this credential. It is no longer in force.';
+      return 'Signature is valid, but the issuer has revoked this certificate. It is no longer in force.';
     }
-    if (result.reasons.includes('expired')) return 'Signature is valid, but this credential has expired.';
-    return 'This credential could not be verified.';
+    if (result.reasons.includes('expired')) return 'Signature is valid, but this certificate has expired.';
+    return 'This certificate could not be verified.';
   };
 
   /** Fire-and-forget counter bump. Merges the returned counters into local state. */
@@ -428,7 +429,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
             </div>
 
             <div className="space-y-2">
-              <h1 className="font-serif text-3xl italic text-slate-950 tracking-tight">Credential record</h1>
+              <h1 className="font-serif text-3xl italic text-slate-950 tracking-tight">Certificate record</h1>
               <p className="text-xs text-slate-500 leading-relaxed">
                 This record is held by the issuer's registry. Run the signature check below to confirm
                 its contents have not been altered since it was issued.
@@ -523,7 +524,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
               Verify signature
             </h4>
             <p className="text-[11px] text-slate-400 leading-relaxed">
-              Asks the issuer's registry to recompute this credential's signature and compare it with the stored value.
+              Asks the issuer's registry to recompute this certificate's signature and compare it with the stored value.
             </p>
 
             {auditProgress === 'idle' && (
@@ -581,7 +582,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
           
           {/* Elegant preview canvas container styled like a real print certificate */}
           <div className="space-y-3 print:space-y-0">
-            <p className="text-[10px] uppercase tracking-widest text-[#9CA3AF] font-bold print:hidden">Authorized Proof Credential (HQ Resolution)</p>
+            <p className="text-[10px] uppercase tracking-widest text-[#9CA3AF] font-bold print:hidden">Authorized Proof Certificate (HQ Resolution)</p>
             
             <div className="bg-white border border-[#E9ECEF] rounded-2xl p-1 sm:p-6 md:p-10 shadow-2xl overflow-hidden print:p-0 print:border-none print:shadow-none printable-certificate-outer">
               <div 
@@ -621,14 +622,6 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                 {/* Organization background watermark pattern */}
                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[85%] h-[85%] opacity-[0.02] border border-slate-900 rounded-full pointer-events-none flex items-center justify-center">
                   <Landmark className="w-[45%]" />
-                </div>
-
-                {/* Top Corner Meta info */}
-                <div className="absolute top-4 left-6 pointer-events-none text-slate-400 font-mono text-[7px] tracking-widest uppercase">
-                  {branding?.brandName || 'VERIFIED CORPORATE CERTIFICATE AUTHORITY'}
-                </div>
-                <div className="absolute top-4 right-6 pointer-events-none text-slate-400 font-mono text-[7px] tracking-widest uppercase flex items-center gap-1.5">
-                  ID: {cert.id} <span className="text-slate-950 font-bold">[{cert.status.toUpperCase()}]</span>
                 </div>
 
                 {/* Predefined Dynamic Canva Logo overrides */}
@@ -738,7 +731,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                   const replacements = {
                     name: cert.recipientName,
                     program: cert.programName,
-                    date: cert.issueDate,
+                    date: formatCertificateDate(cert.issueDate, activeTemplate.dateFormat),
                     id: cert.id,
                     ...(cert.customFields ?? {}),
                   };
@@ -956,7 +949,7 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
                         REVOKED / VOID
                       </span>
                       <span className="text-[1.2cqw] text-rose-500 font-mono uppercase tracking-[0.2cqw] font-bold">
-                        Credential Nullified
+                        Certificate Nullified
                       </span>
                     </div>
                   </div>

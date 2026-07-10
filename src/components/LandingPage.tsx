@@ -187,7 +187,7 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
             className="inline-flex items-center gap-2 px-3 py-1 bg-white border border-slate-200/80 shadow-[0_2px_8px_rgba(0,0,0,0.02)] rounded-full hover:border-indigo-200 transition-colors cursor-default"
           >
             <Sparkles className="w-3 h-3 text-amber-500 fill-amber-500" />
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-650">Enterprise Credential Infrastructure</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-650">Enterprise Certificate Infrastructure</span>
           </motion.div>
 
           <motion.h1 
@@ -197,7 +197,7 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
             }}
             className="font-serif text-4xl sm:text-5xl md:text-6.5xl italic text-slate-950 leading-[1.12]"
           >
-            Credential trust is <br />
+            Certificate trust is <br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 via-indigo-500 to-indigo-750 font-sans tracking-tight font-extrabold not-italic">
               an absolute standard.
             </span>
@@ -309,7 +309,7 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
               <div className="flex justify-between items-start">
                 <div>
                   <p style={{ color: previewLayout === 'google' ? '#1a73e8' : '#ec4899' }} className="font-mono text-[1.8cqw] uppercase tracking-widest font-bold">
-                    {previewLayout === 'google' ? 'Google Cloud Credentials' : 'Stellar Tech Academy'}
+                    {previewLayout === 'google' ? 'Google Cloud Certificates' : 'Stellar Tech Academy'}
                   </p>
                   <p className="text-[1.4cqw] text-[#9CA3AF] tracking-tight">VERIFIED ID: GLNT-SAMPLE-PREVIEW</p>
                 </div>
@@ -439,7 +439,7 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
                       value={sandboxInput}
                       onChange={(e) => setSandboxInput(e.target.value)}
                       className="w-full bg-slate-950/80 border border-slate-800 rounded-xl p-4 font-mono text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 placeholder-slate-600 resize-none min-h-[110px]"
-                      placeholder="Type credential details to compute cryptographic hash..."
+                      placeholder="Type certificate details to compute cryptographic hash..."
                     />
                   </div>
 
@@ -566,7 +566,7 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
             </span>
             <h2 className="font-serif text-3xl md:text-4.5xl italic text-slate-950">Industrial grade platform features</h2>
             <p className="text-slate-500 text-sm">
-              Explore the core mechanics that make Glint the leading engine for bulk digital credential operations.
+              Explore the core mechanics that make Glint the leading engine for bulk digital certificate operations.
             </p>
           </div>
 
@@ -748,7 +748,7 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
             </p>
             <h2 className="font-serif text-4.5xl italic leading-tight">Verification is <br />the true product.</h2>
             <p className="text-slate-400 text-xs leading-relaxed font-sans">
-              A certificate is only as valuable as its verification capacity. Glint features stateful revocation registers, tamper-evident hash indicators, and public blockchain-style check logs ensuring zero credential forgery.
+              A certificate is only as valuable as its verification capacity. Glint features stateful revocation registers, tamper-evident hash indicators, and public blockchain-style check logs ensuring zero certificate forgery.
             </p>
             <div className="space-y-4 pt-4 border-t border-white/10">
               <div className="flex gap-3 text-xs">
@@ -757,7 +757,7 @@ export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: La
               </div>
               <div className="flex gap-3 text-xs">
                 <Check className="text-emerald-400 w-4 h-4 shrink-0 mt-0.5" />
-                <span><strong className="text-white">Ledger Status Index:</strong> Update, audit, inspect, suspend, or revoke credentials instantly.</span>
+                <span><strong className="text-white">Ledger Status Index:</strong> Update, audit, inspect, suspend, or revoke certificates instantly.</span>
               </div>
             </div>
           </div>

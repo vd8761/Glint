@@ -10,6 +10,7 @@ import {
 import type { CertificateTemplate, CustomFontAsset, RichTextRun, TextElement } from '../types';
 import { BEAUTIFUL_PRESETS } from '../presets';
 import { useQrDataUrl } from '../lib/qr';
+import { formatCertificateDate, CERTIFICATE_DATE_FORMATS } from '../lib/certificateDate';
 import { computeSnap, type Box, type Guide } from '../lib/canvasSnap';
 import { elementTransform, elementTransformSuffix } from '../lib/transform';
 import {
@@ -3061,6 +3062,25 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
                   </select>
                 </div>
 
+                {/* Date format for the {{date}} placeholder */}
+                <div className="space-y-1.5 bg-slate-50 border border-slate-200 p-3 rounded-xl text-slate-700 shadow-sm">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                    {'{{date}}'} format
+                  </label>
+                  <p className="text-[9px] text-slate-550 mb-1.5 leading-relaxed">
+                    How the issue date prints wherever you place the <code className="text-indigo-600">{'{{date}}'}</code> placeholder.
+                  </p>
+                  <select
+                    value={currentTemplate.dateFormat || 'iso'}
+                    onChange={(e) => updateTemplateProperty('dateFormat', e.target.value)}
+                    className="w-full bg-white border border-slate-200 p-1.5 rounded-lg text-xs text-slate-900 focus:outline-none focus:border-indigo-500"
+                  >
+                    {CERTIFICATE_DATE_FORMATS.map((f) => (
+                      <option key={f.value} value={f.value}>{f.label}</option>
+                    ))}
+                  </select>
+                </div>
+
                 <div className="grid grid-cols-2 gap-2 pt-2">
                   <button
                     onClick={() => addNewTextLayer('heading')}
@@ -4718,7 +4738,7 @@ export function CanvaEditor({ template, onSave, onCancel, isSaving = false, bran
                   name: 'Alex Rivera (Recipient Name)',
                   program: 'Gemini Developer Mastery Program',
                   id: 'GLNT-SAMPLE-PREVIEW',
-                  date: '2026-06-18',
+                  date: formatCertificateDate('2026-06-18', currentTemplate.dateFormat),
                 };
 
                 // Fonts mapping classes

@@ -68,7 +68,7 @@ async function main(): Promise<void> {
          (id, name, slug, plan, brand_name, primary_color, accent_color,
           sender_name, sender_email, white_label, footer_text, created_by_email)
        VALUES ($1, 'Touchmark', 'touchmark', 'enterprise', 'Touchmark',
-               '#0F172A', '#1A73E8', 'Touchmark Credentials', $2, false,
+               '#0F172A', '#1A73E8', 'Touchmark Certificates', $2, false,
                'Issued by Touchmark', $3)
        ON CONFLICT (id) DO UPDATE SET brand_name = EXCLUDED.brand_name`,
       [WORKSPACE_ID, env.mailFrom ?? null, ADMIN_EMAIL],

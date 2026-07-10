@@ -52,6 +52,7 @@ import {
   parseBody,
   parseSampleSchema,
   registerSchema,
+  sendCertificateEmailsSchema,
   statsSchema,
   templateBodySchema,
   updateProgramSchema,
@@ -134,6 +135,8 @@ function mapWorkspace(row: any) {
       whiteLabel: row.white_label,
       footerText: row.footer_text ?? undefined,
     },
+    emailTemplate: row.email_template ?? undefined,
+    digestEmailTemplate: row.digest_email_template ?? undefined,
   };
 }
 
@@ -144,6 +147,7 @@ const CUSTOM_FONT_MARKER = '__customFont';
 // element inside the text_elements JSON, so they persist without a schema change.
 const SETTINGS_MARKER = '__settings';
 const TEMPLATE_SETTING_KEYS = [
+  'dateFormat',
   'showWatermarkTags',
   'signatoryFontFamily',
   'signatoryFontSize',
@@ -468,7 +472,7 @@ app.post(
           workspaceName,
           slug,
           workspaceName,
-          `${workspaceName} Credentials`,
+          `${workspaceName} Certificates`,
           // The verified sender identity, not a hardcoded domain nobody owns.
           // The verified sender identity from MAIL_FROM, not a hardcoded domain.
           env.mailFrom ?? null,
@@ -703,7 +707,7 @@ app.post(
         brandName,
         body.primaryColor ?? '#0F172A',
         body.accentColor ?? '#F59E0B',
-        `${brandName} Credentials`,
+        `${brandName} Certificates`,
         env.mailFrom ?? null,
         `Issued by ${brandName}`,
         req.user!.email,
@@ -737,7 +741,9 @@ app.put(
          sender_name = COALESCE($9, sender_name),
          sender_email = COALESCE($10, sender_email),
          white_label = COALESCE($11, white_label),
-         footer_text = COALESCE($12, footer_text)
+         footer_text = COALESCE($12, footer_text),
+         email_template = CASE WHEN $13::boolean THEN $14::jsonb ELSE email_template END,
+         digest_email_template = CASE WHEN $15::boolean THEN $16::jsonb ELSE digest_email_template END
        WHERE id = $1
        RETURNING *`,
       [
@@ -753,6 +759,16 @@ app.put(
         b.senderEmail ?? null,
         b.whiteLabel ?? null,
         b.footerText || null,
+        // COALESCE cannot express "set to NULL", and clearing a custom email
+        // template back to the default is exactly that.
+        body.emailTemplate !== undefined,
+        body.emailTemplate !== undefined && body.emailTemplate !== null
+          ? JSON.stringify(body.emailTemplate)
+          : null,
+        body.digestEmailTemplate !== undefined,
+        body.digestEmailTemplate !== undefined && body.digestEmailTemplate !== null
+          ? JSON.stringify(body.digestEmailTemplate)
+          : null,
       ],
     );
     if (result.rows.length === 0) throw new HttpError(404, 'Workspace not found');
@@ -1069,7 +1085,10 @@ app.post(
   authenticate,
   issuanceLimiter,
   asyncHandler(async (req: AuthedRequest, res) => {
-    const { recipients } = parseBody(issueSchema, req.body);
+    const { recipients, sendEmail } = parseBody(issueSchema, req.body);
+    // Historic callers omit the flag and expect mail to go out; the dashboard
+    // sends false for "issue now, send later".
+    const shouldSendEmail = sendEmail !== false;
 
     const programResult = await pool.query('SELECT * FROM programs WHERE id = $1', [req.params.id]);
     if (programResult.rows.length === 0) throw new HttpError(404, 'Program not found');
@@ -1143,25 +1162,27 @@ app.post(
           details: `Issued via bulk import (${Object.keys(recipient.customFields ?? {}).length} custom fields)`,
         });
 
-        const verificationUrl = `${env.appUrl}/c/${certId}`;
-        await enqueueEmail(client, {
-          workspaceId: program.workspace_id,
-          programId: program.id,
-          programName: program.name,
-          certificateId: certId,
-          recipientEmail: recipient.email,
-          recipientName: recipient.name,
-          subject: `Your credential for ${program.name} is ready`,
-          body: renderIssuanceEmailText({
-            recipientName: recipient.name,
+        if (shouldSendEmail) {
+          const verificationUrl = `${env.appUrl}/c/${certId}`;
+          await enqueueEmail(client, {
+            workspaceId: program.workspace_id,
+            programId: program.id,
             programName: program.name,
             certificateId: certId,
+            recipientEmail: recipient.email,
+            recipientName: recipient.name,
+            subject: `Your certificate for ${program.name} is ready`,
+            body: renderIssuanceEmailText({
+              recipientName: recipient.name,
+              programName: program.name,
+              certificateId: certId,
+              verificationUrl,
+              brandName,
+            }),
             verificationUrl,
-            brandName,
-          }),
-          verificationUrl,
-        });
-        await recordEvent(client, certId, 'EMAIL_QUEUED', { details: `Queued for ${recipient.email}`, isPublic: false });
+          });
+          await recordEvent(client, certId, 'EMAIL_QUEUED', { details: `Queued for ${recipient.email}`, isPublic: false });
+        }
 
         created.push(cert);
       }
@@ -1169,11 +1190,12 @@ app.post(
     });
 
     res.status(201).json({
-      message: `Issued ${issued.length} credential${issued.length === 1 ? '' : 's'}.`,
+      message: `Issued ${issued.length} certificate${issued.length === 1 ? '' : 's'}.`,
       issuedCount: issued.length,
       skippedCount: unique.length - issued.length,
       duplicatesDropped,
-      queuedEmails: issued.length,
+      queuedEmails: shouldSendEmail ? issued.length : 0,
+      emailsDeferred: !shouldSendEmail,
       certificates: issued.map(mapCertificate),
     });
 
@@ -1181,7 +1203,7 @@ app.post(
     // long-lived server this drains in-process; on Vercel it drains via
     // waitUntil and self-chains fresh invocations until the outbox is empty,
     // so bulk mail goes out in minutes rather than waiting for the daily cron.
-    if (issued.length > 0) scheduleDrain();
+    if (shouldSendEmail && issued.length > 0) scheduleDrain();
   }),
 );
 
@@ -1289,7 +1311,7 @@ app.post(
       certificateId: cert.id,
       recipientEmail: cert.recipient_email,
       recipientName: cert.recipient_name,
-      subject: `Your credential for ${cert.program_name} (resent)`,
+      subject: `Your certificate for ${cert.program_name} (resent)`,
       body: renderIssuanceEmailText({
         recipientName: cert.recipient_name,
         programName: cert.program_name,
@@ -1310,6 +1332,116 @@ app.post(
     res.json({ success: true, message: 'Email queued for delivery' });
 
     scheduleDrain();
+  }),
+);
+
+/**
+ * Manual bulk send from the issued registry.
+ *
+ *   individual — queue each selected certificate's own issuance email to its
+ *                recipient (revoked certificates are skipped).
+ *   digest     — queue ONE email to a manually-entered address listing every
+ *                selected certificate's verification link.
+ *
+ * Every certificate must belong to a workspace the caller can access, and all
+ * selected certificates must share one workspace (a digest is per-workspace so
+ * its branding and template are unambiguous).
+ */
+app.post(
+  '/api/certificates/send-emails',
+  authenticate,
+  issuanceLimiter,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { certificateIds, mode, digestEmail, digestName } = parseBody(sendCertificateEmailsSchema, req.body);
+
+    const uniqueIds = [...new Set(certificateIds)];
+    const found = await pool.query(
+      `SELECT id, workspace_id, program_id, program_name, recipient_name, recipient_email, status
+         FROM certificates WHERE id = ANY($1)`,
+      [uniqueIds],
+    );
+    if (found.rows.length === 0) throw new HttpError(404, 'No matching certificates found');
+
+    const workspaceIds = new Set(found.rows.map((r) => r.workspace_id));
+    if (workspaceIds.size > 1) {
+      throw new HttpError(400, 'All selected certificates must belong to the same workspace');
+    }
+    const workspaceId = found.rows[0].workspace_id;
+    await assertWorkspaceAccess(req, workspaceId);
+
+    const ws = await pool.query('SELECT brand_name FROM workspaces WHERE id = $1', [workspaceId]);
+    const brandName = ws.rows[0]?.brand_name ?? 'Glint';
+
+    if (mode === 'digest') {
+      const links = found.rows
+        .map((c) => `• ${c.recipient_name} — ${c.program_name}: ${env.appUrl}/c/${c.id}`)
+        .join('\n');
+      const body = [
+        'Hello,',
+        '',
+        `Here ${found.rows.length === 1 ? 'is' : 'are'} ${found.rows.length} certificate${found.rows.length === 1 ? '' : 's'} from ${brandName}:`,
+        '',
+        links,
+        '',
+        `Regards,`,
+        brandName,
+      ].join('\n');
+
+      await enqueueEmail(pool, {
+        workspaceId,
+        programId: null,
+        programName: '',
+        certificateId: null,
+        recipientEmail: digestEmail!,
+        recipientName: digestName || digestEmail!,
+        subject: `${found.rows.length} certificate${found.rows.length === 1 ? '' : 's'} from ${brandName}`,
+        body,
+        verificationUrl: null,
+        kind: 'digest',
+        digestCertificateIds: found.rows.map((c) => c.id),
+      });
+
+      res.json({ success: true, mode, queued: 1, certificateCount: found.rows.length, recipient: digestEmail });
+      scheduleDrain();
+      return;
+    }
+
+    // individual
+    const sendable = found.rows.filter((c) => c.status !== 'revoked');
+    for (const cert of sendable) {
+      const verificationUrl = `${env.appUrl}/c/${cert.id}`;
+      await enqueueEmail(pool, {
+        workspaceId,
+        programId: cert.program_id,
+        programName: cert.program_name,
+        certificateId: cert.id,
+        recipientEmail: cert.recipient_email,
+        recipientName: cert.recipient_name,
+        subject: `Your certificate for ${cert.program_name} is ready`,
+        body: renderIssuanceEmailText({
+          recipientName: cert.recipient_name,
+          programName: cert.program_name,
+          certificateId: cert.id,
+          verificationUrl,
+          brandName,
+        }),
+        verificationUrl,
+        kind: 'resend',
+      });
+      await recordEvent(pool, cert.id, 'EMAIL_QUEUED', {
+        performedBy: req.user!.email,
+        details: 'Manual send from registry',
+        isPublic: false,
+      });
+    }
+
+    res.json({
+      success: true,
+      mode,
+      queued: sendable.length,
+      skippedRevoked: found.rows.length - sendable.length,
+    });
+    if (sendable.length > 0) scheduleDrain();
   }),
 );
 
@@ -1955,8 +2087,8 @@ async function renderCertificatePage(
   const title = `${cert.recipient_name} — ${cert.program_name}`;
   const description =
     cert.status === 'revoked'
-      ? `This credential has been revoked by ${cert.brand_name ?? 'the issuer'}.`
-      : `Verified credential issued to ${cert.recipient_name} by ${cert.brand_name ?? 'Glint'}.`;
+      ? `This certificate has been revoked by ${cert.brand_name ?? 'the issuer'}.`
+      : `Verified certificate issued to ${cert.recipient_name} by ${cert.brand_name ?? 'Glint'}.`;
   const pageUrl = `${env.appUrl}/c/${certificateId}`;
 
   // Crawlers cannot fetch a data: URI, so only an absolute https logo is useful.
