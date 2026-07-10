@@ -75,6 +75,14 @@ describe('renderEmailHtml', () => {
     expect(html).toContain('margin:70px 0 0 20px');
   });
 
+  it('emits responsive sizing so the email is not clipped on mobile', () => {
+    const html = renderEmailHtml(defaultEmailTemplate('#1a73e8'), vars);
+    expect(html).toContain('meta name="viewport"');
+    expect(html).toContain('class="glint-card"');
+    expect(html).toContain('margin-left:6.6667%;width:520px;width:86.6667%');
+    expect(html).toContain('.glint-block { margin-left:0 !important; width:100% !important; max-width:100% !important; }');
+  });
+
   it('sanitizes malformed colors and fonts instead of emitting them', () => {
     const doc: EmailTemplateDoc = {
       version: 1,

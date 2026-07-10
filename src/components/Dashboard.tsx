@@ -5,6 +5,7 @@ import { toast } from 'sonner';
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Award, BarChart3, Calendar, Check, CheckCircle2, ChevronLeft, ChevronRight,
   Database, Download, ExternalLink, Eye, Globe, Layers, List, LogOut, Mail, Menu,
@@ -227,6 +228,7 @@ export function Dashboard({
   const [resendingCertId, setResendingCertId] = useState<string | null>(null);
   const [revocationReason, setRevocationReason] = useState('');
   const [activeActionMenuId, setActiveActionMenuId] = useState<string | null>(null);
+  const [actionMenuPosition, setActionMenuPosition] = useState<{ top: number; left: number; direction: 'down' | 'up' } | null>(null);
   const [selectedCryptoProofCert, setSelectedCryptoProofCert] = useState<Certificate | null>(null);
   const [selectedJsonEnvelopeCert, setSelectedJsonEnvelopeCert] = useState<Certificate | null>(null);
   const [selectedPreviewCert, setSelectedPreviewCert] = useState<Certificate | null>(null);
@@ -1345,34 +1347,62 @@ export function Dashboard({
     }
   };
 
+  const closeCertActionMenu = () => {
+    setActiveActionMenuId(null);
+    setActionMenuPosition(null);
+  };
+
+  const toggleCertActionMenu = (
+    event: React.MouseEvent<HTMLButtonElement>,
+    certId: string,
+    direction: 'down' | 'up',
+  ) => {
+    event.stopPropagation();
+    if (activeActionMenuId === certId) {
+      closeCertActionMenu();
+      return;
+    }
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const menuWidth = 208;
+    const viewportPadding = 12;
+    const maxLeft = Math.max(viewportPadding, window.innerWidth - menuWidth - viewportPadding);
+    setActionMenuPosition({
+      top: direction === 'up' ? rect.top - 4 : rect.bottom + 4,
+      left: Math.min(maxLeft, Math.max(viewportPadding, rect.right - menuWidth)),
+      direction,
+    });
+    setActiveActionMenuId(certId);
+  };
+
   /** Kebab menu with every per-certificate operation. Used by both registries. */
   const renderCertActionsMenu = (c: Certificate, direction: 'down' | 'up' = 'down') => (
     <div className="inline-block text-left">
       <button
-        onClick={(e) => {
-          e.stopPropagation();
-          setActiveActionMenuId(activeActionMenuId === c.id ? null : c.id);
-        }}
+        onClick={(e) => toggleCertActionMenu(e, c.id, direction)}
         className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-900"
         title="Actions"
         type="button"
       >
         <MoreHorizontal className="h-4 w-4" />
       </button>
-      {activeActionMenuId === c.id && (
+      {activeActionMenuId === c.id && actionMenuPosition && createPortal(
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setActiveActionMenuId(null)} />
-          <div className={`absolute right-0 z-20 w-52 divide-y divide-slate-100 rounded-md border border-slate-200 bg-white py-1 text-left shadow-lg ${direction === 'up' ? 'bottom-full mb-1' : 'mt-1'}`}>
+          <div className="fixed inset-0 z-[80]" onClick={closeCertActionMenu} />
+          <div
+            className={`fixed z-[90] w-52 divide-y divide-slate-100 rounded-md border border-slate-200 bg-white py-1 text-left shadow-2xl ${actionMenuPosition.direction === 'up' ? '-translate-y-full' : ''}`}
+            style={{ top: actionMenuPosition.top, left: actionMenuPosition.left }}
+          >
             <div className="py-1">
               <button
-                onClick={() => { setActiveActionMenuId(null); onViewCertificatePage(c.id); }}
+                onClick={() => { closeCertActionMenu(); onViewCertificatePage(c.id); }}
                 className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50"
               >
                 <Eye className="h-3.5 w-3.5 text-slate-400" /> View public page
               </button>
               <button
                 onClick={() => {
-                  setActiveActionMenuId(null);
+                  closeCertActionMenu();
                   navigator.clipboard.writeText(`${window.location.origin}/c/${encodeURIComponent(c.id)}`);
                   toast.success('Verification URL copied to clipboard.');
                 }}
@@ -1383,32 +1413,32 @@ export function Dashboard({
             </div>
             <div className="py-1">
               <button
-                onClick={() => { setActiveActionMenuId(null); handleResendEmail(c.id); }}
+                onClick={() => { closeCertActionMenu(); handleResendEmail(c.id); }}
                 disabled={resendingCertId === c.id}
                 className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >
                 <Mail className="h-3.5 w-3.5 text-slate-400" /> {resendingCertId === c.id ? 'Sending…' : 'Resend email'}
               </button>
               <button
-                onClick={() => { setActiveActionMenuId(null); setSelectedAuditTrailCert(c); }}
+                onClick={() => { closeCertActionMenu(); setSelectedAuditTrailCert(c); }}
                 className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50"
               >
                 <Sliders className="h-3.5 w-3.5 text-slate-400" /> Audit trail
               </button>
               <button
-                onClick={() => { setActiveActionMenuId(null); setSelectedCryptoProofCert(c); }}
+                onClick={() => { closeCertActionMenu(); setSelectedCryptoProofCert(c); }}
                 className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50"
               >
                 <ShieldCheck className="h-3.5 w-3.5 text-slate-400" /> Signature status
               </button>
               <button
-                onClick={() => { setActiveActionMenuId(null); setSelectedJsonEnvelopeCert(c); }}
+                onClick={() => { closeCertActionMenu(); setSelectedJsonEnvelopeCert(c); }}
                 className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50"
               >
                 <Database className="h-3.5 w-3.5 text-slate-400" /> JSON record
               </button>
               <button
-                onClick={() => { setActiveActionMenuId(null); setSelectedPreviewCert(c); }}
+                onClick={() => { closeCertActionMenu(); setSelectedPreviewCert(c); }}
                 className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50"
               >
                 <Award className="h-3.5 w-3.5 text-slate-400" /> Preview card
@@ -1417,7 +1447,7 @@ export function Dashboard({
             <div className="py-1">
               {c.status === 'valid' ? (
                 <button
-                  onClick={() => { setActiveActionMenuId(null); handleInitiateRevoke(c.id); }}
+                  onClick={() => { closeCertActionMenu(); handleInitiateRevoke(c.id); }}
                   className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-[13px] font-medium text-rose-600 hover:bg-rose-50"
                 >
                   <ShieldAlert className="h-3.5 w-3.5" /> Revoke
@@ -1425,7 +1455,7 @@ export function Dashboard({
               ) : (
                 <button
                   disabled={isActionPending(`certificate:restore:${c.id}`)}
-                  onClick={() => { setActiveActionMenuId(null); handleRestoreCertificate(c.id); }}
+                  onClick={() => { closeCertActionMenu(); handleRestoreCertificate(c.id); }}
                   className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-[13px] font-medium text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
                 >
                   {isActionPending(`certificate:restore:${c.id}`) ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
@@ -1435,6 +1465,7 @@ export function Dashboard({
             </div>
           </div>
         </>
+        , document.body,
       )}
     </div>
   );
