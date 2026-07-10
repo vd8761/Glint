@@ -252,6 +252,11 @@ export interface WorkspaceAnalytics {
 
 export type EmailStatus = 'pending' | 'sending' | 'sent' | 'failed' | 'simulated';
 
+/** Post-send outcome reported by the mail provider's webhook (Resend). */
+export type EmailDeliveryStatus =
+  | 'scheduled' | 'sent' | 'delivery_delayed' | 'delivered'
+  | 'opened' | 'clicked' | 'bounced' | 'complained' | 'failed' | 'suppressed';
+
 export interface EmailLog {
   id: string;
   workspaceId: string;
@@ -263,5 +268,8 @@ export interface EmailLog {
   status: EmailStatus;
   attempts: number;
   lastError?: string;
+  deliveryStatus?: EmailDeliveryStatus;
+  deliveryDetail?: string;
+  deliveryUpdatedAt?: string;
   sentTime: string;
 }
