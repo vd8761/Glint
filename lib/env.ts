@@ -117,6 +117,8 @@ const EnvSchema = z.object({
   SMTP_USER: optionalNonEmpty,
   SMTP_PASS: optionalNonEmpty,
   RESEND_API_KEY: optionalNonEmpty,
+  /** Svix signing secret (`whsec_…`) for the Resend delivery webhook. */
+  RESEND_WEBHOOK_SECRET: optionalNonEmpty,
 
   VERCEL: optionalNonEmpty,
 });
