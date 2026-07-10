@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import {
   OrganizationWorkspace, CertificateProgram, CertificateTemplate,
-  Certificate, Recipient, WorkspaceAnalytics, TextElement, EmailLog, EmailStatus, AuditLogEntry
+  Certificate, Recipient, WorkspaceAnalytics, TextElement, EmailLog, EmailStatus, EmailDeliveryStatus, AuditLogEntry
 } from '../types';
 import { CanvaEditor } from './CanvaEditor';
 import { TemplatePreview, captureTemplatePreviewPng } from './TemplatePreview';
@@ -27,21 +27,56 @@ const capitalizeWords = (str: string) => {
 };
 
 /**
- * Presentation for the real delivery status of an outbox message. The registry
- * tracks the full lifecycle (pending → sending → sent / failed, or simulated
- * when no transport is configured); this maps each to a label and colour so the
- * Emails tab reflects what actually happened instead of always showing "sent".
+ * Presentation for the outbox lifecycle — did WE hand the message to the
+ * provider (pending → sending → sent / failed, or simulated when no transport
+ * is configured). `sent` is deliberately "Sent", not "Delivered": handing a
+ * message to Resend is not the same as it reaching an inbox. The real delivery
+ * outcome comes from the webhook and overrides this (see EMAIL_DELIVERY_BADGE).
  */
 const EMAIL_STATUS_BADGE: Record<EmailStatus, { label: string; className: string }> = {
-  sent:      { label: 'Delivered',  className: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
+  sent:      { label: 'Sent',       className: 'bg-sky-50 text-sky-700 border-sky-100' },
   pending:   { label: 'Queued',     className: 'bg-amber-50 text-amber-700 border-amber-100' },
   sending:   { label: 'Sending',    className: 'bg-sky-50 text-sky-700 border-sky-100' },
   failed:    { label: 'Failed',     className: 'bg-rose-50 text-rose-700 border-rose-100' },
   simulated: { label: 'Simulated',  className: 'bg-slate-100 text-slate-600 border-slate-200' },
 };
 
+/**
+ * Presentation for the delivery outcome reported by Resend's webhook. When
+ * present this is the truth — it supersedes the outbox status because it
+ * describes what happened to the message after we sent it.
+ */
+const EMAIL_DELIVERY_BADGE: Record<EmailDeliveryStatus, { label: string; className: string }> = {
+  delivered:        { label: 'Delivered',       className: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
+  opened:           { label: 'Opened',          className: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
+  clicked:          { label: 'Clicked',         className: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
+  sent:             { label: 'Sent',            className: 'bg-sky-50 text-sky-700 border-sky-100' },
+  scheduled:        { label: 'Scheduled',       className: 'bg-slate-100 text-slate-600 border-slate-200' },
+  delivery_delayed: { label: 'Delayed',         className: 'bg-amber-50 text-amber-700 border-amber-100' },
+  bounced:          { label: 'Bounced',         className: 'bg-rose-50 text-rose-700 border-rose-100' },
+  complained:       { label: 'Spam complaint',  className: 'bg-rose-50 text-rose-700 border-rose-100' },
+  failed:           { label: 'Failed',          className: 'bg-rose-50 text-rose-700 border-rose-100' },
+  suppressed:       { label: 'Suppressed',      className: 'bg-slate-100 text-slate-600 border-slate-200' },
+};
+
 const emailStatusBadge = (status: EmailStatus) =>
   EMAIL_STATUS_BADGE[status] ?? EMAIL_STATUS_BADGE.pending;
+
+/** The status to actually show: provider delivery outcome if known, else outbox. */
+const emailDisplayBadge = (log: EmailLog) =>
+  (log.deliveryStatus && EMAIL_DELIVERY_BADGE[log.deliveryStatus]) || emailStatusBadge(log.status);
+
+/** The most informative failure/detail string available for a message, if any. */
+const emailDetailText = (log: EmailLog): string | undefined => {
+  if (log.deliveryStatus === 'bounced' || log.deliveryStatus === 'complained' || log.deliveryStatus === 'failed') {
+    return log.deliveryDetail || EMAIL_DELIVERY_BADGE[log.deliveryStatus].label;
+  }
+  // Show the send error even while the message is still retrying (status
+  // 'pending' with a recorded error), so a rejected send — e.g. an unverified
+  // sender domain — is visible immediately, not only once retries are exhausted.
+  if (log.lastError) return log.lastError;
+  return undefined;
+};
 
 interface DashboardProps {
   currentWorkspaceId: string;
@@ -3087,15 +3122,15 @@ export function Dashboard({
                                     {log.subject}
                                   </td>
                                   <td className="px-6 py-4 whitespace-nowrap">
-                                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-mono font-bold uppercase border ${emailStatusBadge(log.status).className}`}>
-                                      ● {emailStatusBadge(log.status).label}
+                                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-mono font-bold uppercase border ${emailDisplayBadge(log).className}`}>
+                                      ● {emailDisplayBadge(log).label}
                                     </span>
-                                    {log.status === 'failed' && log.lastError && (
-                                      <p className="mt-1 text-[9px] text-rose-500 font-mono max-w-[200px] truncate" title={log.lastError}>
-                                        {log.lastError}
+                                    {emailDetailText(log) && (
+                                      <p className="mt-1 text-[9px] text-rose-500 font-mono max-w-[200px] truncate" title={emailDetailText(log)}>
+                                        {emailDetailText(log)}
                                       </p>
                                     )}
-                                    {log.status === 'pending' && log.attempts > 0 && (
+                                    {!log.deliveryStatus && log.status === 'pending' && log.attempts > 0 && (
                                       <p className="mt-1 text-[9px] text-amber-500 font-mono">retry {log.attempts}</p>
                                     )}
                                   </td>
@@ -3127,13 +3162,13 @@ export function Dashboard({
                                 <span className="font-mono text-[10px] text-slate-405">
                                   {new Date(log.sentTime).toLocaleString()}
                                 </span>
-                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono font-bold uppercase border ${emailStatusBadge(log.status).className}`}>
-                                  {emailStatusBadge(log.status).label}
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono font-bold uppercase border ${emailDisplayBadge(log).className}`}>
+                                  {emailDisplayBadge(log).label}
                                 </span>
                               </div>
 
-                              {log.status === 'failed' && log.lastError && (
-                                <p className="text-[10px] text-rose-500 font-mono break-words">{log.lastError}</p>
+                              {emailDetailText(log) && (
+                                <p className="text-[10px] text-rose-500 font-mono break-words">{emailDetailText(log)}</p>
                               )}
 
                               <div className="space-y-1">
@@ -3223,15 +3258,15 @@ export function Dashboard({
               </div>
               <div className="flex items-center">
                 <span className="w-16 font-semibold text-slate-400 uppercase tracking-wider font-mono">Status:</span>
-                <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-mono font-bold uppercase border ${emailStatusBadge(selectedEmailLog.status).className}`}>
-                  ● {emailStatusBadge(selectedEmailLog.status).label}
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-mono font-bold uppercase border ${emailDisplayBadge(selectedEmailLog).className}`}>
+                  ● {emailDisplayBadge(selectedEmailLog).label}
                   {selectedEmailLog.attempts > 0 && ` · ${selectedEmailLog.attempts} attempt${selectedEmailLog.attempts === 1 ? '' : 's'}`}
                 </span>
               </div>
-              {selectedEmailLog.status === 'failed' && selectedEmailLog.lastError && (
+              {emailDetailText(selectedEmailLog) && (
                 <div className="flex">
-                  <span className="w-16 font-semibold text-slate-400 uppercase tracking-wider font-mono shrink-0">Error:</span>
-                  <span className="text-rose-600 font-mono text-[11px] break-words">{selectedEmailLog.lastError}</span>
+                  <span className="w-16 font-semibold text-slate-400 uppercase tracking-wider font-mono shrink-0">Detail:</span>
+                  <span className="text-rose-600 font-mono text-[11px] break-words">{emailDetailText(selectedEmailLog)}</span>
                 </div>
               )}
             </div>

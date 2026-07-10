@@ -74,6 +74,7 @@ import {
   renderIssuanceEmailText,
   scheduleDrain,
 } from './lib/mailer.js';
+import { applyResendEvent, verifyResendSignature } from './lib/resendWebhook.js';
 import bcrypt from 'bcryptjs';
 
 const app = express();
@@ -95,7 +96,17 @@ app.use(securityHeaders());
 app.use(corsMiddleware());
 // Template backgrounds and AI sample images arrive as base64 data URIs. 50mb was
 // enough to let one request pin a large chunk of the function's memory.
-app.use(express.json({ limit: '12mb' }));
+// Webhook signatures are computed over the exact bytes received, so the raw
+// body must survive JSON parsing — but only for webhook routes, so ordinary
+// (often multi-megabyte) issuance payloads are not retained twice in memory.
+app.use(
+  express.json({
+    limit: '12mb',
+    verify: (req, _res, buf) => {
+      if ((req as any).url?.startsWith('/api/webhooks/')) (req as any).rawBody = buf;
+    },
+  }),
+);
 app.use(express.urlencoded({ limit: '12mb', extended: true }));
 app.use('/api', globalLimiter);
 
@@ -1344,6 +1355,9 @@ app.get(
         status: e.status,
         attempts: e.attempts,
         lastError: e.last_error ?? undefined,
+        deliveryStatus: e.delivery_status ?? undefined,
+        deliveryDetail: e.delivery_detail ?? undefined,
+        deliveryUpdatedAt: iso(e.delivery_updated_at),
         sentTime: iso(e.sent_time) ?? iso(e.created_time),
       })),
     );
@@ -1604,6 +1618,47 @@ app.all(
     logger.info('Email drain complete', result);
     if (await hasClaimableEmails()) scheduleDrain(limit);
     res.json(result);
+  }),
+);
+
+// =============================================================================
+// Webhooks — Resend delivery events
+// =============================================================================
+
+/**
+ * Receives Resend's delivery webhooks (delivered / bounced / complained / …)
+ * and folds each into the outbox row it refers to, so the Emails tab shows what
+ * actually happened after we handed a message to the provider — not just that
+ * we sent it.
+ *
+ * Public by necessity, so authenticity rests entirely on the Svix signature,
+ * verified in constant time over the RAW body. An unverified or misconfigured
+ * request never touches the database beyond the rejection log. Duplicate
+ * deliveries (Svix retries every non-2xx) are deduplicated by svix-id.
+ */
+app.post(
+  '/api/webhooks/resend',
+  asyncHandler(async (req: any, res) => {
+    const secret = env.RESEND_WEBHOOK_SECRET;
+    if (!secret) throw new HttpError(503, 'Webhook endpoint not configured');
+
+    const rawBody: Buffer | undefined = req.rawBody;
+    if (!rawBody) throw new HttpError(400, 'Missing request body');
+
+    const headers = {
+      id: req.header('svix-id'),
+      timestamp: req.header('svix-timestamp'),
+      signature: req.header('svix-signature'),
+    };
+
+    if (!verifyResendSignature(rawBody.toString('utf8'), headers, secret)) {
+      logger.warn('Rejected Resend webhook: invalid signature', { ipHash: clientIpHash(req) });
+      throw new HttpError(401, 'Invalid signature');
+    }
+
+    // The signature guarantees the parsed body matches the verified bytes.
+    await applyResendEvent(headers.id!, req.body);
+    res.json({ received: true });
   }),
 );
 
