@@ -226,6 +226,7 @@ export function renderEmailSubject(subject: string, vars: EmailTemplateVars): st
 }
 
 const px = (n: number) => `${Math.round(n)}px`;
+const pct = (n: number) => `${Number(n.toFixed(4))}%`;
 
 function sanitizeColor(value: string | undefined, fallback: string): string {
   if (value && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(value.trim())) return value.trim();
@@ -265,7 +266,7 @@ function renderBlock(block: EmailBlock, vars: EmailTemplateVars): string {
       const bg = block.backgroundColor && block.backgroundColor !== 'transparent'
         ? `background:${sanitizeColor(block.backgroundColor, 'transparent')};padding:10px 14px;`
         : '';
-      return `<div style="${textStyles(block)};${bg}${radius}word-break:break-word">${content}</div>`;
+      return `<div style="${textStyles(block)};${bg}${radius}box-sizing:border-box;word-break:break-word;overflow-wrap:anywhere">${content}</div>`;
     }
     case 'button': {
       const href = safeUrl(substituteRaw(block.href ?? '{{link}}', vars));
@@ -273,20 +274,24 @@ function renderBlock(block: EmailBlock, vars: EmailTemplateVars): string {
       const bg = sanitizeColor(block.backgroundColor, '#0f172a');
       const style = [
         'display:block',
+        'box-sizing:border-box',
         `${textStyles(block)}`,
         `background:${bg}`,
         `${radius}`,
+        `min-height:${px(block.height)}`,
         `line-height:${px(block.height)}`,
+        'padding:0 16px',
         'text-align:center',
         'text-decoration:none',
+        'white-space:normal',
       ].join(';');
-      if (!href) return `<div style="${style}">${label}</div>`;
-      return `<a href="${href}" target="_blank" style="${style}">${label}</a>`;
+      if (!href) return `<div class="glint-button" style="${style}">${label}</div>`;
+      return `<a class="glint-button" href="${href}" target="_blank" style="${style}">${label}</a>`;
     }
     case 'image': {
       const src = safeUrl(block.imageUrl ?? '', true);
       if (!src) return '';
-      return `<img src="${src}" alt="" width="${Math.round(block.width)}" style="display:block;width:${px(block.width)};height:${px(block.height)};object-fit:cover;${radius}">`;
+      return `<img class="glint-image" src="${src}" alt="" width="${Math.round(block.width)}" style="display:block;width:${px(block.width)};max-width:100%;height:${px(block.height)};object-fit:cover;${radius}">`;
     }
     case 'divider': {
       const color = sanitizeColor(block.backgroundColor, '#e2e8f0');
@@ -323,7 +328,7 @@ function renderBlock(block: EmailBlock, vars: EmailTemplateVars): string {
           const link = href
             ? `<a href="${href}" target="_blank" style="font-family:${font};font-size:13px;font-weight:600;color:${accent};text-decoration:none">${linkLabel}</a>`
             : '';
-          return `<div style="border:1px solid #e2e8f0;${radius || 'border-radius:8px;'}padding:12px 14px;margin-bottom:8px">
+          return `<div style="box-sizing:border-box;border:1px solid #e2e8f0;${radius || 'border-radius:8px;'}padding:12px 14px;margin-bottom:8px;word-break:break-word;overflow-wrap:anywhere">
         <div style="font-family:${font};font-size:14px;font-weight:600;color:${nameColor}">${name}</div>
         ${meta}
         ${link}
@@ -362,18 +367,33 @@ export function renderEmailHtml(doc: EmailTemplateDoc, vars: EmailTemplateVars):
     const marginTop = Math.max(0, Math.round(block.y - cursor));
     const marginLeft = Math.max(0, Math.round(block.x));
     const width = Math.min(Math.round(block.width), EMAIL_CANVAS_WIDTH - marginLeft);
+    const marginLeftPct = pct((marginLeft / EMAIL_CANVAS_WIDTH) * 100);
+    const widthPct = pct((width / EMAIL_CANVAS_WIDTH) * 100);
     const inner = renderBlock(block, vars);
     if (!inner) continue;
     rows.push(
-      `<div style="margin:${px(marginTop)} 0 0 ${px(marginLeft)};width:${px(width)}">${inner}</div>`,
+      `<div class="glint-block" style="margin:${px(marginTop)} 0 0 ${px(marginLeft)};margin-left:${marginLeftPct};width:${px(width)};width:${widthPct};max-width:${px(width)};box-sizing:border-box">${inner}</div>`,
     );
     cursor = Math.max(cursor, block.y + block.height);
   }
   const bottomPad = Math.max(24, Math.round(doc.canvas.height - cursor));
 
   return `<!doctype html>
-<html><body style="margin:0;background:${bodyBg};padding:24px 8px">
-  <div style="max-width:${EMAIL_CANVAS_WIDTH}px;margin:0 auto;background:${cardBg};border-radius:${px(cardRadius)};border:1px solid #e2e8f0;overflow:hidden">
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    @media only screen and (max-width: 640px) {
+      body.glint-email-body { padding:12px !important; }
+      .glint-card { width:100% !important; }
+      .glint-block { margin-left:0 !important; width:100% !important; max-width:100% !important; }
+      .glint-button { line-height:1.25 !important; min-height:0 !important; padding:14px 16px !important; }
+      .glint-image { width:100% !important; height:auto !important; }
+    }
+  </style>
+</head>
+<body class="glint-email-body" style="margin:0;background:${bodyBg};padding:24px 8px;width:100%;box-sizing:border-box;-webkit-text-size-adjust:100%;text-size-adjust:100%">
+  <div class="glint-card" style="width:100%;max-width:${EMAIL_CANVAS_WIDTH}px;margin:0 auto;background:${cardBg};border-radius:${px(cardRadius)};border:1px solid #e2e8f0;overflow:hidden;box-sizing:border-box">
     ${rows.join('\n    ')}
     <div style="height:${px(bottomPad)};line-height:${px(bottomPad)};font-size:1px">&nbsp;</div>
   </div>
