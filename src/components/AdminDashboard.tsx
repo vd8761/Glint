@@ -379,7 +379,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
 
           {filteredCandidates.length === 0 ? (
             <div className="py-12 text-center text-slate-400 bg-white border border-slate-200 rounded-xl font-mono text-xs">
-              No matching candidate credentials found.
+              No matching candidate certificates found.
             </div>
           ) : (
             <>
@@ -387,7 +387,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                 <table className="w-full text-left border-collapse">
                   <thead className="bg-[#F8F9FA] border-b border-[#E9ECEF] text-[9px] font-bold text-slate-400 uppercase tracking-widest">
                     <tr>
-                      <th className="px-6 py-3">Credential ID</th>
+                      <th className="px-6 py-3">Certificate ID</th>
                       <th className="px-6 py-3">Candidate</th>
                       <th className="px-6 py-3">Email Address</th>
                       <th className="px-6 py-3">Issue Date</th>
@@ -506,7 +506,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                                         }}
                                         className="w-full text-left px-4 py-2 text-xs text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-bold cursor-pointer"
                                       >
-                                        <ShieldAlert className="w-3.5 h-3.5 text-rose-500" /> Revoke Credential
+                                        <ShieldAlert className="w-3.5 h-3.5 text-rose-500" /> Revoke Certificate
                                       </button>
                                     ) : (
                                       <button
@@ -1114,11 +1114,11 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                       <h4 className="text-3xl font-display font-bold text-slate-950">{certificates.length}</h4>
                     </div>
                     <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-1">
-                      <p className="text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">Valid Credentials</p>
+                      <p className="text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">Valid Certificates</p>
                       <h4 className="text-3xl font-display font-bold text-emerald-600">{certificates.filter(c => c.status === 'valid').length}</h4>
                     </div>
                     <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-1">
-                      <p className="text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">Revoked Credentials</p>
+                      <p className="text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">Revoked Certificates</p>
                       <h4 className="text-3xl font-display font-bold text-rose-600">{certificates.filter(c => c.status === 'revoked').length}</h4>
                     </div>
                   </div>
@@ -1128,7 +1128,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-mono tracking-wider text-slate-400 font-bold uppercase">
-                          <th className="py-4 px-6">Credential Hash ID</th>
+                          <th className="py-4 px-6">Certificate Hash ID</th>
                           <th className="py-4 px-6">Recipient</th>
                           <th className="py-4 px-6">Program</th>
                           <th className="py-4 px-6">Organization</th>
@@ -1213,7 +1213,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                               onClick={() => startRevokeCertificate(c)}
                               className="w-full py-2 justify-center rounded-lg border border-red-100 text-red-500 hover:text-red-700 hover:bg-red-50 transition-all inline-flex items-center gap-1.5 text-xs font-bold"
                             >
-                              <ShieldAlert className="w-3.5 h-3.5" /> Revoke Credential
+                              <ShieldAlert className="w-3.5 h-3.5" /> Revoke Certificate
                             </button>
                           ) : (
                             <button
@@ -1372,7 +1372,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
             
             <form onSubmit={handleExecuteRevocation} className="space-y-4">
               <p className="text-xs text-slate-500 leading-relaxed">
-                You are about to revoke the credential issued to <span className="font-semibold text-slate-900">{revokingCert.recipient_name}</span> for the program <span className="font-semibold text-slate-900">{revokingCert.program_name}</span>. This will immediately invalidate lookups on the verification page.
+                You are about to revoke the certificate issued to <span className="font-semibold text-slate-900">{revokingCert.recipient_name}</span> for the program <span className="font-semibold text-slate-900">{revokingCert.program_name}</span>. This will immediately invalidate lookups on the verification page.
               </p>
 
               <div className="space-y-1.5">
@@ -1399,7 +1399,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                   type="submit"
                   className="px-4 py-2 bg-red-600 text-white rounded-xl hover:bg-red-700 text-xs font-semibold shadow-sm"
                 >
-                  Revoke Credential
+                  Revoke Certificate
                 </button>
               </div>
             </form>
@@ -1422,7 +1422,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
               Certificate history
             </h3>
             <p className="text-xs text-slate-500 mt-2 mb-4">
-              Recorded events for credential <span className="font-mono text-slate-800">{selectedAuditTrailCert.id}</span> issued to <span className="font-bold text-slate-800">{selectedAuditTrailCert.recipient_name}</span>.
+              Recorded events for certificate <span className="font-mono text-slate-800">{selectedAuditTrailCert.id}</span> issued to <span className="font-bold text-slate-800">{selectedAuditTrailCert.recipient_name}</span>.
             </p>
 
             <div className="flex-1 overflow-y-auto space-y-4 pr-2">
@@ -1620,7 +1620,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                   const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(selectedJsonEnvelopeCert, null, 2));
                   const downloadAnchor = document.createElement('a');
                   downloadAnchor.setAttribute("href", dataStr);
-                  downloadAnchor.setAttribute("download", `credential-${selectedJsonEnvelopeCert.id}.json`);
+                  downloadAnchor.setAttribute("download", `certificate-${selectedJsonEnvelopeCert.id}.json`);
                   document.body.appendChild(downloadAnchor);
                   downloadAnchor.click();
                   downloadAnchor.remove();
@@ -1654,7 +1654,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
               <X className="w-5 h-5" />
             </button>
             <div className="pb-3 border-b border-slate-100">
-              <h3 className="font-serif text-2xl italic text-slate-950">Credential Design Preview (Admin Control)</h3>
+              <h3 className="font-serif text-2xl italic text-slate-950">Certificate Design Preview (Admin Control)</h3>
               <p className="text-xs text-slate-500 mt-1">Exportable secure preview card for verification audits.</p>
             </div>
 
@@ -1669,7 +1669,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                 </div>
 
                 <div className="my-3 space-y-1">
-                  <p className="text-[11px] text-slate-400 font-sans">This is proud credential validation of</p>
+                  <p className="text-[11px] text-slate-400 font-sans">This is proud certificate validation of</p>
                   <h2 className="text-2xl font-bold text-slate-950 capitalize italic underline decoration-1 decoration-slate-400 underline-offset-8">{selectedPreviewCert.recipient_name}</h2>
                 </div>
 

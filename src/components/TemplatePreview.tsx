@@ -18,6 +18,7 @@
 import { useEffect } from 'react';
 import type { CertificateTemplate, CustomFontAsset, RichTextRun, TextElement } from '../types';
 import { resolveRichTextRuns } from '../lib/richText';
+import { formatCertificateDate } from '../lib/certificateDate';
 import { elementTransform } from '../lib/transform';
 
 interface TemplatePreviewProps {
@@ -83,6 +84,10 @@ export function TemplatePreview({ template, domId, className, brandName }: Templ
   }, [template.customFonts]);
 
   const hasBackgroundImage = Boolean(template.backgroundImageUrl);
+  const replacements = {
+    ...SAMPLE_REPLACEMENTS,
+    date: formatCertificateDate(SAMPLE_REPLACEMENTS.date, template.dateFormat),
+  };
 
   return (
     <div
@@ -178,7 +183,7 @@ export function TemplatePreview({ template, domId, className, brandName }: Templ
           );
         }
 
-        const runs = resolveRichTextRuns(el, SAMPLE_REPLACEMENTS);
+        const runs = resolveRichTextRuns(el, replacements);
         return (
           <div
             key={el.id}

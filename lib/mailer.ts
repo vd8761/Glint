@@ -26,6 +26,11 @@ import { env } from './env.js';
 import { pool } from './db.js';
 import { logger } from './logger.js';
 import { newId } from './security.js';
+import {
+  renderEmailHtml, renderEmailSubject, defaultDigestTemplate,
+  type EmailTemplateDoc, type EmailTemplateVars, type DigestCertificate,
+} from './emailTemplateHtml.js';
+import { extractInlineImages } from './inlineImages.js';
 
 // -----------------------------------------------------------------------------
 // Transport
@@ -102,7 +107,7 @@ export function renderIssuanceEmailText(params: {
   return [
     `Hello ${params.recipientName},`,
     '',
-    `Congratulations! Your credential for "${params.programName}" has been issued.`,
+    `Congratulations! Your certificate for "${params.programName}" has been issued.`,
     '',
     `Certificate ID: ${params.certificateId}`,
     `Verification link: ${params.verificationUrl}`,
@@ -144,12 +149,12 @@ function renderIssuanceEmailHtml(params: {
     <div style="padding:28px">
       <h1 style="margin:0 0 12px;font-size:20px;color:#0f172a">Congratulations, ${name}!</h1>
       <p style="margin:0 0 20px;font-size:14px;line-height:1.6;color:#475569">
-        Your credential for <strong>${program}</strong> has been issued and registered.
+        Your certificate for <strong>${program}</strong> has been issued and registered.
       </p>
       <table style="width:100%;font-size:13px;color:#334155;border-collapse:collapse;margin-bottom:24px">
         <tr><td style="padding:6px 0;color:#64748b">Recipient</td><td style="text-align:right;font-weight:600">${name}</td></tr>
         <tr><td style="padding:6px 0;color:#64748b">Program</td><td style="text-align:right;font-weight:600">${program}</td></tr>
-        <tr><td style="padding:6px 0;color:#64748b">Credential ID</td><td style="text-align:right;font-family:monospace">${certId}</td></tr>
+        <tr><td style="padding:6px 0;color:#64748b">Certificate ID</td><td style="text-align:right;font-family:monospace">${certId}</td></tr>
       </table>
       ${url ? `<div style="text-align:center"><a href="${url}" style="display:inline-block;background:${accent};color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;font-size:14px">View your certificate</a></div>` : ''}
       <p style="margin:20px 0 0;font-size:12px;color:#64748b;text-align:center">
@@ -207,13 +212,16 @@ export interface OutboundMessage {
   workspaceId: string;
   programId: string | null;
   programName: string;
-  certificateId: string;
+  /** Null for a digest message, which is about a set of certificates, not one. */
+  certificateId: string | null;
   recipientEmail: string;
   recipientName: string;
   subject: string;
   body: string;
-  verificationUrl: string;
-  kind?: 'issuance' | 'resend';
+  verificationUrl: string | null;
+  kind?: 'issuance' | 'resend' | 'digest';
+  /** Digest only: the certificate ids whose links the digest lists. */
+  digestCertificateIds?: string[];
 }
 
 /**
@@ -229,8 +237,8 @@ export async function enqueueEmail(
   await client.query(
     `INSERT INTO email_messages
        (id, workspace_id, program_id, program_name, certificate_id, recipient_email, recipient_name,
-        subject, body, verification_url, kind, status, next_attempt_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending', now())`,
+        subject, body, verification_url, kind, digest_certificate_ids, status, next_attempt_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending', now())`,
     [
       id,
       message.workspaceId,
@@ -243,6 +251,7 @@ export async function enqueueEmail(
       message.body,
       message.verificationUrl,
       message.kind ?? 'issuance',
+      message.digestCertificateIds ? JSON.stringify(message.digestCertificateIds) : null,
     ],
   );
   return id;
@@ -263,6 +272,8 @@ interface ClaimedRow {
   body: string;
   verification_url: string | null;
   program_id: string | null;
+  kind: 'issuance' | 'resend' | 'digest';
+  digest_certificate_ids: string[] | null;
   attempts: number;
   max_attempts: number;
 }
@@ -322,6 +333,7 @@ export async function drainOutbox(limit = 25): Promise<DrainResult> {
        WHERE m.id = c.id
        RETURNING m.id, m.workspace_id, m.certificate_id, m.recipient_email, m.recipient_name,
                  m.program_name, m.subject, m.body, m.verification_url, m.program_id,
+                 m.kind, m.digest_certificate_ids,
                  m.attempts, m.max_attempts`,
       [limit, workerId],
     );
@@ -519,8 +531,11 @@ async function deliver(row: ClaimedRow): Promise<{ simulated: boolean; messageId
     footer_text: string | null;
     sender_name: string | null;
     sender_email: string | null;
+    email_template: EmailTemplateDoc | null;
+    digest_email_template: EmailTemplateDoc | null;
   }>(
-    `SELECT brand_name, primary_color, logo_url, footer_text, sender_name, sender_email
+    `SELECT brand_name, primary_color, logo_url, footer_text, sender_name, sender_email,
+            email_template, digest_email_template
      FROM workspaces WHERE id = $1`,
     [row.workspace_id],
   );
@@ -549,20 +564,103 @@ async function deliver(row: ClaimedRow): Promise<{ simulated: boolean; messageId
   }
 
   const from = resolveSender(branding);
-  const html = renderIssuanceEmailHtml({
-    recipientName: row.recipient_name,
-    programName: row.program_name,
-    certificateId: row.certificate_id ?? '',
-    verificationUrl: row.verification_url ?? '',
-    branding,
-  });
 
+  // Digest: one message to one address carrying a list of certificate links.
+  // The list is rebuilt from live certificate rows at send time, so a cert
+  // deleted between enqueue and send simply drops out of the list.
+  if (row.kind === 'digest') {
+    const ids = Array.isArray(row.digest_certificate_ids) ? row.digest_certificate_ids : [];
+    const certRows = ids.length
+      ? await pool.query<{ id: string; recipient_name: string; program_name: string; issue_date: string | Date | null }>(
+          `SELECT id, recipient_name, program_name, issue_date
+             FROM certificates
+            WHERE id = ANY($1) AND workspace_id = $2
+            ORDER BY created_time DESC`,
+          [ids, row.workspace_id],
+        )
+      : { rows: [] as { id: string; recipient_name: string; program_name: string; issue_date: string | Date | null }[] };
+
+    const certificates: DigestCertificate[] = certRows.rows.map((c) => ({
+      name: c.recipient_name,
+      program: c.program_name,
+      id: c.id,
+      link: `${env.appUrl}/c/${c.id}`,
+      date: c.issue_date instanceof Date ? c.issue_date.toISOString().slice(0, 10) : String(c.issue_date ?? ''),
+    }));
+
+    const digestDoc = brandingResult.rows[0]?.digest_email_template ?? defaultDigestTemplate(branding.primaryColor);
+    const digestVars: EmailTemplateVars = {
+      name: row.recipient_name,
+      email: row.recipient_email,
+      program: '',
+      id: '',
+      link: '',
+      date: new Date().toISOString().slice(0, 10),
+      brand: branding.brandName,
+      count: String(certificates.length),
+      certificates,
+    };
+    const digestSubject = renderEmailSubject(digestDoc.subject, digestVars) || row.subject;
+    const digestPrepared = extractInlineImages(renderEmailHtml(digestDoc, digestVars));
+
+    const digestInfo = await transporter.sendMail({
+      from: { name: from.name, address: from.address },
+      to: row.recipient_email,
+      subject: digestSubject,
+      text: row.body,
+      html: digestPrepared.html,
+      ...(digestPrepared.attachments.length ? { attachments: digestPrepared.attachments } : {}),
+      ...(env.MAIL_CC ? { cc: env.MAIL_CC } : {}),
+    });
+    return { simulated: false, messageId: digestInfo.messageId };
+  }
+
+  // A workspace with a designer-built template gets that design; everyone else
+  // gets the stock issuance email. The custom subject is resolved at send time
+  // so edits made after enqueue still apply.
+  const customTemplate = brandingResult.rows[0]?.email_template ?? null;
+  let subject = row.subject;
+  let html: string;
+
+  if (customTemplate && Array.isArray(customTemplate.blocks)) {
+    let issueDate = new Date().toISOString().slice(0, 10);
+    if (row.certificate_id) {
+      const cert = await pool.query<{ issue_date: string | Date | null }>(
+        'SELECT issue_date FROM certificates WHERE id = $1',
+        [row.certificate_id],
+      );
+      const raw = cert.rows[0]?.issue_date;
+      if (raw) issueDate = raw instanceof Date ? raw.toISOString().slice(0, 10) : String(raw);
+    }
+    const vars: EmailTemplateVars = {
+      name: row.recipient_name,
+      email: row.recipient_email,
+      program: row.program_name,
+      id: row.certificate_id ?? '',
+      link: row.verification_url ?? '',
+      date: issueDate,
+      brand: branding.brandName,
+    };
+    html = renderEmailHtml(customTemplate, vars);
+    subject = renderEmailSubject(customTemplate.subject, vars) || row.subject;
+  } else {
+    html = renderIssuanceEmailHtml({
+      recipientName: row.recipient_name,
+      programName: row.program_name,
+      certificateId: row.certificate_id ?? '',
+      verificationUrl: row.verification_url ?? '',
+      branding,
+    });
+  }
+
+  const prepared = extractInlineImages(html);
   const info = await transporter.sendMail({
     from: { name: from.name, address: from.address },
     to: row.recipient_email,
-    subject: row.subject,
+    subject,
     text: row.body,
-    html,
+    html: prepared.html,
+    ...(prepared.attachments.length ? { attachments: prepared.attachments } : {}),
     ...(env.MAIL_CC ? { cc: env.MAIL_CC } : {}),
   });
 
