@@ -4,21 +4,26 @@ import { toast } from 'sonner';
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  BarChart3, Award, Users, Database, ShieldCheck, Settings, Globe, Mail, Landmark, 
-  Trash2, Plus, ArrowUpRight, Upload, RefreshCw, Layers, Calendar, User, Search,
-  AlertTriangle, Check, Sliders, Play, CheckCircle2, ShieldAlert, Sparkles, BookOpen,
-  LogOut, Menu, X, ArrowLeft, ExternalLink, Eye, MoreHorizontal, Download
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Award, BarChart3, Calendar, Check, CheckCircle2, ChevronLeft, ChevronRight,
+  Database, Download, ExternalLink, Eye, Globe, Layers, List, LogOut, Mail, Menu,
+  MoreHorizontal, PenLine, Play, Plus, RefreshCw, Search, Send, ShieldAlert,
+  ShieldCheck, Sliders, Trash2, Upload, X, AlertTriangle, ArrowLeft, ArrowUpRight,
 } from 'lucide-react';
 import {
   OrganizationWorkspace, CertificateProgram, CertificateTemplate,
-  Certificate, Recipient, WorkspaceAnalytics, TextElement, EmailLog, EmailStatus, EmailDeliveryStatus, AuditLogEntry
+  Certificate, Recipient, WorkspaceAnalytics, EmailLog, EmailStatus,
+  EmailDeliveryStatus, AuditLogEntry,
 } from '../types';
 import { CanvaEditor } from './CanvaEditor';
 import { TemplatePreview, captureTemplatePreviewPng } from './TemplatePreview';
+import { EmailTemplateEditor } from './EmailTemplateEditor';
 import {
-  GLINT_FILE_EXTENSION, GlintFileError, isGlintFileName, parseGlintFile,
+  renderEmailHtml, sampleEmailVars, sampleDigestVars, type EmailTemplateDoc,
+} from '../../lib/emailTemplateHtml';
+import {
+  GlintFileError, isGlintFileName, parseGlintFile,
   serializeGlintFile, glintFileNameFor, downloadTextFile,
 } from '../lib/glintFile';
 
@@ -34,10 +39,10 @@ const capitalizeWords = (str: string) => {
  * outcome comes from the webhook and overrides this (see EMAIL_DELIVERY_BADGE).
  */
 const EMAIL_STATUS_BADGE: Record<EmailStatus, { label: string; className: string }> = {
-  sent:      { label: 'Sent',       className: 'bg-sky-50 text-sky-700 border-sky-100' },
-  pending:   { label: 'Queued',     className: 'bg-amber-50 text-amber-700 border-amber-100' },
-  sending:   { label: 'Sending',    className: 'bg-sky-50 text-sky-700 border-sky-100' },
-  failed:    { label: 'Failed',     className: 'bg-rose-50 text-rose-700 border-rose-100' },
+  sent:      { label: 'Sent',       className: 'bg-sky-50 text-sky-700 border-sky-200' },
+  pending:   { label: 'Queued',     className: 'bg-amber-50 text-amber-700 border-amber-200' },
+  sending:   { label: 'Sending',    className: 'bg-sky-50 text-sky-700 border-sky-200' },
+  failed:    { label: 'Failed',     className: 'bg-rose-50 text-rose-700 border-rose-200' },
   simulated: { label: 'Simulated',  className: 'bg-slate-100 text-slate-600 border-slate-200' },
 };
 
@@ -47,15 +52,15 @@ const EMAIL_STATUS_BADGE: Record<EmailStatus, { label: string; className: string
  * describes what happened to the message after we sent it.
  */
 const EMAIL_DELIVERY_BADGE: Record<EmailDeliveryStatus, { label: string; className: string }> = {
-  delivered:        { label: 'Delivered',       className: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
-  opened:           { label: 'Opened',          className: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
-  clicked:          { label: 'Clicked',         className: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
-  sent:             { label: 'Sent',            className: 'bg-sky-50 text-sky-700 border-sky-100' },
+  delivered:        { label: 'Delivered',       className: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  opened:           { label: 'Opened',          className: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  clicked:          { label: 'Clicked',         className: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  sent:             { label: 'Sent',            className: 'bg-sky-50 text-sky-700 border-sky-200' },
   scheduled:        { label: 'Scheduled',       className: 'bg-slate-100 text-slate-600 border-slate-200' },
-  delivery_delayed: { label: 'Delayed',         className: 'bg-amber-50 text-amber-700 border-amber-100' },
-  bounced:          { label: 'Bounced',         className: 'bg-rose-50 text-rose-700 border-rose-100' },
-  complained:       { label: 'Spam complaint',  className: 'bg-rose-50 text-rose-700 border-rose-100' },
-  failed:           { label: 'Failed',          className: 'bg-rose-50 text-rose-700 border-rose-100' },
+  delivery_delayed: { label: 'Delayed',         className: 'bg-amber-50 text-amber-700 border-amber-200' },
+  bounced:          { label: 'Bounced',         className: 'bg-rose-50 text-rose-700 border-rose-200' },
+  complained:       { label: 'Spam complaint',  className: 'bg-rose-50 text-rose-700 border-rose-200' },
+  failed:           { label: 'Failed',          className: 'bg-rose-50 text-rose-700 border-rose-200' },
   suppressed:       { label: 'Suppressed',      className: 'bg-slate-100 text-slate-600 border-slate-200' },
 };
 
@@ -78,10 +83,20 @@ const emailDetailText = (log: EmailLog): string | undefined => {
   return undefined;
 };
 
+type DashboardTab = 'overview' | 'programs' | 'templates' | 'issued' | 'emails' | 'branding';
+type LegacyTab = DashboardTab | 'recipients' | 'settings';
+
+/** Old bookmarks still say ?tab=recipients / ?tab=settings; land them somewhere sane. */
+const normalizeTab = (tab: LegacyTab | undefined): DashboardTab => {
+  if (tab === 'recipients') return 'issued';
+  if (tab === 'settings') return 'branding';
+  return (tab as DashboardTab) || 'overview';
+};
+
 interface DashboardProps {
   currentWorkspaceId: string;
-  activeTab: 'overview' | 'programs' | 'templates' | 'recipients' | 'issued' | 'branding' | 'settings' | 'emails';
-  onTabChange: (tab: 'overview' | 'programs' | 'templates' | 'recipients' | 'issued' | 'branding' | 'settings' | 'emails') => void;
+  activeTab: LegacyTab;
+  onTabChange: (tab: DashboardTab) => void;
   onWorkspaceChange: (id: string) => void;
   onViewCertificatePage: (id: string) => void;
   token: string | null;
@@ -89,11 +104,39 @@ interface DashboardProps {
   onLogout: () => void;
 }
 
-export function Dashboard({ 
-  currentWorkspaceId, 
-  activeTab: activeTabProp, 
-  onTabChange, 
-  onWorkspaceChange, 
+/* ── Shared design tokens (Cloudflare-flat) ──────────────────────────────── */
+
+const btnPrimary =
+  'inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed';
+const btnSecondary =
+  'inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3.5 py-2 text-[13px] font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed';
+const btnDanger =
+  'inline-flex items-center gap-1.5 rounded-md bg-rose-600 px-3.5 py-2 text-[13px] font-medium text-white transition-colors hover:bg-rose-700 disabled:opacity-60 disabled:cursor-not-allowed';
+const inputBase =
+  'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-[13px] text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500';
+const labelBase = 'block text-[12px] font-medium text-slate-600';
+const card = 'rounded-lg border border-slate-200 bg-white';
+const th = 'px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500';
+
+const statusBadge = (status: Certificate['status']) => {
+  const styles: Record<Certificate['status'], string> = {
+    valid: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    revoked: 'bg-rose-50 text-rose-700 border-rose-200',
+    expired: 'bg-amber-50 text-amber-700 border-amber-200',
+  };
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium capitalize ${styles[status]}`}>
+      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+      {status}
+    </span>
+  );
+};
+
+export function Dashboard({
+  currentWorkspaceId,
+  activeTab: activeTabProp,
+  onTabChange,
+  onWorkspaceChange,
   onViewCertificatePage,
   token,
   user,
@@ -101,16 +144,14 @@ export function Dashboard({
 }: DashboardProps) {
   const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
   const todayIso = () => new Date().toISOString().split('T')[0];
-  // Navigation tabs
-  const [activeTab, setActiveTab] = useState<'overview' | 'programs' | 'templates' | 'recipients' | 'issued' | 'branding' | 'settings' | 'emails'>(activeTabProp || 'overview');
+  const [activeTab, setActiveTab] = useState<DashboardTab>(normalizeTab(activeTabProp));
 
   useEffect(() => {
-    if (activeTabProp && activeTabProp !== activeTab) {
-      setActiveTab(activeTabProp);
-    }
+    const normalized = normalizeTab(activeTabProp);
+    if (normalized !== activeTab) setActiveTab(normalized);
   }, [activeTabProp]);
 
-  const changeTab = (tab: typeof activeTab) => {
+  const changeTab = (tab: DashboardTab) => {
     setActiveTab(tab);
     onTabChange(tab);
     setIsMobileSidebarOpen(false);
@@ -155,10 +196,22 @@ export function Dashboard({
   const [editingTemplate, setEditingTemplate] = useState<CertificateTemplate | null>(null);
   const [selectedTextElId, setSelectedTextElId] = useState<string | null>(null);
 
-  // Bulk Recipient states & mapper
+  // Email template designers (issuance + digest)
+  const [showEmailDesigner, setShowEmailDesigner] = useState(false);
+  const [showDigestDesigner, setShowDigestDesigner] = useState(false);
+
+  // Registry multi-select + manual bulk send
+  const [selectedCertIds, setSelectedCertIds] = useState<Set<string>>(new Set());
+  const [sendingEmails, setSendingEmails] = useState(false);
+  const [showDigestModal, setShowDigestModal] = useState(false);
+  const [digestEmail, setDigestEmail] = useState('');
+  const [digestName, setDigestName] = useState('');
+
+  // Bulk issuance wizard (modal on the Issued tab)
+  const [showBulkIssueModal, setShowBulkIssueModal] = useState(false);
+  const [bulkStep, setBulkStep] = useState<'program' | 'input' | 'preview' | 'success'>('program');
   const [selectedProgramId, setSelectedProgramId] = useState<string>('');
   const [rawCsvInput, setRawCsvInput] = useState('');
-  const [importStep, setImportStep] = useState<'input' | 'preview' | 'success'>('input');
   const [validatedRecipients, setValidatedRecipients] = useState<Recipient[]>([]);
   const [importErrors, setImportErrors] = useState<string[]>([]);
   const [mappedCertificates, setMappedCertificates] = useState<Certificate[]>([]);
@@ -186,18 +239,50 @@ export function Dashboard({
   const [singleCustomFields, setSingleCustomFields] = useState<Record<string, string>>({});
   const [singleIssueDate, setSingleIssueDate] = useState('');
 
-  // Filtering states
+  // Filtering & pagination
   const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const PAGE_SIZE = pageSize;
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+
+  // Branding draft — edited locally, persisted with an explicit Save (the old
+  // form fired a PUT + toast on every keystroke).
+  const [brandingDraft, setBrandingDraft] = useState({
+    brandName: '', primaryColor: '#0F172A', accentColor: '#F59E0B',
+    senderName: '', senderEmail: '', footerText: '',
+  });
+  const [brandingDirty, setBrandingDirty] = useState(false);
+
+  useEffect(() => {
+    if (!currentWorkspace) return;
+    setBrandingDraft({
+      brandName: currentWorkspace.branding.brandName || '',
+      primaryColor: currentWorkspace.branding.primaryColor || '#0F172A',
+      accentColor: currentWorkspace.branding.accentColor || '#F59E0B',
+      senderName: currentWorkspace.branding.senderName || '',
+      senderEmail: currentWorkspace.branding.senderEmail || '',
+      footerText: currentWorkspace.branding.footerText || '',
+    });
+    setBrandingDirty(false);
+  }, [currentWorkspace]);
+
+  const setBranding = (patch: Partial<typeof brandingDraft>) => {
+    setBrandingDraft((d) => ({ ...d, ...patch }));
+    setBrandingDirty(true);
+  };
+
   const pendingActionLabels: Record<string, string> = {
     'workspace:create': 'Creating workspace...',
-    'program:save': editingProgram ? 'Saving program...' : 'Registering program track...',
+    'program:save': editingProgram ? 'Saving program...' : 'Creating program...',
     'template:create': 'Creating template...',
     'template:save': 'Saving template...',
     'template:upload': 'Uploading template...',
     'certificates:bulk': 'Issuing certificates...',
     'certificate:single': 'Issuing certificate...',
     'certificate:revoke': 'Revoking certificate...',
+    'branding:save': 'Saving branding...',
+    'emailTemplate:save': 'Saving email template...',
   };
   const pendingActionLabel =
     pendingAction && (pendingActionLabels[pendingAction] || (pendingAction.startsWith('program:delete') ? 'Deleting program...' : pendingAction.startsWith('template:delete') ? 'Deleting template...' : pendingAction.startsWith('certificate:restore') ? 'Restoring certificate...' : 'Working...'));
@@ -338,7 +423,7 @@ export function Dashboard({
     try {
       const res = await fetch('/api/workspaces', {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           ...authHeaders
         },
@@ -363,7 +448,7 @@ export function Dashboard({
         setNewWsBrandName('');
         setNewWsColor('#1a73e8');
         setNewWsAccent('#22c55e');
-        toast.success(`Organization "${created.name}" onboarded successfully!`);
+        toast.success(`Organization "${created.name}" created.`);
         // Switch to new
         onWorkspaceChange(created.id);
       } else {
@@ -395,11 +480,11 @@ export function Dashboard({
     fieldString.split(',').forEach(field => {
       const trimmed = field.trim();
       if (!trimmed) return;
-      
+
       const lower = trimmed.toLowerCase();
       if (baseFields.includes(lower)) return;
       if (uniqueFields.some(f => f.toLowerCase() === lower)) return;
-      
+
       uniqueFields.push(trimmed);
     });
 
@@ -409,7 +494,7 @@ export function Dashboard({
 
       const res = await fetch(url, {
         method,
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           ...authHeaders
         },
@@ -433,22 +518,22 @@ export function Dashboard({
         setProgExpiryDate('');
         setFieldString('');
         await triggerDataRefresh();
-        toast.success(editingProgram ? 'Program track updated.' : 'Program track registered.');
+        toast.success(editingProgram ? 'Program updated.' : 'Program created.');
       } else {
         const errData = await res.json().catch(() => ({}));
-        toast.error(errData.error || 'Failed to save program track.');
+        toast.error(errData.error || 'Failed to save program.');
       }
     } catch (err) {
       console.error('Failed to save program', err);
-      toast.error('Network error saving program track. Please try again.');
+      toast.error('Network error saving program. Please try again.');
     } finally {
       endAction(actionKey);
     }
   };
 
-  // 3b. Issue a Single Certificate (Single Issuer)
-  const handleIssueSingleCertificate = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // 3b. Issue a Single Certificate (Single Issuer).
+  // `sendEmail` picks between "Issue & send email" and "Issue only, send later".
+  const issueSingleCertificate = async (sendEmail: boolean) => {
     if (!singleProgramId || !singleRecipientName || !singleRecipientEmail) {
       toast.error('Name and Email are required.');
       return;
@@ -482,11 +567,11 @@ export function Dashboard({
     try {
       const res = await fetch(`/api/programs/${singleProgramId}/issue`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           ...authHeaders
         },
-        body: JSON.stringify({ recipients: [recipient] })
+        body: JSON.stringify({ recipients: [recipient], sendEmail })
       });
 
       if (res.ok) {
@@ -496,7 +581,7 @@ export function Dashboard({
         setSingleCustomFields({});
         changeTab('issued');
         await triggerDataRefresh();
-        toast.success('Certificate issued and registered successfully!');
+        toast.success(sendEmail ? 'Certificate issued and email sent.' : 'Certificate issued. Send the email later from the registry.');
       } else {
         const errData = await res.json();
         toast.error(`Failed to issue certificate: ${errData.error || 'Unknown error'}`);
@@ -517,65 +602,13 @@ export function Dashboard({
     }
   };
 
-  const handleUpdateTemplateProperty = (property: string, value: any) => {
-    if (!editingTemplate) return;
-    setEditingTemplate({
-      ...editingTemplate,
-      [property]: value
-    });
-  };
-
-  const handleUpdateTextElementProperty = (property: string, value: any) => {
-    if (!editingTemplate || !selectedTextElId) return;
-    const updatedElements = editingTemplate.textElements.map(el => {
-      if (el.id === selectedTextElId) {
-        return { ...el, [property]: value };
-      }
-      return el;
-    });
-    setEditingTemplate({
-      ...editingTemplate,
-      textElements: updatedElements
-    });
-  };
-
-  const handleSaveTemplateChanges = async () => {
-    if (!editingTemplate) return;
-    const actionKey = 'template:save';
-    if (!beginAction(actionKey)) return;
-    try {
-      const res = await fetch(`/api/templates/${editingTemplate.id}`, {
-        method: 'PUT',
-        headers: { 
-          'Content-Type': 'application/json',
-          ...authHeaders
-        },
-        body: JSON.stringify(editingTemplate)
-      });
-      if (res.ok) {
-        const saved = await res.json();
-        setTemplates((items) => items.map((item) => (item.id === saved.id ? saved : item)));
-        setEditingTemplate(null);
-        await triggerDataRefresh();
-        toast.success('Template saved.');
-      } else {
-        toast.error(await readApiError(res, 'Failed to save template changes.'));
-      }
-    } catch (err) {
-      console.error('Failed saving template edits', err);
-      toast.error('Failed to save template changes.');
-    } finally {
-      endAction(actionKey);
-    }
-  };
-
   const handleSaveCanvaTemplate = async (updated: CertificateTemplate) => {
     const actionKey = 'template:save';
     if (!beginAction(actionKey)) return;
     try {
       const res = await fetch(`/api/templates/${updated.id}`, {
         method: 'PUT',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           ...authHeaders
         },
@@ -586,9 +619,9 @@ export function Dashboard({
         setTemplates((items) => items.map((item) => (item.id === saved.id ? saved : item)));
         setEditingTemplate(null);
         await triggerDataRefresh();
-        toast.success('Canva template saved.');
+        toast.success('Template saved.');
       } else {
-        toast.error(await readApiError(res, 'Failed to save Canva template.'));
+        toast.error(await readApiError(res, 'Failed to save template.'));
       }
     } catch (err) {
       console.error('Failed saving template edits', err);
@@ -604,7 +637,7 @@ export function Dashboard({
     try {
       const res = await fetch('/api/templates', {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           ...authHeaders
         },
@@ -642,7 +675,7 @@ export function Dashboard({
       endAction(actionKey);
     }
   };
-  
+
   // The "Upload Certificate Design" control accepts Glint template (.glint)
   // files only. Background images are added from inside the blueprint editor.
   const handleUploadCertificateDesign = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -664,7 +697,7 @@ export function Dashboard({
     const actionKey = `template:delete:${id}`;
     if (!beginAction(actionKey)) return;
     try {
-      const res = await fetch(`/api/templates/${id}`, { 
+      const res = await fetch(`/api/templates/${id}`, {
         method: 'DELETE',
         headers: authHeaders
       });
@@ -747,7 +780,7 @@ export function Dashboard({
     if (!program) return;
 
     setImportErrors([]);
-    
+
     // Normalize newlines and split by lines
     const rawLines = rawCsvInput.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     if (rawLines.length === 0) return;
@@ -766,7 +799,7 @@ export function Dashboard({
       const headers = firstLine.split(',').map(h => h.trim().toLowerCase());
       const emailColIdx = headers.findIndex(h => h.includes('email') || h.includes('mail'));
       const nameColIdx = headers.findIndex(h => h.includes('name') || h.includes('recipient') || h.includes('full'));
-      
+
       const customFieldIndices: Record<string, number> = {};
       program.recipientFields.forEach(field => {
         const idx = headers.findIndex(h => h === field.toLowerCase() || h.includes(field.toLowerCase()));
@@ -811,7 +844,7 @@ export function Dashboard({
     } else {
       // HEADERLESS INPUT (raw emails, comma-separated list, or newline-separated list)
       const items: string[] = [];
-      
+
       rawLines.forEach((line) => {
         const parts = line.split(',').map(p => p.trim()).filter(p => p.length > 0);
         // If line is comma-separated emails
@@ -882,10 +915,12 @@ export function Dashboard({
 
     setValidatedRecipients(validated);
     setImportErrors(errorsList);
-    setImportStep('preview');
+    setBulkStep('preview');
   };
 
-  const handleIssueCertificates = async () => {
+  // `sendEmail` picks "Issue & send emails" vs "Issue only, send later".
+  const [bulkSentEmail, setBulkSentEmail] = useState(true);
+  const runBulkIssue = async (sendEmail: boolean) => {
     if (validatedRecipients.length === 0 || !selectedProgramId) return;
     const actionKey = 'certificates:bulk';
     if (!beginAction(actionKey)) return;
@@ -893,7 +928,7 @@ export function Dashboard({
     // Filter only valid entries to issue safely
     const activeIssuables = validatedRecipients.filter(r => r.isValid);
     if (activeIssuables.length === 0) {
-      toast.error('There are no valid, clean recipient lines matching the template fields to issue.');
+      toast.error('There are no valid recipient rows to issue.');
       endAction(actionKey);
       return;
     }
@@ -901,17 +936,18 @@ export function Dashboard({
     try {
       const res = await fetch(`/api/programs/${selectedProgramId}/issue`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           ...authHeaders
         },
-        body: JSON.stringify({ recipients: activeIssuables })
+        body: JSON.stringify({ recipients: activeIssuables, sendEmail })
       });
 
       if (res.ok) {
         const output = await res.json();
         setMappedCertificates(output.certificates);
-        setImportStep('success');
+        setBulkSentEmail(sendEmail);
+        setBulkStep('success');
         setRawCsvInput('');
         await triggerDataRefresh();
       } else {
@@ -924,6 +960,39 @@ export function Dashboard({
     } finally {
       endAction(actionKey);
     }
+  };
+
+  const openBulkIssueModal = (programId?: string) => {
+    if (programs.length === 0) {
+      toast.error('Create at least one certification program first.');
+      return;
+    }
+    setSelectedProgramId(programId || '');
+    setRawCsvInput('');
+    setValidatedRecipients([]);
+    setImportErrors([]);
+    setBulkStep(programId ? 'input' : 'program');
+    setShowBulkIssueModal(true);
+  };
+
+  const closeBulkIssueModal = () => {
+    setShowBulkIssueModal(false);
+    setBulkStep('program');
+    setValidatedRecipients([]);
+    setImportErrors([]);
+  };
+
+  const openSingleIssueModal = (programId?: string) => {
+    if (programs.length === 0) {
+      toast.error('Create at least one certification program first.');
+      return;
+    }
+    setSingleProgramId(programId || programs[0].id);
+    setSingleRecipientName('');
+    setSingleRecipientEmail('');
+    setSingleCustomFields({});
+    setSingleIssueDate(new Date().toISOString().split('T')[0]);
+    setShowSingleIssueModal(true);
   };
 
   // 6. Certificate Revoke Trigger
@@ -940,7 +1009,7 @@ export function Dashboard({
     try {
       const res = await fetch(`/api/certificates/${revokingCertId}/status`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           ...authHeaders
         },
@@ -969,7 +1038,7 @@ export function Dashboard({
     try {
       const res = await fetch(`/api/certificates/${id}/status`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           ...authHeaders
         },
@@ -990,14 +1059,14 @@ export function Dashboard({
     }
   };
 
-  // 7. Theme / Branding Update
-  const handleUpdateBrandingConfig = async (brandingUpdates: any) => {
+  // 7. Branding & email template persistence
+  const handleUpdateBrandingConfig = async (brandingUpdates: any, actionKey = 'branding:save') => {
     if (!currentWorkspace) return;
-
+    if (!beginAction(actionKey)) return;
     try {
       const res = await fetch(`/api/workspaces/${currentWorkspace.id}`, {
         method: 'PUT',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           ...authHeaders
         },
@@ -1011,11 +1080,125 @@ export function Dashboard({
 
       if (res.ok) {
         await triggerDataRefresh();
-        toast.success('Branding custom variables synchronized successfully!');
+        toast.success('Branding saved.');
+      } else {
+        toast.error(await readApiError(res, 'Failed to save branding.'));
       }
     } catch (err) {
       console.error(err);
       toast.error('Network error saving branding.');
+    } finally {
+      endAction(actionKey);
+    }
+  };
+
+  const handleSaveBrandingDraft = () =>
+    handleUpdateBrandingConfig({
+      brandName: brandingDraft.brandName,
+      primaryColor: brandingDraft.primaryColor,
+      accentColor: brandingDraft.accentColor,
+      senderName: brandingDraft.senderName,
+      senderEmail: brandingDraft.senderEmail || undefined,
+      footerText: brandingDraft.footerText,
+    });
+
+  const handleSaveEmailTemplate = async (doc: EmailTemplateDoc | null) => {
+    if (!currentWorkspace) return;
+    const actionKey = 'emailTemplate:save';
+    if (!beginAction(actionKey)) return;
+    try {
+      const res = await fetch(`/api/workspaces/${currentWorkspace.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ emailTemplate: doc }),
+      });
+      if (res.ok) {
+        setShowEmailDesigner(false);
+        await triggerDataRefresh();
+        toast.success(doc ? 'Email template saved. New issuance emails will use this design.' : 'Email template reset to default.');
+      } else {
+        toast.error(await readApiError(res, 'Failed to save the email template.'));
+      }
+    } catch (err) {
+      console.error('Failed saving email template', err);
+      toast.error('Network error saving the email template.');
+    } finally {
+      endAction(actionKey);
+    }
+  };
+
+  const handleSaveDigestTemplate = async (doc: EmailTemplateDoc | null) => {
+    if (!currentWorkspace) return;
+    const actionKey = 'emailTemplate:save';
+    if (!beginAction(actionKey)) return;
+    try {
+      const res = await fetch(`/api/workspaces/${currentWorkspace.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ digestEmailTemplate: doc }),
+      });
+      if (res.ok) {
+        setShowDigestDesigner(false);
+        await triggerDataRefresh();
+        toast.success(doc ? 'Digest template saved.' : 'Digest template reset to default.');
+      } else {
+        toast.error(await readApiError(res, 'Failed to save the digest template.'));
+      }
+    } catch (err) {
+      console.error('Failed saving digest template', err);
+      toast.error('Network error saving the digest template.');
+    } finally {
+      endAction(actionKey);
+    }
+  };
+
+  /* ── Manual bulk email from the registry ── */
+
+  const clearSelection = () => setSelectedCertIds(new Set());
+
+  const toggleCertSelected = (id: string) => {
+    setSelectedCertIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const sendEmailsForSelection = async (mode: 'individual' | 'digest', extra?: { digestEmail: string; digestName: string }) => {
+    const ids = [...selectedCertIds];
+    if (ids.length === 0) return;
+    setSendingEmails(true);
+    try {
+      const res = await fetch('/api/certificates/send-emails', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({
+          certificateIds: ids,
+          mode,
+          ...(mode === 'digest' ? { digestEmail: extra?.digestEmail, digestName: extra?.digestName || undefined } : {}),
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (mode === 'digest') {
+          toast.success(`Digest of ${data.certificateCount} certificate${data.certificateCount === 1 ? '' : 's'} queued to ${extra?.digestEmail}.`);
+          setShowDigestModal(false);
+          setDigestEmail('');
+          setDigestName('');
+        } else {
+          const skipped = data.skippedRevoked ? ` (${data.skippedRevoked} revoked skipped)` : '';
+          toast.success(`Queued ${data.queued} email${data.queued === 1 ? '' : 's'} to recipients${skipped}.`);
+        }
+        clearSelection();
+        await triggerDataRefresh();
+      } else {
+        toast.error(await readApiError(res, 'Failed to queue emails.'));
+      }
+    } catch (err) {
+      console.error('Bulk email failed', err);
+      toast.error('Network error queuing emails.');
+    } finally {
+      setSendingEmails(false);
     }
   };
 
@@ -1024,7 +1207,7 @@ export function Dashboard({
     const actionKey = `program:delete:${id}`;
     if (!beginAction(actionKey)) return;
     try {
-      const res = await fetch(`/api/programs/${id}`, { 
+      const res = await fetch(`/api/programs/${id}`, {
         method: 'DELETE',
         headers: authHeaders
       });
@@ -1078,7 +1261,7 @@ export function Dashboard({
         headers: authHeaders
       });
       if (res.ok) {
-        toast.success('Verification email successfully resent!');
+        toast.success('Verification email resent.');
         await triggerDataRefresh();
       } else {
         const data = await res.json();
@@ -1092,411 +1275,8 @@ export function Dashboard({
     }
   };
 
-  // Render Program Candidate Registry Details Page
-  // (We defined the helper here to have lexical access to all dashboard handlers)
-  const renderProgramDetailView = (program: CertificateProgram) => {
-    const associatedTemplate = templates.find(t => t.id === program.templateId)?.name || 'Default';
-    const programCerts = certificates.filter(c => c.programId === program.id);
-    
-    const totalIssued = programCerts.length;
-    const validCount = programCerts.filter(c => c.status === 'valid').length;
-    const revokedCount = programCerts.filter(c => c.status === 'revoked').length;
+  /* ── Issued registry filter + pagination ── */
 
-    const filteredCandidates = programCerts.filter(c => 
-      c.recipientName.toLowerCase().includes(candidateSearchQuery.toLowerCase()) ||
-      c.recipientEmail.toLowerCase().includes(candidateSearchQuery.toLowerCase()) ||
-      c.id.toLowerCase().includes(candidateSearchQuery.toLowerCase())
-    );
-
-    return (
-      <div className="space-y-6 animate-fade-in pb-12">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-200 pb-4">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setSelectedProgramDetails(null)}
-              className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-600 cursor-pointer"
-              type="button"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="font-serif text-3xl italic text-slate-950 capitalize">{program.name}</h2>
-                <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${totalIssued > 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-500 border border-slate-200'}`}>
-                  {totalIssued > 0 ? 'Active' : 'Empty Register'}
-                </span>
-              </div>
-              <p className="text-slate-500 text-xs mt-1">
-                UUID: <span className="font-mono text-slate-800">{program.id}</span> • Issue Date: {program.issueDate} {program.expiryDate ? `• Expiry Date: ${program.expiryDate}` : ''}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                setSelectedProgramId(program.id);
-                setImportStep('input');
-                changeTab('recipients');
-              }}
-              className="bg-slate-950 text-white text-xs px-4 py-2.5 rounded-full font-bold shadow-sm hover:bg-slate-800 transition-colors flex items-center gap-1 cursor-pointer"
-            >
-              <Plus className="w-4 h-4" /> Issue Credentials
-            </button>
-            <button
-              onClick={() => handleEditProgram(program)}
-              className="bg-white border border-slate-200 text-slate-700 text-xs px-4 py-2.5 rounded-full font-bold shadow-sm hover:bg-slate-50 transition-colors cursor-pointer"
-            >
-              Edit Track
-            </button>
-          </div>
-        </div>
-
-        {program.description && (
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-600 leading-normal max-w-3xl">
-            <p className="font-bold text-slate-900 mb-1 uppercase tracking-wider text-[9px]">Competency Profile Summary</p>
-            {program.description}
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-1">
-            <p className="text-[9px] font-mono tracking-wider text-slate-400 font-bold uppercase">Total Registered</p>
-            <h4 className="text-2xl font-bold text-slate-955">{totalIssued}</h4>
-          </div>
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-1">
-            <p className="text-[9px] font-mono tracking-wider text-slate-400 font-bold uppercase">Active & Valid</p>
-            <h4 className="text-2xl font-bold text-emerald-600">{validCount}</h4>
-          </div>
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-1">
-            <p className="text-[9px] font-mono tracking-wider text-slate-400 font-bold uppercase">Revoked Audit</p>
-            <h4 className="text-2xl font-bold text-rose-600">{revokedCount}</h4>
-          </div>
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-1">
-            <p className="text-[9px] font-mono tracking-wider text-slate-400 font-bold uppercase">Print Template</p>
-            <h4 className="text-xs font-semibold text-slate-800 truncate" title={associatedTemplate}>{associatedTemplate}</h4>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-            <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Candidate Issuance Records ({filteredCandidates.length})</h3>
-            <div className="relative w-full sm:w-64">
-              <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400">
-                <Search className="w-3.5 h-3.5" />
-              </span>
-              <input
-                type="text"
-                placeholder="Search candidate or email..."
-                value={candidateSearchQuery}
-                onChange={(e) => setCandidateSearchQuery(e.target.value)}
-                className="w-full bg-white text-xs pl-9 pr-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:border-slate-900 focus:ring-1 focus:ring-slate-900"
-              />
-            </div>
-          </div>
-
-          {filteredCandidates.length === 0 ? (
-            <div className="py-12 text-center text-slate-400 bg-white border border-slate-200 rounded-xl font-mono text-xs">
-              No matching candidate credentials found.
-            </div>
-          ) : (
-            <>
-              <div className="hidden md:block bg-white border border-[#E9ECEF] rounded-2xl overflow-hidden card-shadow">
-                <table className="w-full text-left border-collapse">
-                  <thead className="bg-[#F8F9FA] border-b border-[#E9ECEF] text-[9px] font-bold text-slate-400 uppercase tracking-widest">
-                    <tr>
-                      <th className="px-6 py-3">Credential ID</th>
-                      <th className="px-6 py-3">Candidate</th>
-                      <th className="px-6 py-3">Email Address</th>
-                      <th className="px-6 py-3">Issue Date</th>
-                      <th className="px-6 py-3">Status</th>
-                      <th className="px-6 py-3 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="text-xs text-slate-600 divide-y divide-slate-100">
-                    {filteredCandidates.map((c) => (
-                      <tr key={c.id} className="hover:bg-slate-50/40">
-                        <td className="px-6 py-3.5 font-mono text-[10px] text-slate-400">{c.id}</td>
-                        <td className="px-6 py-3.5 font-bold text-slate-900 capitalize">{c.recipientName}</td>
-                        <td className="px-6 py-3.5 font-mono text-[11px]">{c.recipientEmail}</td>
-                        <td className="px-6 py-3.5 text-slate-500 font-mono text-[10px]">{c.issueDate}</td>
-                        <td className="px-6 py-3.5">
-                          <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
-                            c.status === 'valid' 
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-100' 
-                              : 'bg-rose-50 text-rose-700 border-rose-100'
-                          }`}>
-                            {c.status}
-                          </span>
-                        </td>
-                        <td className="px-6 py-3.5 text-right relative">
-                          <div className="inline-block text-left">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setActiveActionMenuId(activeActionMenuId === c.id ? null : c.id);
-                              }}
-                              className="p-1.5 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
-                              title="More Options"
-                              type="button"
-                            >
-                              <MoreHorizontal className="w-4 h-4" />
-                            </button>
-                            {activeActionMenuId === c.id && (
-                              <>
-                                <div className="fixed inset-0 z-10" onClick={() => setActiveActionMenuId(null)} />
-                                <div className="absolute right-0 mt-2 w-48 rounded-xl bg-white border border-slate-200 shadow-xl z-20 py-1 text-left divide-y divide-slate-100 animate-fade-in">
-                                  <div className="py-1">
-                                    <button
-                                      onClick={() => {
-                                        setActiveActionMenuId(null);
-                                        onViewCertificatePage(c.id);
-                                      }}
-                                      className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-semibold"
-                                    >
-                                      <Eye className="w-3.5 h-3.5 text-slate-400" /> View Public Page
-                                    </button>
-                                    <button
-                                      onClick={() => {
-                                        setActiveActionMenuId(null);
-                                        navigator.clipboard.writeText(`${window.location.origin}/#credential=${c.id}`);
-                                        toast.success('Verification URL copied to clipboard!');
-                                      }}
-                                      className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-semibold"
-                                    >
-                                      <ExternalLink className="w-3.5 h-3.5 text-slate-400" /> Copy Verify Link
-                                    </button>
-                                  </div>
-                                  <div className="py-1">
-                                    <button
-                                      onClick={() => {
-                                        setActiveActionMenuId(null);
-                                        handleResendEmail(c.id);
-                                      }}
-                                      disabled={resendingCertId === c.id}
-                                      className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer disabled:opacity-50 font-semibold"
-                                    >
-                                      <Mail className="w-3.5 h-3.5 text-slate-400" /> {resendingCertId === c.id ? 'Sending...' : 'Resend Email'}
-                                    </button>
-                                    <button
-                                      onClick={() => {
-                                        setActiveActionMenuId(null);
-                                        setSelectedAuditTrailCert(c);
-                                      }}
-                                      className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-semibold"
-                                    >
-                                      <Sliders className="w-3.5 h-3.5 text-slate-400" /> Audit Trail Log
-                                    </button>
-                                    <button
-                                      onClick={() => {
-                                        setActiveActionMenuId(null);
-                                        setSelectedCryptoProofCert(c);
-                                      }}
-                                      className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-semibold"
-                                    >
-                                      <Sparkles className="w-3.5 h-3.5 text-slate-400" /> Crypto Status
-                                    </button>
-                                    <button
-                                      onClick={() => {
-                                        setActiveActionMenuId(null);
-                                        setSelectedJsonEnvelopeCert(c);
-                                      }}
-                                      className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-semibold"
-                                    >
-                                      <Database className="w-3.5 h-3.5 text-slate-400" /> JSON Envelope
-                                    </button>
-                                    <button
-                                      onClick={() => {
-                                        setActiveActionMenuId(null);
-                                        setSelectedPreviewCert(c);
-                                      }}
-                                      className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-semibold"
-                                    >
-                                      <Award className="w-3.5 h-3.5 text-slate-400" /> Preview Card
-                                    </button>
-                                  </div>
-                                  <div className="py-1">
-                                    {c.status === 'valid' ? (
-                                      <button
-                                        onClick={() => {
-                                          setActiveActionMenuId(null);
-                                          handleInitiateRevoke(c.id);
-                                        }}
-                                        className="w-full text-left px-4 py-2 text-xs text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-bold cursor-pointer"
-                                      >
-                                        <ShieldAlert className="w-3.5 h-3.5 text-rose-500" /> Revoke Credential
-                                      </button>
-                                    ) : (
-                                      <button
-                                        disabled={isActionPending(`certificate:restore:${c.id}`)}
-                                        onClick={() => {
-                                          setActiveActionMenuId(null);
-                                          handleRestoreCertificate(c.id);
-                                        }}
-                                        className="w-full text-left px-4 py-2 text-xs text-emerald-600 hover:bg-emerald-50 flex items-center gap-2 font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-                                      >
-                                        {isActionPending(`certificate:restore:${c.id}`) ? <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-500" /> : <Check className="w-3.5 h-3.5 text-emerald-500" />}
-                                        {isActionPending(`certificate:restore:${c.id}`) ? 'Restoring...' : 'Restore Valid'}
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="block md:hidden space-y-3">
-                {filteredCandidates.map((c) => (
-                  <div key={c.id} className="bg-white border border-slate-200 rounded-xl p-4 card-shadow space-y-3">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h4 className="font-bold text-slate-900 capitalize text-sm">{c.recipientName}</h4>
-                        <p className="text-[10px] text-slate-400 font-mono mt-0.5">ID: {c.id}</p>
-                      </div>
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
-                        c.status === 'valid' 
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-100' 
-                          : 'bg-rose-50 text-rose-700 border-rose-100'
-                      }`}>
-                        {c.status}
-                      </span>
-                    </div>
-
-                    <div className="text-xs space-y-1">
-                      <p className="text-slate-500"><span className="font-bold text-slate-700">Email:</span> {c.recipientEmail}</p>
-                      <p className="text-slate-500"><span className="font-bold text-slate-700">Issued:</span> {c.issueDate}</p>
-                    </div>                    <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100 justify-end relative">
-                      <div className="inline-block text-left">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setActiveActionMenuId(activeActionMenuId === c.id ? null : c.id);
-                          }}
-                          className="px-3 py-1.5 text-[10px] uppercase font-bold border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-all flex items-center gap-1 cursor-pointer"
-                          type="button"
-                        >
-                          <MoreHorizontal className="w-3 h-3" /> Actions
-                        </button>
-                        {activeActionMenuId === c.id && (
-                          <>
-                            <div className="fixed inset-0 z-10" onClick={() => setActiveActionMenuId(null)} />
-                            <div className="absolute right-0 bottom-full mb-1 w-48 rounded-xl bg-white border border-slate-200 shadow-xl z-20 py-1 text-left divide-y divide-slate-100 animate-fade-in">
-                              <div className="py-1">
-                                <button
-                                  onClick={() => {
-                                    setActiveActionMenuId(null);
-                                    onViewCertificatePage(c.id);
-                                  }}
-                                  className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-semibold"
-                                >
-                                  <Eye className="w-3.5 h-3.5 text-slate-400" /> View Public Page
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setActiveActionMenuId(null);
-                                    navigator.clipboard.writeText(`${window.location.origin}/#credential=${c.id}`);
-                                    toast.success('Verification URL copied to clipboard!');
-                                  }}
-                                  className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-semibold"
-                                >
-                                  <ExternalLink className="w-3.5 h-3.5 text-slate-400" /> Copy Verify Link
-                                </button>
-                              </div>
-                              <div className="py-1">
-                                <button
-                                  onClick={() => {
-                                    setActiveActionMenuId(null);
-                                    handleResendEmail(c.id);
-                                  }}
-                                  disabled={resendingCertId === c.id}
-                                  className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer disabled:opacity-50 font-semibold"
-                                >
-                                  <Mail className="w-3.5 h-3.5 text-slate-400" /> Resend Mail
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setActiveActionMenuId(null);
-                                    setSelectedAuditTrailCert(c);
-                                  }}
-                                  className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-semibold"
-                                >
-                                  <Sliders className="w-3.5 h-3.5 text-slate-400" /> Audit Log
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setActiveActionMenuId(null);
-                                    setSelectedCryptoProofCert(c);
-                                  }}
-                                  className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-semibold"
-                                >
-                                  <Sparkles className="w-3.5 h-3.5 text-slate-400" /> Crypto Status
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setActiveActionMenuId(null);
-                                    setSelectedJsonEnvelopeCert(c);
-                                  }}
-                                  className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-semibold"
-                                >
-                                  <Database className="w-3.5 h-3.5 text-slate-400" /> JSON Envelope
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setActiveActionMenuId(null);
-                                    setSelectedPreviewCert(c);
-                                  }}
-                                  className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-semibold"
-                                >
-                                  <Award className="w-3.5 h-3.5 text-slate-400" /> Preview Card
-                                </button>
-                              </div>
-                              <div className="py-1">
-                                {c.status === 'valid' ? (
-                                  <button
-                                    onClick={() => {
-                                      setActiveActionMenuId(null);
-                                      handleInitiateRevoke(c.id);
-                                    }}
-                                    className="w-full text-left px-4 py-2 text-xs text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-bold cursor-pointer"
-                                  >
-                                    <ShieldAlert className="w-3.5 h-3.5 text-rose-500" /> Revoke
-                                  </button>
-                                ) : (
-                                  <button
-                                    disabled={isActionPending(`certificate:restore:${c.id}`)}
-                                    onClick={() => {
-                                      setActiveActionMenuId(null);
-                                      handleRestoreCertificate(c.id);
-                                    }}
-                                    className="w-full text-left px-4 py-2 text-xs text-emerald-600 hover:bg-emerald-50 flex items-center gap-2 font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-                                  >
-                                    {isActionPending(`certificate:restore:${c.id}`) ? <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-500" /> : <Check className="w-3.5 h-3.5 text-emerald-500" />}
-                                    {isActionPending(`certificate:restore:${c.id}`) ? 'Restoring...' : 'Restore'}
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  // Filter Issued List
   const filteredCertificates = certificates.filter(c => {
     const query = searchQuery.toLowerCase();
     return (
@@ -1507,8 +1287,283 @@ export function Dashboard({
     );
   });
 
-  // A template open in the editor takes over the entire screen — no dashboard
-  // sidebar or header — for a distraction-free, Figma-style editing surface.
+  const totalPages = Math.max(1, Math.ceil(filteredCertificates.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pagedCertificates = filteredCertificates.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const pageStart = filteredCertificates.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1;
+  const pageEnd = Math.min(safePage * PAGE_SIZE, filteredCertificates.length);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, currentWorkspaceId, pageSize]);
+
+  // A selection is a set of certificate ids; drop any that vanish (deleted,
+  // filtered out of the loaded set, or belonging to a workspace we switched away
+  // from) so a manual send can never target a certificate the user can't see.
+  useEffect(() => {
+    setSelectedCertIds((prev) => {
+      if (prev.size === 0) return prev;
+      const visible = new Set(certificates.map((c) => c.id));
+      const next = new Set([...prev].filter((id) => visible.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [certificates]);
+
+  const emailPreviewHtml = useMemo(() => {
+    if (!currentWorkspace) return '';
+    const doc = currentWorkspace.emailTemplate;
+    if (!doc) return '';
+    return renderEmailHtml(doc, sampleEmailVars(currentWorkspace.branding.brandName));
+  }, [currentWorkspace]);
+
+  const digestPreviewHtml = useMemo(() => {
+    if (!currentWorkspace) return '';
+    const doc = currentWorkspace.digestEmailTemplate;
+    if (!doc) return '';
+    return renderEmailHtml(doc, sampleDigestVars(currentWorkspace.branding.brandName));
+  }, [currentWorkspace]);
+
+  const MAX_BULK_EMAIL = 2000;
+  const selectedOnPage = pagedCertificates.filter((c) => selectedCertIds.has(c.id)).length;
+  const allOnPageSelected = pagedCertificates.length > 0 && selectedOnPage === pagedCertificates.length;
+  const allFilteredSelected = filteredCertificates.length > 0 && filteredCertificates.every((c) => selectedCertIds.has(c.id));
+  const toggleSelectPage = () => {
+    setSelectedCertIds((prev) => {
+      const next = new Set(prev);
+      if (allOnPageSelected) pagedCertificates.forEach((c) => next.delete(c.id));
+      else pagedCertificates.forEach((c) => next.add(c.id));
+      return next;
+    });
+  };
+  // Selects every certificate matching the current search, not just this page —
+  // capped at the number a single bulk send accepts.
+  const selectAllFiltered = () => {
+    const ids = filteredCertificates.slice(0, MAX_BULK_EMAIL).map((c) => c.id);
+    setSelectedCertIds(new Set(ids));
+    if (filteredCertificates.length > MAX_BULK_EMAIL) {
+      toast.info(`Selected the first ${MAX_BULK_EMAIL} of ${filteredCertificates.length} — that is the most a single send allows.`);
+    }
+  };
+
+  /** Kebab menu with every per-certificate operation. Used by both registries. */
+  const renderCertActionsMenu = (c: Certificate, direction: 'down' | 'up' = 'down') => (
+    <div className="inline-block text-left">
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setActiveActionMenuId(activeActionMenuId === c.id ? null : c.id);
+        }}
+        className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-900"
+        title="Actions"
+        type="button"
+      >
+        <MoreHorizontal className="h-4 w-4" />
+      </button>
+      {activeActionMenuId === c.id && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setActiveActionMenuId(null)} />
+          <div className={`absolute right-0 z-20 w-52 divide-y divide-slate-100 rounded-md border border-slate-200 bg-white py-1 text-left shadow-lg ${direction === 'up' ? 'bottom-full mb-1' : 'mt-1'}`}>
+            <div className="py-1">
+              <button
+                onClick={() => { setActiveActionMenuId(null); onViewCertificatePage(c.id); }}
+                className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50"
+              >
+                <Eye className="h-3.5 w-3.5 text-slate-400" /> View public page
+              </button>
+              <button
+                onClick={() => {
+                  setActiveActionMenuId(null);
+                  navigator.clipboard.writeText(`${window.location.origin}/c/${encodeURIComponent(c.id)}`);
+                  toast.success('Verification URL copied to clipboard.');
+                }}
+                className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50"
+              >
+                <ExternalLink className="h-3.5 w-3.5 text-slate-400" /> Copy verify link
+              </button>
+            </div>
+            <div className="py-1">
+              <button
+                onClick={() => { setActiveActionMenuId(null); handleResendEmail(c.id); }}
+                disabled={resendingCertId === c.id}
+                className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                <Mail className="h-3.5 w-3.5 text-slate-400" /> {resendingCertId === c.id ? 'Sending…' : 'Resend email'}
+              </button>
+              <button
+                onClick={() => { setActiveActionMenuId(null); setSelectedAuditTrailCert(c); }}
+                className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50"
+              >
+                <Sliders className="h-3.5 w-3.5 text-slate-400" /> Audit trail
+              </button>
+              <button
+                onClick={() => { setActiveActionMenuId(null); setSelectedCryptoProofCert(c); }}
+                className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50"
+              >
+                <ShieldCheck className="h-3.5 w-3.5 text-slate-400" /> Signature status
+              </button>
+              <button
+                onClick={() => { setActiveActionMenuId(null); setSelectedJsonEnvelopeCert(c); }}
+                className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50"
+              >
+                <Database className="h-3.5 w-3.5 text-slate-400" /> JSON record
+              </button>
+              <button
+                onClick={() => { setActiveActionMenuId(null); setSelectedPreviewCert(c); }}
+                className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50"
+              >
+                <Award className="h-3.5 w-3.5 text-slate-400" /> Preview card
+              </button>
+            </div>
+            <div className="py-1">
+              {c.status === 'valid' ? (
+                <button
+                  onClick={() => { setActiveActionMenuId(null); handleInitiateRevoke(c.id); }}
+                  className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-[13px] font-medium text-rose-600 hover:bg-rose-50"
+                >
+                  <ShieldAlert className="h-3.5 w-3.5" /> Revoke
+                </button>
+              ) : (
+                <button
+                  disabled={isActionPending(`certificate:restore:${c.id}`)}
+                  onClick={() => { setActiveActionMenuId(null); handleRestoreCertificate(c.id); }}
+                  className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-[13px] font-medium text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
+                >
+                  {isActionPending(`certificate:restore:${c.id}`) ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                  {isActionPending(`certificate:restore:${c.id}`) ? 'Restoring…' : 'Restore'}
+                </button>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  // Render Program Candidate Registry Details Page
+  const renderProgramDetailView = (program: CertificateProgram) => {
+    const associatedTemplate = templates.find(t => t.id === program.templateId)?.name || 'Default';
+    const programCerts = certificates.filter(c => c.programId === program.id);
+
+    const totalIssued = programCerts.length;
+    const validCount = programCerts.filter(c => c.status === 'valid').length;
+    const revokedCount = programCerts.filter(c => c.status === 'revoked').length;
+
+    const filteredCandidates = programCerts.filter(c =>
+      c.recipientName.toLowerCase().includes(candidateSearchQuery.toLowerCase()) ||
+      c.recipientEmail.toLowerCase().includes(candidateSearchQuery.toLowerCase()) ||
+      c.id.toLowerCase().includes(candidateSearchQuery.toLowerCase())
+    );
+
+    return (
+      <div className="space-y-6 pb-12">
+        <div className="flex flex-col justify-between gap-4 border-b border-slate-200 pb-4 sm:flex-row sm:items-center">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setSelectedProgramDetails(null)}
+              className="rounded-md p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
+              type="button"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-semibold capitalize tracking-tight text-slate-900">{program.name}</h2>
+                <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${totalIssued > 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
+                  {totalIssued > 0 ? 'Active' : 'No issuances'}
+                </span>
+              </div>
+              <p className="mt-0.5 text-[12px] text-slate-500">
+                <span className="font-mono">{program.id}</span> · Issue date {program.issueDate}{program.expiryDate ? ` · Expires ${program.expiryDate}` : ''}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button onClick={() => handleEditProgram(program)} className={btnSecondary}>
+              Edit program
+            </button>
+            <button onClick={() => openBulkIssueModal(program.id)} className={btnPrimary}>
+              <Plus className="h-3.5 w-3.5" /> Issue certificates
+            </button>
+          </div>
+        </div>
+
+        {program.description && (
+          <div className="max-w-3xl rounded-lg border border-slate-200 bg-white p-4 text-[13px] leading-relaxed text-slate-600">
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Description</p>
+            {program.description}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+          {[
+            { label: 'Total issued', value: String(totalIssued), tone: 'text-slate-900' },
+            { label: 'Valid', value: String(validCount), tone: 'text-emerald-600' },
+            { label: 'Revoked', value: String(revokedCount), tone: 'text-rose-600' },
+            { label: 'Template', value: associatedTemplate, tone: 'text-slate-900' },
+          ].map((stat) => (
+            <div key={stat.label} className={`${card} space-y-1 p-4`}>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{stat.label}</p>
+              <p className={`truncate text-xl font-semibold ${stat.tone}`} title={stat.value}>{stat.value}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+            <h3 className="text-[13px] font-semibold text-slate-900">Recipients ({filteredCandidates.length})</h3>
+            <div className="relative w-full sm:w-64">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search name, email, or ID"
+                value={candidateSearchQuery}
+                onChange={(e) => setCandidateSearchQuery(e.target.value)}
+                className={`${inputBase} pl-9`}
+              />
+            </div>
+          </div>
+
+          {filteredCandidates.length === 0 ? (
+            <div className={`${card} py-12 text-center text-[13px] text-slate-400`}>
+              No matching recipients found.
+            </div>
+          ) : (
+            <div className={`${card} overflow-visible`}>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-left">
+                  <thead className="border-b border-slate-200 bg-slate-50">
+                    <tr>
+                      <th className={th}>Certificate ID</th>
+                      <th className={th}>Recipient</th>
+                      <th className={th}>Email</th>
+                      <th className={th}>Issued</th>
+                      <th className={th}>Status</th>
+                      <th className={`${th} text-right`}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-[13px] text-slate-600">
+                    {filteredCandidates.map((c) => (
+                      <tr key={c.id} className="hover:bg-slate-50/60">
+                        <td className="px-4 py-3 font-mono text-[12px] text-slate-500">{c.id}</td>
+                        <td className="px-4 py-3 font-medium capitalize text-slate-900">{c.recipientName}</td>
+                        <td className="px-4 py-3 font-mono text-[12px]">{c.recipientEmail}</td>
+                        <td className="px-4 py-3 text-[12px] text-slate-500">{c.issueDate}</td>
+                        <td className="px-4 py-3">{statusBadge(c.status)}</td>
+                        <td className="relative px-4 py-3 text-right">{renderCertActionsMenu(c)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // A certificate template open in the editor takes over the entire screen.
   if (editingTemplate) {
     return (
       <CanvaEditor
@@ -1524,446 +1579,358 @@ export function Dashboard({
     );
   }
 
+  // Same takeover treatment for the email designer.
+  if (showEmailDesigner) {
+    return (
+      <EmailTemplateEditor
+        initial={currentWorkspace?.emailTemplate}
+        brandName={currentWorkspace?.branding?.brandName || currentWorkspace?.name || 'Glint'}
+        primaryColor={currentWorkspace?.branding?.primaryColor || '#0f172a'}
+        isSaving={isActionPending('emailTemplate:save')}
+        onSave={(doc) => handleSaveEmailTemplate(doc)}
+        onCancel={() => setShowEmailDesigner(false)}
+      />
+    );
+  }
+
+  if (showDigestDesigner) {
+    return (
+      <EmailTemplateEditor
+        mode="digest"
+        initial={currentWorkspace?.digestEmailTemplate}
+        brandName={currentWorkspace?.branding?.brandName || currentWorkspace?.name || 'Glint'}
+        primaryColor={currentWorkspace?.branding?.primaryColor || '#0f172a'}
+        isSaving={isActionPending('emailTemplate:save')}
+        onSave={(doc) => handleSaveDigestTemplate(doc)}
+        onCancel={() => setShowDigestDesigner(false)}
+      />
+    );
+  }
+
+  const NAV_GROUPS: { label?: string; items: { tab: DashboardTab; label: string; icon: React.ReactNode }[] }[] = [
+    {
+      items: [{ tab: 'overview', label: 'Overview', icon: <BarChart3 className="h-4 w-4" /> }],
+    },
+    {
+      label: 'Issuance',
+      items: [
+        { tab: 'programs', label: 'Certification Programs', icon: <Calendar className="h-4 w-4" /> },
+        { tab: 'templates', label: 'Certificate Templates', icon: <Layers className="h-4 w-4" /> },
+        { tab: 'issued', label: 'Issued Certificates', icon: <Award className="h-4 w-4" /> },
+      ],
+    },
+    {
+      label: 'Delivery',
+      items: [
+        { tab: 'emails', label: 'Email Activity', icon: <Mail className="h-4 w-4" /> },
+        { tab: 'branding', label: 'Branding & Email', icon: <Globe className="h-4 w-4" /> },
+      ],
+    },
+  ];
+
+  const TAB_META: Record<DashboardTab, { title: string; description: string }> = {
+    overview: { title: 'Overview', description: 'Workspace activity at a glance' },
+    programs: { title: 'Certification Programs', description: 'Cohorts, courses, and events you certify' },
+    templates: { title: 'Certificate Templates', description: 'Design the printable certificate layouts' },
+    issued: { title: 'Issued Certificates', description: 'Every certificate issued from this workspace' },
+    emails: { title: 'Email Activity', description: 'Outbox and delivery status of issuance emails' },
+    branding: { title: 'Branding & Email', description: 'Brand identity, sender details, and the issuance email design' },
+  };
+
   return (
-    <div className="flex h-screen w-screen bg-[#F8F9FA] overflow-hidden font-sans relative" aria-busy={pendingAction ? true : undefined}>
+    <div className="relative flex h-screen w-screen overflow-hidden bg-[#f6f7f9] font-sans" aria-busy={pendingAction ? true : undefined}>
       {pendingActionLabel && (
-        <div className="fixed bottom-4 left-1/2 z-[120] -translate-x-1/2 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-800 shadow-xl flex items-center gap-2">
+        <div className="fixed bottom-4 left-1/2 z-[120] flex -translate-x-1/2 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-2 text-[13px] font-medium text-slate-800 shadow-lg">
           <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-500" />
           {pendingActionLabel}
         </div>
       )}
-      
-      {/* Sidebar Control Deck */}
-      {/* Translucent backdrop overlay for mobile view */}
+
+      {/* Mobile sidebar backdrop */}
       {isMobileSidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-slate-900/40 z-40 md:hidden"
+        <div
+          className="fixed inset-0 z-40 bg-slate-900/40 md:hidden"
           onClick={() => setIsMobileSidebarOpen(false)}
         />
       )}
-      
-      <aside className={`fixed inset-y-0 left-0 w-64 bg-white border-r border-[#E9ECEF] flex flex-col justify-between py-8 px-6 shrink-0 z-50 transition-transform duration-300 transform ${
+
+      {/* Sidebar */}
+      <aside className={`fixed inset-y-0 left-0 z-50 flex w-60 shrink-0 transform flex-col justify-between border-r border-slate-200 bg-white transition-transform duration-200 ${
         isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-      } md:translate-x-0 md:relative md:z-30`}>
-        <div className="space-y-8 overflow-y-auto">
-          {/* Logo Brand Header */}
-          <div className="flex items-center justify-between">
+      } md:relative md:z-30 md:translate-x-0`}>
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-5">
+          {/* Brand */}
+          <div className="flex items-center justify-between px-1">
             <div className="flex items-center gap-2">
-              <svg className="w-8 h-8 shrink-0" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-                {/* Modern circular G lettermark */}
+              <svg className="h-7 w-7 shrink-0" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M23 16C23 19.866 19.866 23 16 23C12.134 23 9 19.866 9 16C9 12.134 12.134 9 16 9C18.6 9 20.9 10.4 22.1 12.5" stroke="#0F172A" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
                 <path d="M15 16H23" stroke="#0F172A" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
-                {/* Elegant golden glint spark on the shoulder of G */}
                 <path d="M24 7C24 9.2 25.2 10 27 10C25.2 10 24 10.8 24 13C24 10.8 22.8 10 21 10C22.8 10 24 9.2 24 7Z" fill="#F59E0B" />
               </svg>
-              <span className="font-display font-extrabold tracking-wider text-slate-950 text-sm uppercase">GLINT REGISTRY</span>
+              <span className="text-[15px] font-semibold tracking-tight text-slate-900">Glint</span>
             </div>
-            
-            {/* Refresh state spinner */}
-            <button 
+            <button
               onClick={triggerDataRefresh}
               disabled={refreshing || Boolean(pendingAction)}
-              className={`text-slate-400 hover:text-slate-900 transition-colors p-1 rounded hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed ${refreshing ? 'animate-spin' : ''}`}
-              title="Refresh ledger state"
+              className={`rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40 ${refreshing ? 'animate-spin' : ''}`}
+              title="Refresh data"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
+              <RefreshCw className="h-3.5 w-3.5" />
             </button>
           </div>
 
-          {/* Active Tenant / Workspace Selector Dropdown with Addition toggle */}
-          <div className="space-y-2">
-            <label className="text-[10px] uppercase tracking-widest text-[#9CA3AF] font-bold">Active Workspace</label>
+          {/* Workspace selector */}
+          <div className="space-y-1.5">
+            <label className="px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Workspace</label>
             <div className="relative">
               <select
                 value={currentWorkspaceId}
                 onChange={(e) => onWorkspaceChange(e.target.value)}
-                className="w-full bg-slate-100 hover:bg-slate-200/80 text-xs font-semibold text-slate-900 py-2.5 px-3 rounded-lg border-none focus:ring-1 focus:ring-slate-950 focus:outline-none transition-colors appearance-none cursor-pointer"
+                className="w-full cursor-pointer appearance-none rounded-md border border-slate-200 bg-white py-2 pl-3 pr-8 text-[13px] font-medium text-slate-900 transition-colors hover:bg-slate-50 focus:border-blue-500 focus:outline-none"
               >
                 {workspaces.map(ws => (
                   <option key={ws.id} value={ws.id}>{capitalizeWords(ws.name)}</option>
                 ))}
               </select>
-              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500 text-[10px]">
-                ▼
-              </div>
+              <ChevronRight className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 rotate-90 text-slate-400" />
             </div>
             <button
               onClick={() => setShowWorkspaceModal(true)}
-              className="text-[10px] font-bold text-slate-500 hover:text-slate-950 flex items-center gap-1 transition-colors pt-1"
+              className="flex items-center gap-1 px-1 pt-0.5 text-[12px] font-medium text-blue-600 transition-colors hover:text-blue-800"
             >
-              <Plus className="w-3 h-3" /> Onboard New Organization
+              <Plus className="h-3 w-3" /> Add organization
             </button>
           </div>
 
-          {/* Navigation Deck */}
-          <nav className="space-y-1">
-            <button
-              onClick={() => { changeTab('overview'); setEditingTemplate(null); }}
-              className={`w-full flex items-center justify-between py-2 px-3 rounded-lg font-medium text-xs transition-all ${activeTab === 'overview' ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
-            >
-              <span className="flex items-center gap-2.5">
-                <BarChart3 className="w-4 h-4" /> Workspace Overview
-              </span>
-            </button>
-
-            <button
-              onClick={() => { changeTab('programs'); setEditingTemplate(null); }}
-              className={`w-full flex items-center py-2 px-3 rounded-lg font-medium text-xs transition-all ${activeTab === 'programs' ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
-            >
-              <span className="flex items-center gap-2.5">
-                <Calendar className="w-4 h-4" /> Certification Programs
-              </span>
-            </button>
-
-            <button
-              onClick={() => { changeTab('templates'); setEditingTemplate(null); }}
-              className={`w-full flex items-center py-2 px-3 rounded-lg font-medium text-xs transition-all ${activeTab === 'templates' ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
-            >
-              <span className="flex items-center gap-2.5">
-                <Layers className="w-4 h-4" /> Layout Templates
-              </span>
-            </button>
-
-            <button
-              onClick={() => { changeTab('recipients'); setEditingTemplate(null); }}
-              className={`w-full flex items-center py-2 px-3 rounded-lg font-medium text-xs transition-all ${activeTab === 'recipients' ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
-            >
-              <span className="flex items-center gap-2.5">
-                <Upload className="w-4 h-4" /> Bulk CSV Issuance
-              </span>
-            </button>
-
-            <button
-              onClick={() => { changeTab('issued'); setEditingTemplate(null); }}
-              className={`w-full flex items-center py-2 px-3 rounded-lg font-medium text-xs transition-all ${activeTab === 'issued' ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
-            >
-              <span className="flex items-center gap-2.5">
-                <Award className="w-4 h-4" /> Issued Registry
-              </span>
-            </button>
-
-            <button
-              onClick={() => { changeTab('emails'); setEditingTemplate(null); }}
-              className={`w-full flex items-center py-2 px-3 rounded-lg font-medium text-xs transition-all ${activeTab === 'emails' ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
-            >
-              <span className="flex items-center gap-2.5">
-                <Mail className="w-4 h-4" /> Email Logs Simulator
-              </span>
-            </button>
-
-            <button
-              onClick={() => { changeTab('branding'); setEditingTemplate(null); }}
-              className={`w-full flex items-center justify-between py-2 px-3 rounded-lg font-medium text-xs transition-all ${activeTab === 'branding' ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
-            >
-              <span className="flex items-center gap-2.5">
-                <Globe className="w-4 h-4" /> Private Branding
-              </span>
-            </button>
-
-            <button
-              onClick={() => { changeTab('settings'); setEditingTemplate(null); }}
-              className={`w-full flex items-center justify-between py-2 px-3 rounded-lg font-medium text-xs transition-all ${activeTab === 'settings' ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
-            >
-              <span className="flex items-center gap-2.5">
-                <Settings className="w-4 h-4" /> Workspace Limits
-              </span>
-            </button>
+          {/* Navigation */}
+          <nav className="space-y-5">
+            {NAV_GROUPS.map((group, gi) => (
+              <div key={gi} className="space-y-1">
+                {group.label && (
+                  <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{group.label}</p>
+                )}
+                {group.items.map((item) => (
+                  <button
+                    key={item.tab}
+                    onClick={() => { changeTab(item.tab); setEditingTemplate(null); }}
+                    className={`flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-[13px] font-medium transition-colors ${
+                      activeTab === item.tab
+                        ? 'bg-blue-50 text-blue-700'
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    }`}
+                  >
+                    {item.icon} {item.label}
+                  </button>
+                ))}
+              </div>
+            ))}
           </nav>
         </div>
 
-        {/* Workspace Owner Card */}
-        <div className="space-y-6 border-t border-slate-100 pt-6">
-          <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 space-y-2">
-            <div className="flex justify-between items-center text-[9px] uppercase tracking-wider font-mono">
-              <span className="font-bold text-[#9CA3AF]">Plan State</span>
-              <span className="font-bold text-slate-950 bg-slate-200 px-1 py-0.2 rounded uppercase">{currentWorkspace?.plan}</span>
-            </div>
-            <p className="text-xs font-semibold text-slate-900 truncate">{currentWorkspace?.branding?.brandName}</p>
+        {/* User card */}
+        <div className="shrink-0 space-y-3 border-t border-slate-100 px-4 py-4">
+          <div className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+            <p className="truncate text-[12px] font-medium text-slate-700">{currentWorkspace?.branding?.brandName}</p>
+            <span className="rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 ring-1 ring-slate-200">{currentWorkspace?.plan}</span>
           </div>
-
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center font-bold text-slate-700 text-xs shadow-inner">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-[12px] font-semibold text-white">
               {(user?.name || currentWorkspace?.name || 'G').charAt(0).toUpperCase()}
             </div>
-            <div className="flex-1 truncate">
-              <p className="text-xs font-semibold text-slate-900 truncate">{user?.name || 'Administrator Account'}</p>
-              <p className="text-[9px] font-mono text-slate-400 truncate">{user?.email ?? ''}</p>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] font-medium text-slate-900">{user?.name || 'Administrator'}</p>
+              <p className="truncate text-[11px] text-slate-400">{user?.email ?? ''}</p>
             </div>
             {onLogout && (
               <button
                 onClick={onLogout}
-                title="Log Out"
-                className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600 transition-colors"
+                title="Log out"
+                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600"
                 id="btn-logout"
               >
-                <LogOut className="w-4 h-4" />
+                <LogOut className="h-4 w-4" />
               </button>
             )}
           </div>
         </div>
       </aside>
 
-      {/* Main Workspace Frame */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#F8F9FA]">
-        
-        {/* Dynamic header */}
-        <header className="h-16 bg-white border-b border-[#E9ECEF] flex items-center justify-between px-4 md:px-10 shrink-0 z-20">
-          <div className="flex items-center gap-3">
-            {/* Hamburger menu button for mobile */}
+      {/* Main frame */}
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+
+        {/* Header */}
+        <header className="z-20 flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 md:px-8">
+          <div className="flex min-w-0 items-center gap-3">
             <button
               onClick={() => setIsMobileSidebarOpen(true)}
-              className="md:hidden text-slate-500 hover:text-slate-950 p-1.5 rounded-lg hover:bg-slate-50 transition-colors"
+              className="rounded-md p-1.5 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 md:hidden"
               title="Open menu"
             >
-              <Menu className="w-5 h-5" />
+              <Menu className="h-5 w-5" />
             </button>
-            <h1 className="text-xs sm:text-sm font-semibold text-slate-900 uppercase tracking-wider truncate max-w-[120px] sm:max-w-none">
-              {activeTab === 'overview' && 'Overview Deck'}
-              {activeTab === 'programs' && 'Certification Programs'}
-              {activeTab === 'templates' && 'Layout Templates & Editor'}
-              {activeTab === 'recipients' && 'Bulk CSV Recipient Import'}
-              {activeTab === 'issued' && 'Issued Certificate Registry'}
-              {activeTab === 'branding' && 'White-label Custom Branding'}
-              {activeTab === 'settings' && 'Workspace Limits & SLA'}
-              {activeTab === 'emails' && 'Email Logs'}
-            </h1>
-            <span className="hidden sm:inline-block px-2.5 py-0.5 bg-green-50 text-green-700 text-[10px] font-bold uppercase tracking-wider rounded border border-green-150 font-mono">
-              ★ {currentWorkspace?.plan.toUpperCase()} WORKSPACE
-            </span>
+            <div className="min-w-0 leading-tight">
+              <h1 className="truncate text-[15px] font-semibold tracking-tight text-slate-900">{TAB_META[activeTab].title}</h1>
+              <p className="hidden truncate text-[12px] text-slate-500 sm:block">{TAB_META[activeTab].description}</p>
+            </div>
           </div>
-
-          <div className="flex items-center gap-4 text-xs">
-            <span className="hidden md:inline-block text-slate-400 font-mono text-[10px]">Domain Bound: <strong className="text-slate-850 font-bold">{currentWorkspace?.branding?.customDomain || 'Standard Ledger'}</strong></span>
-            {activeTab !== 'recipients' && (
-              <button 
-                onClick={() => {
-                  if (programs.length > 0) {
-                    setSelectedProgramId(programs[0].id);
-                    changeTab('recipients');
-                  } else {
-                    toast.error('Please configure at least one certification program first.');
-                  }
-                }}
-                className="bg-slate-950 text-white text-[10px] sm:text-[11px] px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-full font-semibold shadow-sm hover:bg-indigo-600 transition-all whitespace-nowrap"
-              >
-                + Bulk Issuer Pipeline
-              </button>
-            )}
-          </div>
+          <span className="hidden shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600 sm:inline-block">
+            {currentWorkspace?.plan?.toUpperCase()} plan
+          </span>
         </header>
 
-        {/* Inner Content Area */}
-        <div id="dashboard-content-area" className={`flex-1 min-w-0 ${editingTemplate ? 'p-0 overflow-hidden' : 'p-4 sm:p-6 md:p-8 overflow-y-auto'}`}>
-          
+        {/* Content */}
+        <div id="dashboard-content-area" className="min-w-0 flex-1 overflow-y-auto p-4 sm:p-6 md:p-8">
+
           {loading ? (
-            <div className="h-full flex flex-col items-center justify-center text-slate-500">
-              <RefreshCw className="w-8 h-8 text-slate-800 animate-spin mb-3" />
-              <p className="text-xs font-mono uppercase tracking-widest">Loading workspace data...</p>
+            <div className="flex h-full flex-col items-center justify-center text-slate-500">
+              <RefreshCw className="mb-3 h-7 w-7 animate-spin text-slate-400" />
+              <p className="text-[13px]">Loading workspace…</p>
             </div>
           ) : (
             <>
-              {/* TAB 1: OVERVIEW */}
+              {/* TAB: OVERVIEW */}
               {activeTab === 'overview' && (
-                <div className="space-y-8 animate-fade-in">
-                  
-                  {/* Top Header Editorial Greeting */}
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-end pb-4 border-b border-slate-200">
-                    <div className="lg:col-span-6 space-y-2">
-                      <h2 className="font-serif text-5xl italic text-slate-950 leading-none">Authority Status.</h2>
-                      <p className="text-slate-500 text-sm max-w-sm">
-                        Credential registry for {currentWorkspace?.branding.brandName}. Secure multi-tenant tracking.
-                      </p>
-                    </div>
-                    
-                    {/* Big Stats Row */}
-                    <div className="lg:col-span-6 grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
-                      <div className="border-l border-slate-200 pl-4 space-y-1">
-                        <p className="text-[10px] text-slate-400 uppercase tracking-widest font-semibold">Total Issued</p>
-                        <p className="font-display text-3xl font-bold text-slate-950 leading-none">{analytics?.issuedCount || 0}</p>
+                <div className="mx-auto max-w-6xl space-y-6">
+
+                  {/* Stat cards */}
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    {[
+                      { label: 'Certificates issued', value: analytics?.issuedCount || 0, hint: `${programs.filter(p => p.status === 'active').length} active programs` },
+                      { label: 'Verifications', value: analytics?.verificationCount || 0, hint: 'Public authenticity checks' },
+                      { label: 'Page views', value: analytics?.viewCount || 0, hint: 'Certificate page visits' },
+                      { label: 'Downloads', value: analytics?.downloadCount || 0, hint: `${analytics?.shareCount || 0} social shares` },
+                    ].map((stat) => (
+                      <div key={stat.label} className={`${card} space-y-2 p-5`}>
+                        <p className="text-[12px] font-medium text-slate-500">{stat.label}</p>
+                        <p className="text-2xl font-semibold tracking-tight text-slate-900">{stat.value}</p>
+                        <p className="text-[12px] text-slate-400">{stat.hint}</p>
                       </div>
-                      <div className="border-l border-slate-200 pl-4 space-y-1">
-                        <p className="text-[10px] text-slate-400 uppercase tracking-widest font-semibold">Checks Match</p>
-                        <p className="font-display text-3xl font-bold text-slate-950 leading-none">{analytics?.verificationCount || 0}</p>
-                      </div>
-                      <div className="border-l border-slate-200 pl-4 space-y-1">
-                        <p className="text-[10px] text-slate-400 uppercase tracking-widest font-semibold">Engagement</p>
-                        <p className="font-display text-3xl font-bold text-slate-950 leading-none">A+</p>
-                      </div>
-                    </div>
+                    ))}
                   </div>
 
-                  {/* Operational Metrics Cards */}
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    <div className="bg-white border border-[#E9ECEF] rounded-xl p-5 space-y-3 card-shadow">
-                      <p className="text-[9px] uppercase tracking-widest text-[#9CA3AF] font-bold">ACTIVE PROGRAMS</p>
-                      <div className="flex justify-between items-end">
-                        <p className="font-display font-bold text-slate-950 text-3xl">{programs.filter(p => p.status === 'active').length}</p>
-                        <span className="text-[10px] text-slate-400 font-mono">Programs total: {programs.length}</span>
-                      </div>
-                    </div>
-
-                    <div className="bg-white border border-[#E9ECEF] rounded-xl p-5 space-y-3 card-shadow">
-                      <p className="text-[9px] uppercase tracking-widest text-[#9CA3AF] font-bold">LEDGER VIEW RATE</p>
-                      <div className="flex justify-between items-end">
-                        <p className="font-display font-bold text-slate-950 text-3xl">{analytics?.viewCount || 0}</p>
-                        <span className="text-[10px] text-emerald-600 font-bold font-mono">High Quality Activity</span>
-                      </div>
-                    </div>
-
-                    <div className="bg-white border border-[#E9ECEF] rounded-xl p-5 space-y-3 card-shadow">
-                      <p className="text-[9px] uppercase tracking-widest text-[#9CA3AF] font-bold">DIGITAL DOWNLOADS</p>
-                      <div className="flex justify-between items-end">
-                        <p className="font-display font-bold text-slate-950 text-3xl">{analytics?.downloadCount || 0}</p>
-                        <span className="text-[10px] text-slate-400 font-mono">100% PDF Verified</span>
-                      </div>
-                    </div>
-
-                    <div className="bg-white border border-[#E9ECEF] rounded-xl p-5 space-y-3 card-shadow">
-                      <p className="text-[9px] uppercase tracking-widest text-[#9CA3AF] font-bold">SOCIAL RESHARES</p>
-                      <div className="flex justify-between items-end">
-                        <p className="font-display font-bold text-slate-950 text-3xl">{analytics?.shareCount || 0}</p>
-                        <span className="text-[10px] text-slate-400 font-mono">LinkedIn matched</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Dynamic Graphic representation & Recent Activity list */}
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                    
-                    {/* Visual Chart Graphic simulation (High Quality SVG) */}
-                    <div className="lg:col-span-8 bg-white border border-[#E9ECEF] rounded-2xl p-6 card-shadow space-y-6">
-                      <div className="flex justify-between items-center">
-                        <h3 className="text-xs font-bold text-slate-950 uppercase tracking-widest">Chronological Volume Scale</h3>
-                        <div className="flex gap-4 text-[10px] font-mono text-slate-400">
-                          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-slate-950"></span> Issued</span>
-                          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500"></span> Verified</span>
+                  {/* Chart + referrals */}
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+                    <div className={`${card} space-y-5 p-5 lg:col-span-8`}>
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-[13px] font-semibold text-slate-900">Issuance & verification volume</h3>
+                        <div className="flex gap-4 text-[12px] text-slate-500">
+                          <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-blue-600"></span> Issued</span>
+                          <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-300"></span> Verified</span>
                         </div>
-                      </div>                      {/* Pure high quality CSS Grid SVG chart representations */}
-                      <div className="w-full overflow-x-auto pb-2 scrollbar-thin">
-                        <div className="h-64 flex items-end justify-between gap-4 pt-10 border-b border-slate-100 relative min-w-[500px]">
-                          {/* Background scale indicators */}
-                          <div className="absolute left-0 right-0 top-1/4 border-t border-slate-50 border-dashed pointer-events-none"></div>
-                          <div className="absolute left-0 right-0 top-2/4 border-t border-slate-5 border-dashed pointer-events-none"></div>
-                          <div className="absolute left-0 right-0 top-3/4 border-t border-slate-5 border-dashed pointer-events-none"></div>
-                          
-                          {/* Render customized trend bars dynamically based on loaded database elements */}
+                      </div>
+                      <div className="w-full overflow-x-auto pb-1">
+                        <div className="relative flex h-56 min-w-[480px] items-end justify-between gap-4 border-b border-slate-100 pt-8">
+                          <div className="pointer-events-none absolute left-0 right-0 top-1/4 border-t border-dashed border-slate-100"></div>
+                          <div className="pointer-events-none absolute left-0 right-0 top-2/4 border-t border-dashed border-slate-100"></div>
+                          <div className="pointer-events-none absolute left-0 right-0 top-3/4 border-t border-dashed border-slate-100"></div>
+
                           {analytics?.issuanceTrend.map((pt, idx) => (
-                            <div key={idx} className="flex-1 flex flex-col items-center gap-2 group z-10">
-                              <div className="w-full flex items-end justify-center gap-1.5 h-44">
-                                {/* Issued representation */}
-                                <div 
-                                  style={{ height: `${Math.min(100, Math.max(15, (pt.count / (analytics.issuedCount || 100)) * 280))}%` }}
-                                  className="w-6 bg-slate-900 group-hover:bg-slate-700 rounded-sm transition-all relative"
+                            <div key={idx} className="group z-10 flex flex-1 flex-col items-center gap-2">
+                              <div className="flex h-40 w-full items-end justify-center gap-1">
+                                <div
+                                  style={{ height: `${Math.min(100, Math.max(6, (pt.count / (analytics.issuedCount || 100)) * 280))}%` }}
+                                  className="relative w-5 rounded-sm bg-blue-600 transition-colors group-hover:bg-blue-500"
                                   title={`Issued: ${pt.count}`}
                                 >
-                                  <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-[8px] font-mono font-bold text-slate-800 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-100 px-1 rounded shadow-sm shrink-0 whitespace-nowrap">{pt.count}</span>
+                                  <span className="absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-slate-900 px-1 text-[10px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">{pt.count}</span>
                                 </div>
-                                {/* Verified representation */}
-                                <div 
-                                  style={{ height: `${Math.min(100, Math.max(10, ((analytics.verificationTrend[idx]?.count || 0) / (analytics.viewCount || 50)) * 200))}%` }}
-                                  className="w-6 bg-emerald-500 group-hover:bg-emerald-400 rounded-sm transition-all relative"
+                                <div
+                                  style={{ height: `${Math.min(100, Math.max(4, ((analytics.verificationTrend[idx]?.count || 0) / (analytics.viewCount || 50)) * 200))}%` }}
+                                  className="relative w-5 rounded-sm bg-sky-300 transition-colors group-hover:bg-sky-400"
                                   title={`Verified: ${analytics.verificationTrend[idx]?.count || 0}`}
                                 >
-                                  <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-[8px] font-mono font-bold text-emerald-800 opacity-0 group-hover:opacity-100 transition-opacity bg-emerald-50 px-1 rounded shadow-sm shrink-0 whitespace-nowrap">{analytics.verificationTrend[idx]?.count || 0}</span>
+                                  <span className="absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-slate-900 px-1 text-[10px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">{analytics.verificationTrend[idx]?.count || 0}</span>
                                 </div>
                               </div>
-                              <span className="text-[10px] font-mono text-slate-400">{pt.date}</span>
+                              <span className="text-[11px] text-slate-400">{pt.date}</span>
                             </div>
                           ))}
                         </div>
-                      </div>
-
-                      <div className="flex items-center gap-2.5 bg-slate-50 p-3 rounded-xl text-xs text-slate-500 border border-slate-100">
-                        <Sparkles className="w-4 h-4 text-slate-900 shrink-0" />
-                        <span>Interactive Telemetry: Hover trend components above to inspect precise authority check stats.</span>
                       </div>
                     </div>
 
                     {/*
                       Referrer attribution is not captured anywhere. This box used to
-                      render "LinkedIn Direct Share — 55% of views", "Public QR Code
-                      Scan — 15%", and so on, computed as fixed fractions of the view
-                      count. The numbers moved when views moved, so they looked live.
-                      They measured nothing.
+                      render fabricated percentages that moved with the view count.
                     */}
-                    <div className="lg:col-span-4 bg-white border border-[#E9ECEF] rounded-2xl p-6 card-shadow space-y-6">
-                      <h3 className="text-xs font-bold text-slate-950 uppercase tracking-widest">Public Referral Channels</h3>
+                    <div className={`${card} space-y-4 p-5 lg:col-span-4`}>
+                      <h3 className="text-[13px] font-semibold text-slate-900">Referral channels</h3>
                       {analytics?.trafficSources?.length ? (
                         <div className="space-y-4">
                           {analytics.trafficSources.map((source, idx) => (
                             <div key={idx} className="space-y-1.5">
-                              <div className="flex justify-between items-center text-xs">
-                                <span className="font-semibold text-slate-800">{source.source}</span>
-                                <span className="font-mono text-slate-400 font-bold">{source.count} clicks</span>
+                              <div className="flex items-center justify-between text-[13px]">
+                                <span className="font-medium text-slate-700">{source.source}</span>
+                                <span className="text-slate-400">{source.count}</span>
                               </div>
-                              <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                              <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
                                 <div
                                   style={{ width: `${Math.min(100, (source.count / (analytics.viewCount || 1)) * 100)}%` }}
-                                  className="bg-slate-950 h-full"
+                                  className="h-full bg-blue-600"
                                 />
                               </div>
                             </div>
                           ))}
                         </div>
                       ) : (
-                        <div className="text-xs text-slate-400 leading-relaxed">
+                        <p className="text-[13px] leading-relaxed text-slate-400">
                           Referrer tracking is not enabled, so there is nothing to attribute yet.
-                          Views, downloads, shares, and verifications are counted on the cards above.
-                        </div>
+                          Views, downloads, shares, and verifications are counted in the cards above.
+                        </p>
                       )}
                     </div>
                   </div>
 
-                  {/* Recent Activity List */}
-                  <div className="bg-white border border-[#E9ECEF] rounded-2xl p-6 card-shadow space-y-4">
-                    <h3 className="text-xs font-bold text-slate-950 uppercase tracking-widest">Recent Authority Dispatches</h3>
-                    <div className="divide-y divide-slate-100">
-                      {certificates.slice(-5).map((cert, idx) => (
-                        <div key={idx} className="py-3.5 flex justify-between items-center text-xs">
-                          <div className="space-y-0.5 max-w-sm">
-                            <p className="font-semibold text-slate-900 capitalize">{cert.recipientName}</p>
-                            <p className="text-[10px] text-slate-400 truncate">{cert.recipientEmail} • Verified ID {cert.id}</p>
-                          </div>
-                          <div className="text-right space-y-1">
-                            <span className={`px-2 py-0.5 rounded font-mono text-[9px] font-bold uppercase tracking-wider ${
-                              cert.status === 'valid' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
-                            }`}>
-                              {cert.status}
-                            </span>
-                            <button
-                              onClick={() => onViewCertificatePage(cert.id)}
-                              className="text-[10px] text-slate-500 hover:text-slate-950 underline font-bold flex items-center justify-end gap-0.5"
-                            >
-                              Audit <ArrowUpRight className="w-3 h-3" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+                  {/* Recent activity */}
+                  <div className={`${card} p-5`}>
+                    <div className="mb-2 flex items-center justify-between">
+                      <h3 className="text-[13px] font-semibold text-slate-900">Recent issuances</h3>
+                      <button onClick={() => changeTab('issued')} className="flex items-center gap-0.5 text-[12px] font-medium text-blue-600 hover:text-blue-800">
+                        View all <ArrowUpRight className="h-3 w-3" />
+                      </button>
                     </div>
+                    {certificates.length === 0 ? (
+                      <p className="py-6 text-center text-[13px] text-slate-400">No certificates issued yet.</p>
+                    ) : (
+                      <div className="divide-y divide-slate-100">
+                        {certificates.slice(0, 5).map((cert, idx) => (
+                          <div key={idx} className="flex items-center justify-between py-3 text-[13px]">
+                            <div className="min-w-0 space-y-0.5">
+                              <p className="font-medium capitalize text-slate-900">{cert.recipientName}</p>
+                              <p className="truncate text-[12px] text-slate-400">{cert.recipientEmail} · {cert.programName}</p>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-3">
+                              {statusBadge(cert.status)}
+                              <button
+                                onClick={() => onViewCertificatePage(cert.id)}
+                                className="text-[12px] font-medium text-blue-600 hover:text-blue-800"
+                              >
+                                View
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                 </div>
               )}
 
-              {/* TAB 2: PROGRAMS */}
+              {/* TAB: PROGRAMS */}
               {activeTab === 'programs' && (
-                <div className="space-y-8 animate-fade-in">
+                <div className="mx-auto max-w-6xl space-y-6">
                   {selectedProgramDetails ? (
                     renderProgramDetailView(selectedProgramDetails)
                   ) : (
                     <>
-                      {/* Title Bar */}
-                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-200 pb-4">
-                        <div>
-                          <h2 className="font-serif text-4xl italic text-slate-955">Credential Program Registers</h2>
-                          <p className="text-slate-500 text-sm">Organize cohort tracks, events, or academic courses.</p>
-                        </div>
-                        
+                      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+                        <p className="text-[13px] text-slate-500">{programs.length} program{programs.length === 1 ? '' : 's'}</p>
                         {!showProgramForm && (
                           <button
                             onClick={() => {
                               if (templates.length === 0) {
-                                toast.error('Create at least one template program layout before configuring certificate programs.');
+                                toast.error('Create at least one certificate template before configuring programs.');
                                 return;
                               }
                               setEditingProgram(null);
@@ -1975,39 +1942,38 @@ export function Dashboard({
                               setProgIssueDate(todayIso());
                               setShowProgramForm(true);
                             }}
-                            className="bg-slate-950 text-white text-xs px-5 py-2.5 rounded-full font-bold shadow-sm hover:bg-slate-800 transition-colors flex items-center gap-1 cursor-pointer"
+                            className={btnPrimary}
                           >
-                            <Plus className="w-4 h-4" /> Create Category Track
+                            <Plus className="h-3.5 w-3.5" /> Create program
                           </button>
                         )}
                       </div>
 
-                      {/* Create Program Block Form */}
                       {showProgramForm && (
-                        <form onSubmit={handleCreateProgram} className="bg-white border border-[#E9ECEF] rounded-2xl p-8 card-shadow space-y-6 max-w-2xl">
-                          <h3 className="text-sm font-bold text-slate-955 uppercase tracking-widest pb-3 border-b border-slate-100">
-                            {editingProgram ? 'Edit Credential Program' : 'Configure Program Variable Matrix'}
+                        <form onSubmit={handleCreateProgram} className={`${card} max-w-2xl space-y-5 p-6`}>
+                          <h3 className="border-b border-slate-100 pb-3 text-[14px] font-semibold text-slate-900">
+                            {editingProgram ? 'Edit program' : 'New certification program'}
                           </h3>
 
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="space-y-1">
-                              <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Program / Course Name</label>
+                          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <div className="space-y-1.5">
+                              <label className={labelBase}>Program name</label>
                               <input
                                 type="text"
                                 required
-                                placeholder="e.g., Executive MBA: Data Architecture"
+                                placeholder="e.g. Executive MBA: Data Architecture"
                                 value={progName}
                                 onChange={(e) => setProgName(capitalizeWords(e.target.value))}
-                                className="w-full bg-slate-50 text-xs py-2 px-3 rounded border border-slate-200 focus:outline-none focus:border-slate-905"
+                                className={inputBase}
                               />
                             </div>
 
-                            <div className="space-y-1">
-                              <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Default Layout Template</label>
+                            <div className="space-y-1.5">
+                              <label className={labelBase}>Certificate template</label>
                               <select
                                 value={progTemplateId || templates[0]?.id || ''}
                                 onChange={(e) => setProgTemplateId(e.target.value)}
-                                className="w-full bg-slate-50 text-xs py-2 px-3 rounded border border-slate-200 focus:outline-none focus:border-slate-905 cursor-pointer"
+                                className={`${inputBase} cursor-pointer`}
                               >
                                 {templates.map(t => (
                                   <option key={t.id} value={t.id}>{t.name}</option>
@@ -2016,55 +1982,45 @@ export function Dashboard({
                             </div>
                           </div>
 
-                          <div className="space-y-1">
-                            <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Description of certification competencies</label>
+                          <div className="space-y-1.5">
+                            <label className={labelBase}>Description</label>
                             <textarea
-                              placeholder="Summary of modules verified by passing this track"
+                              placeholder="Summary of what this program certifies"
                               value={progDesc}
                               onChange={(e) => setProgDesc(e.target.value)}
-                              className="w-full bg-slate-50 text-xs py-2 px-3 rounded border border-slate-200 focus:outline-none focus:border-slate-905 h-20"
+                              className={`${inputBase} h-20 resize-none`}
                             />
                           </div>
 
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="space-y-1">
-                              <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Issue Date</label>
-                              <input
-                                type="date"
-                                required
-                                value={progIssueDate}
-                                onChange={(e) => setProgIssueDate(e.target.value)}
-                                className="w-full bg-slate-50 text-xs py-2 px-3 rounded border border-slate-200 focus:outline-none"
-                              />
+                          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <div className="space-y-1.5">
+                              <label className={labelBase}>Issue date</label>
+                              <input type="date" required value={progIssueDate} onChange={(e) => setProgIssueDate(e.target.value)} className={inputBase} />
                             </div>
-                            <div className="space-y-1">
-                              <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Expiry Date (Optional)</label>
-                              <input
-                                type="date"
-                                value={progExpiryDate}
-                                onChange={(e) => setProgExpiryDate(e.target.value)}
-                                className="w-full bg-slate-50 text-xs py-2 px-3 rounded border border-slate-200 focus:outline-none"
-                              />
+                            <div className="space-y-1.5">
+                              <label className={labelBase}>Expiry date (optional)</label>
+                              <input type="date" value={progExpiryDate} onChange={(e) => setProgExpiryDate(e.target.value)} className={inputBase} />
                             </div>
                           </div>
 
                           <div className="space-y-1.5">
-                            <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider flex items-center justify-between">
-                              <span>Spreadsheet Variable Mapping Fields</span>
-                              <span className="text-[9px] text-[#9CA3AF] lowercase">Comma separated values list</span>
+                            <label className={`${labelBase} flex items-center justify-between`}>
+                              <span>Custom recipient fields</span>
+                              <span className="text-[11px] font-normal text-slate-400">Comma separated</span>
                             </label>
                             <input
                               type="text"
                               value={fieldString}
                               onChange={(e) => setFieldString(e.target.value)}
-                              className="w-full bg-slate-50 text-xs py-2.5 px-3 rounded border border-slate-200 focus:outline-none focus:border-slate-905 font-mono"
+                              placeholder="e.g. Grade, Score, Cohort"
+                              className={`${inputBase} font-mono`}
                             />
-                            <p className="text-[10px] text-slate-400 leading-normal">
-                              The CSV mapper will expect these column tags. Example: Map <code className="bg-slate-100 text-slate-700 px-1 rounded font-mono">Grade</code>, <code className="bg-slate-100 text-slate-700 px-1 rounded font-mono">Score</code> or <code className="bg-slate-100 text-slate-700 px-1 rounded font-mono">Instructors</code> to print dynamically.
+                            <p className="text-[12px] leading-relaxed text-slate-400">
+                              These become CSV columns during bulk issuance and can be printed on the certificate as {'{{placeholders}}'}.
                             </p>
                           </div>
 
-                          <div className="flex gap-3 justify-end pt-2">
+                          <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
                             <button
                               type="button"
                               disabled={isActionPending('program:save')}
@@ -2077,220 +2033,132 @@ export function Dashboard({
                                 setProgExpiryDate('');
                                 setFieldString('');
                               }}
-                              className="bg-slate-100 text-slate-800 text-xs px-4 py-2 rounded-lg font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                              className={btnSecondary}
                             >
                               Cancel
                             </button>
-                            <button
-                              type="submit"
-                              disabled={isActionPending('program:save')}
-                              className="bg-slate-950 text-white text-xs px-5 py-2.5 rounded-lg font-bold hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
-                            >
-                              {isActionPending('program:save') && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                              {isActionPending('program:save') ? (editingProgram ? 'Saving...' : 'Registering...') : (editingProgram ? 'Save Changes' : 'Register Program Track')}
+                            <button type="submit" disabled={isActionPending('program:save')} className={btnPrimary}>
+                              {isActionPending('program:save') && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                              {isActionPending('program:save') ? 'Saving…' : (editingProgram ? 'Save changes' : 'Create program')}
                             </button>
                           </div>
                         </form>
                       )}
 
                       {programs.length === 0 ? (
-                        <div className="px-8 py-16 text-center text-slate-500 bg-white border border-[#E9ECEF] rounded-2xl">
+                        <div className={`${card} px-8 py-16 text-center`}>
                           <div className="flex flex-col items-center justify-center space-y-3">
-                            <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center">
-                              <Layers className="w-6 h-6 text-indigo-400" />
+                            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-50">
+                              <Layers className="h-5 w-5 text-blue-500" />
                             </div>
-                            <h3 className="font-bold text-slate-700 text-sm">No Programs Found</h3>
-                            <p className="text-xs text-slate-500 max-w-xs mx-auto">Create a certificate program to start issuing credentials to your recipients.</p>
-                            <button
-                              onClick={() => {
-                                if (templates.length === 0) {
-                                  toast.error('Create at least one certificate template first.');
-                                  return;
-                                }
-                                setEditingProgram(null);
-                                setProgName('');
-                                setProgDesc('');
-                                setProgIssueDate(todayIso());
-                                setProgExpiryDate('');
-                                setFieldString('');
-                                setProgTemplateId(templates[0].id);
-                                setShowProgramForm(true);
-                              }}
-                              className="mt-2 text-indigo-600 hover:text-indigo-800 text-xs font-bold underline transition-colors cursor-pointer"
-                            >
-                              Create First Program
-                            </button>
+                            <h3 className="text-[14px] font-semibold text-slate-900">No programs yet</h3>
+                            <p className="mx-auto max-w-xs text-[13px] text-slate-500">Create a certification program to start issuing certificates to recipients.</p>
                           </div>
                         </div>
                       ) : (
                         <>
-                          {/* Program Table - Desktop */}
-                          <div className="hidden md:block bg-white border border-[#E9ECEF] rounded-2xl overflow-hidden card-shadow overflow-x-auto">
-                            <table className="w-full text-left border-collapse">
-                              <thead className="bg-[#F8F9FA] border-b border-[#E9ECEF] text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                <tr>
-                                  <th className="px-8 py-4">Event Track Metadata</th>
-                                  <th className="px-6 py-4">Associated template</th>
-                                  <th className="px-6 py-4">Custom Mapped Variables</th>
-                                  <th className="px-6 py-4">Dispatched Status</th>
-                                  <th className="px-8 py-4 text-right">Operations</th>
-                                </tr>
-                              </thead>
-                              <tbody className="text-xs text-slate-600 divide-y divide-slate-100">
-                                {programs.map((prog) => {
-                                  const associatedTemplate = templates.find(t => t.id === prog.templateId)?.name || 'Default';
-                                  const issueCount = certificates.filter(c => c.programId === prog.id).length;
-                                  
-                                  return (
-                                    <tr key={prog.id} className="hover:bg-slate-50/40">
-                                      <td className="px-8 py-5 space-y-1.5">
-                                        <p 
-                                          onClick={() => setSelectedProgramDetails(prog)}
-                                          className="font-bold text-indigo-600 hover:text-indigo-800 text-sm leading-tight capitalize cursor-pointer hover:underline"
-                                        >
-                                          {prog.name}
-                                        </p>
-                                        <p className="text-[10px] text-slate-400 leading-normal max-w-sm">{prog.description}</p>
-                                        <p className="text-[9px] font-mono text-slate-400">UUID: {prog.id} • Created Date: {new Date(prog.createdTime).toLocaleDateString()}</p>
-                                      </td>
-                                      <td className="px-6 py-5 font-semibold text-slate-900">
-                                        {associatedTemplate}
-                                      </td>
-                                      <td className="px-6 py-5 space-y-1.5">
-                                        <div className="flex flex-wrap gap-1">
-                                          {['name', 'email', 'date', ...prog.recipientFields.filter(f => !['name', 'email', 'date', 'id', 'program'].includes(f.toLowerCase()))].map((field, idx) => (
-                                            <span key={idx} className="bg-slate-150 text-[9px] hover:bg-slate-200 transition-colors font-mono font-bold text-slate-800 px-1.5 py-0.5 rounded uppercase border">
-                                              {field}
-                                            </span>
-                                          ))}
-                                        </div>
-                                      </td>
-                                      <td className="px-6 py-5">
-                                        <div className="space-y-1">
-                                          <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
-                                            issueCount > 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-slate-50 text-slate-405 border-slate-200'
-                                          }`}>
-                                            {issueCount > 0 ? 'Active Dispatched' : 'Pending Register'}
+                          {/* Desktop table */}
+                          <div className={`${card} hidden overflow-hidden md:block`}>
+                            <div className="overflow-x-auto">
+                              <table className="w-full border-collapse text-left">
+                                <thead className="border-b border-slate-200 bg-slate-50">
+                                  <tr>
+                                    <th className={th}>Program</th>
+                                    <th className={th}>Template</th>
+                                    <th className={th}>Fields</th>
+                                    <th className={th}>Issued</th>
+                                    <th className={`${th} text-right`}>Actions</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 text-[13px] text-slate-600">
+                                  {programs.map((prog) => {
+                                    const associatedTemplate = templates.find(t => t.id === prog.templateId)?.name || 'Default';
+                                    const issueCount = certificates.filter(c => c.programId === prog.id).length;
+
+                                    return (
+                                      <tr key={prog.id} className="hover:bg-slate-50/60">
+                                        <td className="max-w-sm px-4 py-4">
+                                          <p
+                                            onClick={() => setSelectedProgramDetails(prog)}
+                                            className="cursor-pointer font-medium capitalize text-blue-600 hover:text-blue-800 hover:underline"
+                                          >
+                                            {prog.name}
+                                          </p>
+                                          {prog.description && <p className="mt-0.5 truncate text-[12px] text-slate-400">{prog.description}</p>}
+                                          <p className="mt-0.5 font-mono text-[11px] text-slate-400">{prog.id}</p>
+                                        </td>
+                                        <td className="px-4 py-4 font-medium text-slate-800">{associatedTemplate}</td>
+                                        <td className="px-4 py-4">
+                                          <div className="flex max-w-[220px] flex-wrap gap-1">
+                                            {['name', 'email', ...prog.recipientFields.filter(f => !['name', 'email', 'date', 'id', 'program'].includes(f.toLowerCase()))].map((field, idx) => (
+                                              <span key={idx} className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[11px] text-slate-600">
+                                                {field}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        </td>
+                                        <td className="px-4 py-4">
+                                          <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${issueCount > 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
+                                            {issueCount} issued
                                           </span>
-                                          <p className="text-[10px] font-mono text-slate-400 font-bold">{issueCount} credentials issued</p>
-                                        </div>
-                                      </td>
-                                      <td className="px-8 py-5 text-right space-x-3.5">
-                                        <button
-                                          type="button"
-                                          onClick={() => handleEditProgram(prog)}
-                                          className="text-[10px] uppercase text-[#1a73e8] hover:underline font-bold cursor-pointer"
-                                        >
-                                          Edit
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setSelectedProgramId(prog.id);
-                                            setImportStep('input');
-                                            changeTab('recipients');
-                                          }}
-                                          className="text-[10px] uppercase text-[#1a73e8] hover:underline font-bold cursor-pointer"
-                                        >
-                                          Discharge CSV
-                                        </button>
-                                        <button
-                                          type="button"
-                                          disabled={isActionPending(`program:delete:${prog.id}`)}
-                                          onClick={() => handleDeleteProgram(prog.id)}
-                                          className="text-slate-400 hover:text-rose-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                                          title="Delete track"
-                                        >
-                                          <Trash2 className="w-4 h-4 inline" />
-                                        </button>
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
+                                        </td>
+                                        <td className="space-x-3 px-4 py-4 text-right">
+                                          <button type="button" onClick={() => handleEditProgram(prog)} className="text-[12px] font-medium text-blue-600 hover:text-blue-800 hover:underline">
+                                            Edit
+                                          </button>
+                                          <button type="button" onClick={() => openBulkIssueModal(prog.id)} className="text-[12px] font-medium text-blue-600 hover:text-blue-800 hover:underline">
+                                            Bulk issue
+                                          </button>
+                                          <button
+                                            type="button"
+                                            disabled={isActionPending(`program:delete:${prog.id}`)}
+                                            onClick={() => handleDeleteProgram(prog.id)}
+                                            className="text-slate-400 transition-colors hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40"
+                                            title="Delete program"
+                                          >
+                                            <Trash2 className="inline h-4 w-4" />
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
                           </div>
 
-                          {/* Program Cards - Mobile */}
-                          <div className="block md:hidden space-y-4">
+                          {/* Mobile cards */}
+                          <div className="block space-y-3 md:hidden">
                             {programs.map((prog) => {
                               const associatedTemplate = templates.find(t => t.id === prog.templateId)?.name || 'Default';
                               const issueCount = certificates.filter(c => c.programId === prog.id).length;
-                              
                               return (
-                                <div key={prog.id} className="bg-white border border-[#E9ECEF] rounded-xl p-5 card-shadow space-y-4">
-                                  <div className="flex justify-between items-start">
-                                    <div className="space-y-1">
-                                      <h3 
-                                        onClick={() => setSelectedProgramDetails(prog)}
-                                        className="font-bold text-indigo-600 hover:text-indigo-800 text-sm capitalize cursor-pointer hover:underline"
-                                      >
+                                <div key={prog.id} className={`${card} space-y-3 p-4`}>
+                                  <div className="flex items-start justify-between">
+                                    <div className="min-w-0 space-y-0.5">
+                                      <h3 onClick={() => setSelectedProgramDetails(prog)} className="cursor-pointer text-[14px] font-medium capitalize text-blue-600">
                                         {prog.name}
                                       </h3>
-                                      <p className="text-[10px] text-slate-400 font-mono">UUID: {prog.id}</p>
+                                      <p className="font-mono text-[11px] text-slate-400">{prog.id}</p>
                                     </div>
-                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
-                                      issueCount > 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-slate-50 text-slate-405 border-slate-200'
-                                    }`}>
-                                      {issueCount > 0 ? 'Active' : 'Pending'}
+                                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${issueCount > 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
+                                      {issueCount} issued
                                     </span>
                                   </div>
-
-                                  {prog.description && (
-                                    <p className="text-[11px] text-slate-505 leading-normal">{prog.description}</p>
-                                  )}
-
-                                  <div className="grid grid-cols-2 gap-4 text-xs pt-2 border-t border-slate-100">
-                                    <div>
-                                      <p className="text-[9px] uppercase tracking-wider text-slate-405 font-bold">Template</p>
-                                      <p className="font-semibold text-slate-800 truncate">{associatedTemplate}</p>
-                                    </div>
-                                    <div>
-                                      <p className="text-[9px] uppercase tracking-wider text-slate-405 font-bold">Issued</p>
-                                      <p className="font-semibold text-slate-800">{issueCount} credentials</p>
-                                    </div>
-                                  </div>
-
-                                  <div className="space-y-1.5">
-                                    <p className="text-[9px] uppercase tracking-wider text-slate-405 font-bold">Mapped Fields</p>
-                                    <div className="flex flex-wrap gap-1">
-                                      {['name', 'email', 'date', ...prog.recipientFields.filter(f => !['name', 'email', 'date', 'id', 'program'].includes(f.toLowerCase()))].map((field, idx) => (
-                                        <span key={idx} className="bg-slate-150 text-[9px] font-mono font-bold text-slate-800 px-1.5 py-0.5 rounded uppercase border">
-                                          {field}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  </div>
-
-                                  <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                                  <p className="text-[12px] text-slate-500">Template: <span className="font-medium text-slate-700">{associatedTemplate}</span></p>
+                                  <div className="flex items-center justify-between border-t border-slate-100 pt-3">
                                     <div className="flex gap-3">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleEditProgram(prog)}
-                                        className="text-[10px] uppercase text-[#1a73e8] hover:underline font-bold cursor-pointer"
-                                      >
-                                        Edit
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setSelectedProgramId(prog.id);
-                                          setImportStep('input');
-                                          changeTab('recipients');
-                                        }}
-                                        className="text-[10px] uppercase text-[#1a73e8] hover:underline font-bold cursor-pointer"
-                                      >
-                                        CSV Issue
-                                      </button>
+                                      <button type="button" onClick={() => handleEditProgram(prog)} className="text-[12px] font-medium text-blue-600">Edit</button>
+                                      <button type="button" onClick={() => openBulkIssueModal(prog.id)} className="text-[12px] font-medium text-blue-600">Bulk issue</button>
                                     </div>
                                     <button
                                       type="button"
                                       disabled={isActionPending(`program:delete:${prog.id}`)}
                                       onClick={() => handleDeleteProgram(prog.id)}
-                                      className="text-slate-405 hover:text-rose-600 p-1 rounded hover:bg-rose-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                                      title="Delete track"
+                                      className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
+                                      title="Delete program"
                                     >
-                                      <Trash2 className="w-4 h-4" />
+                                      <Trash2 className="h-4 w-4" />
                                     </button>
                                   </div>
                                 </div>
@@ -2304,405 +2172,210 @@ export function Dashboard({
                 </div>
               )}
 
-              {/* TAB 3: LAYOUT TEMPLATES (editing takes over the full screen above) */}
+              {/* TAB: TEMPLATES */}
               {activeTab === 'templates' && (
-                  <div className="space-y-8 animate-fade-in">
-                    <div className="space-y-6">
-                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200">
-                        <div>
-                          <h2 className="font-serif text-3xl italic text-slate-950">Layout Template Blueprints</h2>
-                          <p className="text-slate-500 text-sm">Choose and configure highly scalable CSS certificate canvases.</p>
-                          <p className="text-slate-400 text-xs mt-1">Import or export designs as portable <span className="font-mono font-semibold text-slate-500">.glint</span> template files.</p>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            onClick={() => document.getElementById('dashboard-design-upload')?.click()}
-                            disabled={isActionPending('template:upload')}
-                            title="Upload a Glint template (.glint) file"
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-5 py-2.5 rounded-full font-bold shadow-sm flex items-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed"
-                          >
-                            {isActionPending('template:upload') ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                            {isActionPending('template:upload') ? 'Uploading...' : 'Upload Certificate Design'}
-                          </button>
-                          <input
-                            type="file"
-                            id="dashboard-design-upload"
-                            accept=".glint"
-                            onChange={handleUploadCertificateDesign}
-                            className="hidden"
-                          />
-                          <button
-                            onClick={handleAddNewTemplate}
-                            disabled={isActionPending('template:create')}
-                            className="bg-slate-950 text-white text-xs px-5 py-2.5 rounded-full font-bold shadow-sm hover:bg-slate-800 whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
-                          >
-                            {isActionPending('template:create') && <RefreshCw className="w-4 h-4 animate-spin" />}
-                            {isActionPending('template:create') ? 'Creating...' : '+ Seed Professional Blueprint'}
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                        {templates.map(temp => (
-                          <div key={temp.id} className="bg-white border border-[#E9ECEF] rounded-2xl p-6 space-y-4 shadow-sm card-shadow flex flex-col justify-between">
-                            <div className="space-y-2">
-                              <h3 className="font-bold text-slate-900 text-sm">{temp.name}</h3>
-                              <p className="text-xs text-[#9CA3AF] font-mono uppercase">ID: {temp.id} • Mode: {temp.layout.toUpperCase()}</p>
-                              
-                              {/* Live, faithful image preview of the certificate design */}
-                              <div className="border border-slate-100 bg-[#F8F9FA] rounded-lg p-3 relative overflow-hidden">
-                                <div className="absolute top-2 right-2 z-10 px-1 text-[8px] border bg-white/70 font-mono rounded-sm">1.414 : 1</div>
-                                <TemplatePreview
-                                  template={temp}
-                                  domId={`tpl-preview-${temp.id}`}
-                                  brandName={currentWorkspace?.branding?.brandName || currentWorkspace?.name}
-                                  className="rounded-md shadow-sm"
-                                />
-                              </div>
-                            </div>
-
-                            <div className="flex justify-end items-center gap-3 pt-2">
-                              <button
-                                onClick={() => handleDeleteTemplate(temp.id)}
-                                disabled={isActionPending(`template:delete:${temp.id}`)}
-                                className="bg-slate-50 hover:bg-rose-50 text-slate-500 hover:text-rose-600 p-2 rounded border text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                                title="Delete template form"
-                              >
-                                {isActionPending(`template:delete:${temp.id}`) ? 'Deleting...' : 'Delete'}
-                              </button>
-                              <button
-                                onClick={() => handleExportTemplate(temp)}
-                                disabled={isActionPending(`template:export:${temp.id}`)}
-                                className="bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 p-2 rounded border text-xs inline-flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                                title="Download this design as a .glint template file"
-                              >
-                                {isActionPending(`template:export:${temp.id}`)
-                                  ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                                  : <Download className="w-3.5 h-3.5" />}
-                                {isActionPending(`template:export:${temp.id}`) ? 'Exporting...' : '.glint'}
-                              </button>
-                              <button
-                                onClick={() => selectTemplateForEditor(temp)}
-                                className="bg-slate-950 hover:bg-slate-800 text-white text-xs px-4 py-2 rounded-lg font-bold"
-                              >
-                                Configure Blueprint Canvas
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                <div className="mx-auto max-w-6xl space-y-6">
+                  <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+                    <p className="text-[13px] text-slate-500">
+                      Import or export designs as portable <span className="font-mono text-slate-600">.glint</span> files.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => document.getElementById('dashboard-design-upload')?.click()}
+                        disabled={isActionPending('template:upload')}
+                        title="Upload a Glint template (.glint) file"
+                        className={btnSecondary}
+                      >
+                        {isActionPending('template:upload') ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                        {isActionPending('template:upload') ? 'Uploading…' : 'Import .glint'}
+                      </button>
+                      <input
+                        type="file"
+                        id="dashboard-design-upload"
+                        accept=".glint"
+                        onChange={handleUploadCertificateDesign}
+                        className="hidden"
+                      />
+                      <button onClick={handleAddNewTemplate} disabled={isActionPending('template:create')} className={btnPrimary}>
+                        {isActionPending('template:create') ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                        {isActionPending('template:create') ? 'Creating…' : 'New template'}
+                      </button>
                     </div>
                   </div>
-              )}
 
-              {/* TAB 4: BULK CSV RECIPIENT IMPORT */}
-              {activeTab === 'recipients' && (
-                <div className="space-y-8 animate-fade-in">
-                  
-                  {/* Tab Title */}
-                  <div className="border-b border-slate-200 pb-3">
-                    <h2 className="font-serif text-3xl italic text-slate-950">Bulk Dispatch Hub</h2>
-                    <p className="text-slate-500 text-sm">Issue hundreds of secure verification credentials in a single bulk action.</p>
-                  </div>
-
-                  {importStep === 'input' && (
-                    <div className="bg-white border border-[#E9ECEF] rounded-2xl p-8 card-shadow space-y-6 max-w-3xl">
-                      
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-6 border-b border-slate-100">
+                  <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                    {templates.map(temp => (
+                      <div key={temp.id} className={`${card} flex flex-col justify-between space-y-4 p-5`}>
                         <div className="space-y-2">
-                          <label className="text-xs font-bold text-slate-950 uppercase tracking-widest block">1. Select Target Certification Track</label>
-                          <select
-                            value={selectedProgramId}
-                            onChange={(e) => setSelectedProgramId(e.target.value)}
-                            className="w-full bg-slate-50 text-xs py-2.5 px-3 rounded-lg border border-[#E9ECEF] focus:outline-none focus:border-slate-800 font-semibold cursor-pointer"
-                          >
-                            <option value="">-- Choose Program Course --</option>
-                            {programs.map(p => (
-                              <option key={p.id} value={p.id}>{p.name}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {selectedProgramId && (() => {
-                          const matchedProg = programs.find(p => p.id === selectedProgramId);
-                          if (!matchedProg) return null;
-                          return (
-                            <div className="p-3 bg-slate-50 border rounded-lg text-xs space-y-1">
-                              <p className="font-bold text-slate-900 uppercase tracking-wide text-[10px]">Expected spreadsheet headers:</p>
-                              <p className="font-mono text-[10px] text-slate-550 break-all pb-1 uppercase font-bold">
-                                Email, Name, {matchedProg.recipientFields.filter(f => !['name', 'email', 'date', 'id', 'program'].includes(f.toLowerCase())).join(', ')}
-                              </p>
-                              <p className="text-[10px] text-slate-400">Match these headers exactly inside your paste area below to map dynamic scores or classes.</p>
-                            </div>
-                          );
-                        })()}
-                      </div>
-
-                      {selectedProgramId ? (
-                        <div className="space-y-4">
-                          <div className="flex justify-between items-center">
-                            <label className="text-xs font-bold text-slate-950 uppercase tracking-widest flex items-center gap-1"><Database className="w-4 h-4 text-slate-950" /> 2. Paste CSV spreadsheet lines</label>
-                            
-                            {/* Insert clean sample helper click */}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const matchedProg = programs.find(p => p.id === selectedProgramId);
-                                const fieldsString = matchedProg ? matchedProg.recipientFields.filter(f => !['name', 'email', 'date', 'id', 'program'].includes(f.toLowerCase())).join(',') : 'Score,Cohort';
-                                const sampleRows = `Email,Name,${fieldsString}\nalex.rivera@trustops-mail.com,Alex Rivera,92%,C-Alpha\njordan.vance@trustops-mail.com,Jordan Vance,96%,C-Alpha\nkeiko.tanaka@trustops-mail.com,Keiko Tanaka,100%,C-Beta`;
-                                setRawCsvInput(sampleRows);
-                              }}
-                              className="text-[10px] text-slate-500 hover:text-slate-900 underline font-bold"
-                            >
-                              Load Sample CSV Layout
-                            </button>
+                          <div className="flex items-start justify-between gap-2">
+                            <h3 className="text-[14px] font-semibold text-slate-900">{temp.name}</h3>
+                            <span className="shrink-0 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-medium uppercase text-slate-500">{temp.layout}</span>
                           </div>
+                          <p className="font-mono text-[11px] text-slate-400">{temp.id}</p>
 
-                          <textarea
-                            value={rawCsvInput}
-                            onChange={(e) => setRawCsvInput(e.target.value)}
-                            placeholder="Email,Name,Score,Cohort&#10;example@mail.com,John Doe,95%,A-Cohort&#10;test@verify.net,Alice Sterling,98%,B-Cohort"
-                            className="w-full bg-slate-50 text-xs font-mono p-4 rounded-xl border border-slate-200 focus:outline-none h-48 focus:border-slate-800 focus:bg-white"
-                          />
-
-                          <div className="flex justify-end pt-2">
-                            <button
-                              type="button"
-                              disabled={!rawCsvInput.trim()}
-                              onClick={handleParseRecipients}
-                              className="bg-slate-950 hover:bg-slate-800 disabled:bg-slate-200 disabled:cursor-not-allowed text-white text-xs px-6 py-2.5 rounded-full font-bold shadow-md transition-colors"
-                            >
-                              Audit Spreadsheet Data
-                            </button>
+                          <div className="relative overflow-hidden rounded-md border border-slate-100 bg-slate-50 p-3">
+                            <TemplatePreview
+                              template={temp}
+                              domId={`tpl-preview-${temp.id}`}
+                              brandName={currentWorkspace?.branding?.brandName || currentWorkspace?.name}
+                              className="rounded shadow-sm"
+                            />
                           </div>
                         </div>
-                      ) : (
-                        <div className="text-center p-8 text-[#9CA3AF] text-xs">
-                          Choose a certification track list above to start mapping metadata.
-                        </div>
-                      )}
-                    </div>
-                  )}
 
-                  {importStep === 'preview' && (
-                    <div className="space-y-6">
-                      
-                      {/* Sub-header audit details */}
-                      <div className="bg-white border border-[#E9ECEF] rounded-2xl p-6 card-shadow space-y-4">
-                        <div className="flex justify-between items-center">
-                          <h3 className="text-xs font-bold text-slate-950 uppercase tracking-widest bg-slate-100 p-2 rounded">Auditor Spreadsheet Preview Log</h3>
+                        <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
                           <button
-                            onClick={() => setImportStep('input')}
-                            className="text-xs text-slate-500 hover:text-slate-950 underline font-bold"
+                            onClick={() => handleDeleteTemplate(temp.id)}
+                            disabled={isActionPending(`template:delete:${temp.id}`)}
+                            className="rounded-md border border-slate-200 px-2.5 py-1.5 text-[12px] font-medium text-slate-500 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
                           >
-                            Edit CSV Data
+                            {isActionPending(`template:delete:${temp.id}`) ? 'Deleting…' : 'Delete'}
+                          </button>
+                          <button
+                            onClick={() => handleExportTemplate(temp)}
+                            disabled={isActionPending(`template:export:${temp.id}`)}
+                            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-[12px] font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
+                            title="Download this design as a .glint template file"
+                          >
+                            {isActionPending(`template:export:${temp.id}`)
+                              ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                              : <Download className="h-3.5 w-3.5" />}
+                            Export
+                          </button>
+                          <button
+                            onClick={() => selectTemplateForEditor(temp)}
+                            className="rounded-md bg-blue-600 px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-blue-700"
+                          >
+                            Open editor
                           </button>
                         </div>
-
-                        {importErrors.length > 0 && (
-                          <div className="bg-rose-50 border border-rose-100 rounded-xl p-4 text-xs text-rose-800 space-y-1">
-                            <p className="font-bold flex items-center gap-1.5"><AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" /> Found spreadsheet structure alarms:</p>
-                            <ul className="list-disc pl-5 font-mono text-[10px] space-y-0.5">
-                              {importErrors.map((err, idx) => <li key={idx}>{err}</li>)}
-                            </ul>
-                          </div>
-                        )}
-
-                        <p className="text-xs text-[#64748B]">
-                          Matches found: <span className="font-bold text-slate-900">{validatedRecipients.filter(r => r.isValid).length} clean records</span>, 
-                          Errors: <span className="font-bold text-rose-600">{validatedRecipients.filter(r => !r.isValid).length} faulty records</span>.
-                        </p>
                       </div>
-
-                      {/* Validated Recipients Table */}
-                      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden card-shadow overflow-x-auto">
-                        <table className="w-full text-left border-collapse text-xs">
-                          <thead className="bg-[#F8F9FA] border-b border-slate-200 font-bold uppercase text-slate-400 text-[10px] tracking-wider">
-                            <tr>
-                              <th className="px-8 py-3.5">Assigned Name</th>
-                              <th className="px-6 py-3.5">Recipient Routing Email</th>
-                              <th className="px-6 py-3.5">Mapped spreadsheet attributes</th>
-                              <th className="px-8 py-3.5 text-right">Row Check Result</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100 text-slate-600">
-                            {validatedRecipients.map((rec, idx) => (
-                              <tr key={idx} className={rec.isValid ? 'hover:bg-slate-55' : 'bg-rose-50/40'}>
-                                <td className="px-8 py-4 font-semibold text-slate-900 capitalize">{rec.name || 'N/A'}</td>
-                                <td className="px-6 py-4 font-mono text-[11px] text-slate-500">{rec.email}</td>
-                                <td className="px-6 py-4">
-                                  <div className="flex flex-wrap gap-1">
-                                    {Object.entries(rec.customFields).map(([k, v], id) => (
-                                      <span key={id} className="bg-slate-100 text-[9px] font-mono text-slate-700 px-1 py-0.2 rounded">
-                                        {k}: {v}
-                                      </span>
-                                    ))}
-                                  </div>
-                                </td>
-                                <td className="px-8 py-4 text-right">
-                                  {rec.isValid ? (
-                                    <span className="text-emerald-600 font-bold flex items-center justify-end gap-1 text-[10px]">
-                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> READY
-                                    </span>
-                                  ) : (
-                                    <span className="text-rose-600 font-bold flex items-center justify-end gap-1 text-[10px]" title={rec.errors?.join(', ')}>
-                                      <AlertTriangle className="w-3.5 h-3.5 text-rose-500" /> FAULTY
-                                    </span>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-
-                      <div className="flex gap-3 justify-end">
-                        <button
-                          onClick={() => setImportStep('input')}
-                          disabled={isActionPending('certificates:bulk')}
-                          className="bg-slate-100 text-slate-700 text-xs px-5 py-2.5 rounded-lg font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          onClick={handleIssueCertificates}
-                          disabled={isActionPending('certificates:bulk') || validatedRecipients.filter(r => r.isValid).length === 0}
-                          className="bg-slate-950 hover:bg-slate-800 disabled:bg-slate-200 disabled:cursor-not-allowed text-white text-xs px-6 py-2.5 rounded-full font-bold shadow-md flex items-center gap-1.5 shrink-0"
-                        >
-                          {isActionPending('certificates:bulk') ? (
-                            <>
-                              <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Issuing...
-                            </>
-                          ) : (
-                            <>
-                              <Play className="w-3.5 h-3.5 fill-current" /> Initialize Automated Ledger Issuance
-                            </>
-                          )}
-                        </button>
-                      </div>
-
-                    </div>
-                  )}
-
-                  {importStep === 'success' && (
-                    <div className="bg-white border border-[#E9ECEF] rounded-2xl p-8 card-shadow space-y-6 text-center max-w-xl mx-auto">
-                      <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center justify-center mx-auto shadow-sm">
-                        <Check className="w-6 h-6 stroke-[3]" />
-                      </div>
-
-                      <div className="space-y-2">
-                        <h3 className="font-serif text-3xl italic text-slate-900">Ledger Dispatched Successfully</h3>
-                        <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
-                          Secure verification links and cryptographic certificate tokens have been successfully generated for this cohort.
-                        </p>
-                      </div>
-
-                      {/* Display generated list summaries */}
-                      <div className="bg-slate-50 border border-slate-100 p-4 rounded-xl text-left space-y-3 font-mono text-[10px] text-slate-600">
-                        <p className="font-bold uppercase text-[#9CA3AF]">BULK DISPATCH METRIC</p>
-                        <div className="flex justify-between border-b pb-1">
-                          <span>Total Dispatched:</span>
-                          <strong>{mappedCertificates.length} credentials</strong>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Ledger Registry Integrity:</span>
-                          <strong className="text-emerald-600">SECURE sha256_ACTIVE</strong>
-                        </div>
-                      </div>
-
-                      <div className="pt-2 flex flex-col sm:flex-row gap-3">
-                        <button
-                          onClick={() => {
-                            changeTab('issued');
-                            setImportStep('input');
-                          }}
-                          className="w-full bg-slate-900 text-white text-xs py-2.5 rounded-xl font-bold hover:bg-slate-800"
-                        >
-                          Inspect Issued Directory
-                        </button>
-                        <button
-                          onClick={() => setImportStep('input')}
-                          className="w-full bg-slate-100 text-slate-800 text-xs py-2.5 rounded-xl border font-bold hover:bg-slate-200"
-                        >
-                          Issue Another Batch
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
+                    ))}
+                  </div>
                 </div>
               )}
 
-              {/* TAB 5: ISSUED DIRECTORY */}
+              {/* TAB: ISSUED CERTIFICATES (registry + issuance entry points) */}
               {activeTab === 'issued' && (
-                <div className="space-y-8 animate-fade-in">
-                  
-                  {/* Table Control Header card */}
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200">
-                    <div>
-                      <h2 className="font-serif text-3xl italic text-slate-950">Dispatched Integrity Registry</h2>
-                      <p className="text-slate-550 text-xs text-[#9CA3AF]">Query live certificate credentials, audit logs, or issue suspension flags.</p>
+                <div className="mx-auto max-w-6xl space-y-4">
+
+                  {/* Controls: search left · issue buttons + pagination right */}
+                  <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
+                    <div className="relative w-full max-w-xs">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Search recipient, ID, or program"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className={`${inputBase} pl-9`}
+                      />
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto shrink-0 justify-end">
-                      <button
-                        onClick={() => {
-                          if (programs.length === 0) {
-                            toast.error('Configure at least one certification program first.');
-                            return;
-                          }
-                          setSingleProgramId(programs[0].id);
-                          setSingleRecipientName('');
-                          setSingleRecipientEmail('');
-                          setSingleCustomFields({});
-                          setSingleIssueDate(new Date().toISOString().split('T')[0]);
-                          setShowSingleIssueModal(true);
-                        }}
-                        className="bg-slate-950 text-white text-[11px] px-4.5 py-2.5 rounded-full font-bold shadow-sm hover:bg-slate-800 transition-colors flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
-                      >
-                        <Plus className="w-3.5 h-3.5" /> Issue Single Certificate
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <button onClick={() => openSingleIssueModal()} className={btnSecondary}>
+                        <Plus className="h-3.5 w-3.5" /> Issue certificate
+                      </button>
+                      <button onClick={() => openBulkIssueModal()} className={btnPrimary}>
+                        <Upload className="h-3.5 w-3.5" /> Bulk issue certificates
                       </button>
 
-                      <div className="flex items-center gap-3 bg-white p-2 rounded-xl border border-[#E9ECEF] shadow-sm max-w-xs w-full shrink-0">
-                        <Search className="text-slate-455 w-4 h-4 ml-1.5 shrink-0" />
-                        <input 
-                          type="text" 
-                          placeholder="Search student, ID, or course..."
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          className="bg-transparent border-none focus:outline-none text-xs w-full text-slate-800 placeholder-slate-400"
-                        />
+                      {/* Rows per page */}
+                      <select
+                        value={pageSize}
+                        onChange={(e) => setPageSize(Number(e.target.value))}
+                        className="cursor-pointer rounded-md border border-slate-200 bg-white px-2 py-2 text-[12px] font-medium text-slate-600 focus:border-blue-500 focus:outline-none"
+                        title="Rows per page"
+                      >
+                        {[10, 25, 50, 100].map((n) => (
+                          <option key={n} value={n}>{n} / page</option>
+                        ))}
+                      </select>
+
+                      {/* Pagination */}
+                      <div className="flex items-center gap-1 rounded-md border border-slate-200 bg-white px-1 py-0.5">
+                        <button
+                          onClick={() => setPage((p) => Math.max(1, p - 1))}
+                          disabled={safePage <= 1}
+                          className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
+                          title="Previous page"
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </button>
+                        <span className="min-w-[90px] px-1 text-center text-[12px] font-medium text-slate-600">
+                          {pageStart}–{pageEnd} of {filteredCertificates.length}
+                        </span>
+                        <button
+                          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                          disabled={safePage >= totalPages}
+                          className="rounded p-1.5 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
+                          title="Next page"
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
                       </div>
                     </div>
                   </div>
 
-                  {/* Active Revocation dialog overlays check */}
-                  {revokingCertId && (
-                    <div className="bg-rose-50 border border-rose-150 rounded-xl p-5 space-y-4 max-w-xl">
-                      <div className="flex items-center gap-2 text-rose-800 font-bold font-sans text-xs">
-                        <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
-                        SUSPENSION REGULATOR MECHANISM
+                  {/* Bulk selection action bar */}
+                  {selectedCertIds.size > 0 && (
+                    <div className="flex flex-col gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex flex-wrap items-center gap-3 text-[13px]">
+                        <span className="font-medium text-blue-900">{selectedCertIds.size} selected</span>
+                        {!allFilteredSelected && filteredCertificates.length > selectedCertIds.size && (
+                          <button onClick={selectAllFiltered} className="text-[12px] font-medium text-blue-600 hover:text-blue-800">
+                            Select all {filteredCertificates.length}{searchQuery ? ' matching' : ''}
+                          </button>
+                        )}
+                        <button onClick={clearSelection} className="text-[12px] font-medium text-blue-600 hover:text-blue-800">Clear</button>
                       </div>
-                      <p className="text-xs text-rose-700 leading-relaxed">
-                        Are you sure you want to flag ID: <strong className="font-mono text-slate-900">{revokingCertId}</strong> as revoked? The recipient, verification search boards, and public links will instantly return a RED NULLIFIED STATE and list this auditing reason.
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={() => sendEmailsForSelection('individual')}
+                          disabled={sendingEmails}
+                          className={btnSecondary}
+                        >
+                          {sendingEmails ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}
+                          Email each recipient
+                        </button>
+                        <button
+                          onClick={() => { setDigestEmail(''); setDigestName(''); setShowDigestModal(true); }}
+                          disabled={sendingEmails}
+                          className={btnPrimary}
+                        >
+                          <Send className="h-3.5 w-3.5" /> Send list to one address
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Revocation confirmation */}
+                  {revokingCertId && (
+                    <div className="max-w-xl space-y-4 rounded-lg border border-rose-200 bg-rose-50 p-5">
+                      <div className="flex items-center gap-2 text-[13px] font-semibold text-rose-800">
+                        <ShieldAlert className="h-4 w-4 shrink-0 text-rose-600" />
+                        Revoke certificate
+                      </div>
+                      <p className="text-[13px] leading-relaxed text-rose-700">
+                        <strong className="font-mono text-slate-900">{revokingCertId}</strong> will immediately show as revoked on its public page and in every verification, along with the reason below.
                       </p>
-                      <div className="space-y-1">
-                        <label className="text-[9px] uppercase font-bold text-rose-800">Violation Audit Reason</label>
+                      <div className="space-y-1.5">
+                        <label className="block text-[12px] font-medium text-rose-800">Revocation reason</label>
                         <input
                           type="text"
                           required
                           value={revocationReason}
                           onChange={(e) => setRevocationReason(e.target.value)}
-                          placeholder="e.g. Non-completion of baseline prerequisites / integrity flag"
-                          className="w-full bg-white border border-rose-200 rounded p-2 text-xs text-slate-800"
+                          placeholder="e.g. Non-completion of prerequisites"
+                          className="w-full rounded-md border border-rose-200 bg-white px-3 py-2 text-[13px] text-slate-800 focus:border-rose-400 focus:outline-none"
                         />
                       </div>
-                      <div className="flex gap-2.5 justify-end">
+                      <div className="flex justify-end gap-2">
                         <button
                           type="button"
                           disabled={isActionPending('certificate:revoke')}
                           onClick={() => setRevokingCertId(null)}
-                          className="bg-white border rounded text-slate-700 text-xs font-bold px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className={btnSecondary}
                         >
                           Cancel
                         </button>
@@ -2710,442 +2383,184 @@ export function Dashboard({
                           type="button"
                           disabled={isActionPending('certificate:revoke')}
                           onClick={handleExecuteRevocation}
-                          className="bg-rose-600 hover:bg-rose-700 text-white rounded text-xs font-bold px-4 py-1.5 disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
+                          className={btnDanger}
                         >
-                          {isActionPending('certificate:revoke') && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                          {isActionPending('certificate:revoke') ? 'Revoking...' : 'Confirm Revocation State'}
+                          {isActionPending('certificate:revoke') && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                          {isActionPending('certificate:revoke') ? 'Revoking…' : 'Confirm revocation'}
                         </button>
                       </div>
                     </div>
                   )}
 
-                  {/* Issued Database Table - Desktop */}
-                  <div className="hidden md:block bg-white border border-[#E9ECEF] rounded-2xl overflow-hidden card-shadow overflow-x-auto">
-                    <table className="w-full text-left border-collapse text-xs">
-                      <thead className="bg-[#F8F9FA] border-b border-[#E9ECEF] text-[10px] uppercase font-bold text-slate-400 tracking-wider">
-                        <tr>
-                          <th className="px-8 py-4">Verification ID</th>
-                          <th className="px-6 py-4">Recipient Info</th>
-                          <th className="px-6 py-4">Course Registry</th>
-                          <th className="px-6 py-4">Audit Engagement</th>
-                          <th className="px-6 py-4">State</th>
-                          <th className="px-8 py-4 text-right">Operational Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 text-slate-600">
-                        {filteredCertificates.map(c => (
-                          <tr key={c.id} className="hover:bg-slate-55/40">
-                            <td className="px-8 py-5">
-                              <span className="font-mono font-bold text-slate-900">{c.id}</span>
-                              <p className="text-[10px] text-slate-400 font-mono italic shrink-0 truncate max-w-[120px]">{c.signature.slice(0, 18)}…</p>
-                            </td>
-                            <td className="px-6 py-5">
-                              <p className="font-bold text-slate-955 text-sm leading-tight capitalize">{c.recipientName}</p>
-                              <p className="text-[10px] text-[#9CA3AF] mt-0.5">{c.recipientEmail}</p>
-                            </td>
-                            <td className="px-6 py-5 space-y-1">
-                              <p className="font-semibold text-slate-800">{c.programName}</p>
-                              <p className="text-[10px] text-[#9CA3AF]">Issued Date: {c.issueDate}</p>
-                            </td>
-                            <td className="px-6 py-5 font-mono text-[10px]">
-                              <span>Views: <strong className="text-slate-900">{c.viewCount}</strong></span> • 
-                              <span> DLs: <strong className="text-slate-900">{c.downloadCount}</strong></span>
-                            </td>
-                            <td className="px-6 py-5">
-                              {c.status === 'valid' && (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold uppercase border border-emerald-100">
-                                  Valid
-                                </span>
-                              )}
-                              {c.status === 'revoked' && (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-red-50 text-red-700 text-[10px] font-bold uppercase border border-red-100">
-                                  Revoked
-                                </span>
-                              )}
-                              {c.status === 'expired' && (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[10px] font-bold uppercase border border-amber-100">
-                                  Expired
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-8 py-5 text-right space-x-3.5">
-                              <button
-                                onClick={() => onViewCertificatePage(c.id)}
-                                className="text-[10px] font-bold uppercase text-[#1a73e8] hover:underline"
-                              >
-                                View Portal
-                              </button>
-                              
-                              {c.status === 'valid' ? (
-                                <button
-                                  onClick={() => handleInitiateRevoke(c.id)}
-                                  className="text-[10px] font-bold uppercase text-rose-500 hover:text-rose-700"
-                                >
-                                  Revoke State
-                                </button>
-                              ) : (
-                                <button
-                                  disabled={isActionPending(`certificate:restore:${c.id}`)}
-                                  onClick={() => handleRestoreCertificate(c.id)}
-                                  className="text-[10px] font-bold uppercase text-emerald-600 hover:text-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1"
-                                >
-                                  {isActionPending(`certificate:restore:${c.id}`) && <RefreshCw className="w-3 h-3 animate-spin" />}
-                                  {isActionPending(`certificate:restore:${c.id}`) ? 'Restoring' : 'Restore Valid'}
-                                </button>
-                              )}
-                            </td>
-                          </tr>
+                  {/* Registry table */}
+                  {filteredCertificates.length === 0 ? (
+                    <div className={`${card} px-8 py-16 text-center`}>
+                      <div className="flex flex-col items-center justify-center space-y-3">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-50">
+                          <Award className="h-5 w-5 text-blue-500" />
+                        </div>
+                        <h3 className="text-[14px] font-semibold text-slate-900">
+                          {certificates.length === 0 ? 'No certificates issued yet' : 'No matches'}
+                        </h3>
+                        <p className="mx-auto max-w-sm text-[13px] text-slate-500">
+                          {certificates.length === 0
+                            ? 'Use "Issue certificate" for a single recipient or "Bulk issue certificates" to import a CSV of recipients.'
+                            : 'Try a different search term.'}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className={`${card} hidden md:block`}>
+                        <div className="overflow-x-auto">
+                          <table className="w-full border-collapse text-left">
+                            <thead className="border-b border-slate-200 bg-slate-50">
+                              <tr>
+                                <th className={`${th} w-10`}>
+                                  <input
+                                    type="checkbox"
+                                    checked={allOnPageSelected}
+                                    onChange={toggleSelectPage}
+                                    className="h-4 w-4 cursor-pointer rounded border-slate-300 accent-blue-600"
+                                    title="Select all on this page"
+                                  />
+                                </th>
+                                <th className={th}>Certificate</th>
+                                <th className={th}>Recipient</th>
+                                <th className={th}>Program</th>
+                                <th className={th}>Issued</th>
+                                <th className={th}>Engagement</th>
+                                <th className={th}>Status</th>
+                                <th className={`${th} text-right`}>Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 text-[13px] text-slate-600">
+                              {pagedCertificates.map(c => (
+                                <tr key={c.id} className={selectedCertIds.has(c.id) ? 'bg-blue-50/40' : 'hover:bg-slate-50/60'}>
+                                  <td className="px-4 py-3.5">
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedCertIds.has(c.id)}
+                                      onChange={() => toggleCertSelected(c.id)}
+                                      className="h-4 w-4 cursor-pointer rounded border-slate-300 accent-blue-600"
+                                    />
+                                  </td>
+                                  <td className="px-4 py-3.5">
+                                    <span className="font-mono text-[12px] font-medium text-slate-900">{c.id}</span>
+                                  </td>
+                                  <td className="px-4 py-3.5">
+                                    <p className="font-medium capitalize text-slate-900">{c.recipientName}</p>
+                                    <p className="text-[12px] text-slate-400">{c.recipientEmail}</p>
+                                  </td>
+                                  <td className="max-w-[180px] truncate px-4 py-3.5 font-medium text-slate-700" title={c.programName}>{c.programName}</td>
+                                  <td className="px-4 py-3.5 text-[12px] text-slate-500">{c.issueDate}</td>
+                                  <td className="px-4 py-3.5 text-[12px] text-slate-500">
+                                    {c.viewCount} views · {c.downloadCount} downloads
+                                  </td>
+                                  <td className="px-4 py-3.5">{statusBadge(c.status)}</td>
+                                  <td className="relative px-4 py-3.5 text-right">{renderCertActionsMenu(c)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      {/* Mobile cards */}
+                      <div className="block space-y-3 md:hidden">
+                        {pagedCertificates.map(c => (
+                          <div key={c.id} className={`${card} space-y-3 p-4 ${selectedCertIds.has(c.id) ? 'ring-1 ring-blue-300' : ''}`}>
+                            <div className="flex items-start justify-between gap-2">
+                              <label className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedCertIds.has(c.id)}
+                                  onChange={() => toggleCertSelected(c.id)}
+                                  className="h-4 w-4 cursor-pointer rounded border-slate-300 accent-blue-600"
+                                />
+                                <span className="font-mono text-[12px] font-medium text-slate-900">{c.id}</span>
+                              </label>
+                              {statusBadge(c.status)}
+                            </div>
+                            <div className="space-y-0.5 text-[13px]">
+                              <p className="font-medium capitalize text-slate-900">{c.recipientName}</p>
+                              <p className="text-[12px] text-slate-400">{c.recipientEmail}</p>
+                              <p className="text-[12px] text-slate-500">{c.programName} · {c.issueDate}</p>
+                            </div>
+                            <div className="relative flex items-center justify-between border-t border-slate-100 pt-2">
+                              <span className="text-[12px] text-slate-400">{c.viewCount} views · {c.downloadCount} downloads</span>
+                              {renderCertActionsMenu(c, 'up')}
+                            </div>
+                          </div>
                         ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Issued Card List - Mobile */}
-                  <div className="block md:hidden space-y-4">
-                    {filteredCertificates.map(c => (
-                      <div key={c.id} className="bg-white border border-[#E9ECEF] rounded-xl p-5 card-shadow space-y-4">
-                        <div className="flex justify-between items-start">
-                          <div className="space-y-1">
-                            <span className="font-mono font-bold text-slate-900 text-xs">{c.id}</span>
-                            <p className="text-[9px] text-slate-400 font-mono break-all">{c.signature.slice(0, 32)}…</p>
-                          </div>
-                          {c.status === 'valid' && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[9px] font-bold uppercase border border-emerald-100">
-                              Valid
-                            </span>
-                          )}
-                          {c.status === 'revoked' && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-red-50 text-red-700 text-[9px] font-bold uppercase border border-red-100">
-                              Revoked
-                            </span>
-                          )}
-                          {c.status === 'expired' && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[9px] font-bold uppercase border border-amber-100">
-                              Expired
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4 text-xs pt-2 border-t border-slate-100">
-                          <div>
-                            <p className="text-[9px] uppercase tracking-wider text-slate-405 font-bold">Recipient</p>
-                            <p className="font-bold text-slate-955 capitalize">{c.recipientName}</p>
-                            <p className="text-[10px] text-slate-400 truncate">{c.recipientEmail}</p>
-                          </div>
-                          <div>
-                            <p className="text-[9px] uppercase tracking-wider text-slate-405 font-bold">Course / Track</p>
-                            <p className="font-semibold text-slate-800 truncate">{c.programName}</p>
-                            <p className="text-[10px] text-[#9CA3AF]">Issued: {c.issueDate}</p>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4 text-xs pt-2 border-t border-slate-100">
-                          <div>
-                            <p className="text-[9px] uppercase tracking-wider text-slate-405 font-bold">Auditing Stats</p>
-                            <p className="text-[10px] text-slate-600">Views: <strong className="text-slate-900">{c.viewCount}</strong> • DLs: <strong className="text-slate-900">{c.downloadCount}</strong></p>
-                          </div>
-                          <div className="flex items-center justify-end gap-3 pt-2">
-                            <button
-                              onClick={() => onViewCertificatePage(c.id)}
-                              className="text-[10px] font-bold uppercase text-[#1a73e8] hover:underline"
-                            >
-                              View
-                            </button>
-                            
-                            {c.status === 'valid' ? (
-                              <button
-                                onClick={() => handleInitiateRevoke(c.id)}
-                                className="text-[10px] font-bold uppercase text-rose-500 hover:text-rose-700"
-                              >
-                                Revoke
-                              </button>
-                            ) : (
-                              <button
-                                disabled={isActionPending(`certificate:restore:${c.id}`)}
-                                onClick={() => handleRestoreCertificate(c.id)}
-                                className="text-[10px] font-bold uppercase text-emerald-600 hover:text-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1"
-                              >
-                                {isActionPending(`certificate:restore:${c.id}`) && <RefreshCw className="w-3 h-3 animate-spin" />}
-                                {isActionPending(`certificate:restore:${c.id}`) ? 'Restoring' : 'Restore'}
-                              </button>
-                            )}
-                          </div>
-                        </div>
                       </div>
-                    ))}
-                  </div>
-
+                    </>
+                  )}
                 </div>
               )}
 
-              {/* TAB 6: PRIVATE BRANDING */}
-              {activeTab === 'branding' && (
-                <div className="space-y-8 animate-fade-in max-w-3xl">
-                  
-                  {/* Title Bar */}
-                  <div className="border-b border-slate-200 pb-3">
-                    <h2 className="font-serif text-3xl italic text-slate-950">White-Label Branding Controls</h2>
-                    <p className="text-slate-500 text-sm">Control colors, domains, and footers targeting verification lookups.</p>
-                  </div>
-
-                  <div className="bg-white border border-[#E9ECEF] rounded-2xl p-8 card-shadow space-y-6">
-                    <h3 className="text-sm font-bold text-slate-950 uppercase tracking-widest bg-slate-50 p-2.5 rounded">Credentials Workspace Identity</h3>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold uppercase text-slate-450 tracking-wider">Workspace Public Title</label>
-                        <input
-                          type="text"
-                          value={currentWorkspace?.branding.brandName}
-                          onChange={(e) => handleUpdateBrandingConfig({ brandName: capitalizeWords(e.target.value) })}
-                          className="w-full bg-slate-50 text-xs py-2 px-3 rounded border border-slate-200 focus:outline-none"
-                        />
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold uppercase text-slate-450 tracking-wider">Custom Search domain (TLS proxy)</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. credentials.stellaracademy.edu"
-                          value={currentWorkspace?.branding.customDomain || ''}
-                          onChange={(e) => handleUpdateBrandingConfig({ customDomain: e.target.value })}
-                          className="w-full bg-slate-50 text-xs py-2 px-3 rounded border border-slate-200 focus:outline-none font-mono"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-6">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold uppercase text-slate-450 tracking-wider">Primary Theme Hex</label>
-                        <div className="flex gap-2">
-                          <input
-                            type="color"
-                            value={currentWorkspace?.branding.primaryColor}
-                            onChange={(e) => handleUpdateBrandingConfig({ primaryColor: e.target.value })}
-                            className="h-8 w-12 bg-slate-50 border p-1 rounded cursor-pointer"
-                          />
-                          <input
-                            type="text"
-                            value={currentWorkspace?.branding.primaryColor}
-                            onChange={(e) => handleUpdateBrandingConfig({ primaryColor: e.target.value })}
-                            className="w-full bg-slate-50 text-xs py-1 px-2 rounded border border-slate-200 focus:outline-none font-mono"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold uppercase text-slate-450 tracking-wider">Accent Emblem Hex</label>
-                        <div className="flex gap-2">
-                          <input
-                            type="color"
-                            value={currentWorkspace?.branding.accentColor}
-                            onChange={(e) => handleUpdateBrandingConfig({ accentColor: e.target.value })}
-                            className="h-8 w-12 bg-slate-50 border p-1 rounded cursor-pointer"
-                          />
-                          <input
-                            type="text"
-                            value={currentWorkspace?.branding.accentColor}
-                            onChange={(e) => handleUpdateBrandingConfig({ accentColor: e.target.value })}
-                            className="w-full bg-slate-50 text-xs py-1 px-2 rounded border border-slate-200 focus:outline-none font-mono"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-3">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold uppercase text-slate-450 tracking-wider">Branded Sender Full Name</label>
-                        <input
-                          type="text"
-                          value={currentWorkspace?.branding.senderName}
-                          onChange={(e) => handleUpdateBrandingConfig({ senderName: capitalizeWords(e.target.value) })}
-                          className="w-full bg-slate-50 text-xs py-2 px-3 rounded border border-slate-200 focus:outline-none"
-                        />
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold uppercase text-slate-450 tracking-wider">Branded SMTP Sender Email</label>
-                        <input
-                          type="email"
-                          value={currentWorkspace?.branding.senderEmail}
-                          onChange={(e) => handleUpdateBrandingConfig({ senderEmail: e.target.value })}
-                          className="w-full bg-slate-50 text-xs py-2 px-3 rounded border border-slate-200 focus:outline-none font-mono"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-1.5 pt-3">
-                      <label className="text-[10px] font-bold uppercase text-slate-450 tracking-wider">Custom Legal Footer Text (White-label footer)</label>
-                      <input
-                        type="text"
-                        value={currentWorkspace?.branding.footerText || ''}
-                        onChange={(e) => handleUpdateBrandingConfig({ footerText: capitalizeWords(e.target.value) })}
-                        className="w-full bg-slate-50 text-xs py-2 px-3 rounded border border-slate-200 focus:outline-none"
-                      />
-                    </div>
-
-                    <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
-                      <div className="space-y-1">
-                        <p className="text-xs font-semibold text-slate-900 uppercase">Hide Glint Watermarks</p>
-                        <p className="text-[10px] text-slate-400">Completely wipes any link attribution from recipient printable certificate cards.</p>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const state = !currentWorkspace?.branding.whiteLabel;
-                          handleUpdateBrandingConfig({ whiteLabel: state });
-                        }}
-                        className={`text-xs px-4 py-1.5 font-bold rounded-full border transition-all ${
-                          currentWorkspace?.branding.whiteLabel 
-                            ? 'bg-slate-950 text-white border-slate-950' 
-                            : 'bg-slate-50 text-slate-500 hover:bg-slate-100 border-[#E9ECEF]'
-                        }`}
-                      >
-                        {currentWorkspace?.branding.whiteLabel ? 'WHITE-LABEL ACTIVE' : 'STANDARD attribution ENABLED'}
-                      </button>
-                    </div>
-                  </div>
-
-                </div>
-              )}
-
-              {/* TAB 7: SETTINGS & SLA LIMITS */}
-              {activeTab === 'settings' && (
-                <div className="space-y-8 animate-fade-in max-w-3xl">
-                  
-                  {/* Title Bar */}
-                  <div className="border-b border-slate-200 pb-3">
-                    <h2 className="font-serif text-3xl italic text-slate-950 font-sans">Workspace Settings & Integration Health</h2>
-                    <p className="text-slate-500 text-sm">Review API keys, webhook triggers, and resource consumption caps.</p>
-                  </div>
-
-                  <div className="bg-white border border-[#E9ECEF] rounded-2xl p-6 shadow-sm card-shadow space-y-6">
-                    <h3 className="text-xs font-bold text-slate-950 uppercase tracking-widest">Active Verification Integrations</h3>
-                    
-                    <div className="space-y-4 divide-y divide-slate-100">
-                      <div className="pt-2 flex justify-between items-center text-xs">
-                        <div className="space-y-0.5">
-                          <p className="font-semibold text-slate-900">Email Delivery Sockets (SMTP)</p>
-                          <p className="text-[10px] text-slate-400">Global DNS tracking and bounce notifications.</p>
-                        </div>
-                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded uppercase border border-emerald-100 font-mono">OPERATIONAL 99.9%</span>
-                      </div>
-
-                      <div className="pt-4 flex justify-between items-center text-xs">
-                        <div className="space-y-0.5">
-                          <p className="font-semibold text-slate-900">Google Workspace Integrations (Form triggers)</p>
-                          <p className="text-[10px] text-slate-400">Issue credentials automatically on student form submit.</p>
-                        </div>
-                        <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2.5 py-0.5 rounded uppercase border">READY TO BIND</span>
-                      </div>
-
-                      <div className="pt-4 flex justify-between items-center text-xs">
-                        <div className="space-y-0.5">
-                          <p className="font-semibold text-slate-900">LMS Webhook Endpoints</p>
-                          <p className="text-[10px] text-slate-400">Trigger on-the-fly certificate rendering on assessment pass.</p>
-                        </div>
-                        <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2.5 py-0.5 rounded uppercase border">READY TO LISTEN</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/*
-                    This claimed "REGULATION: RFC-1962 LOCK" (RFC 1962 is the PPP
-                    Compression Control Protocol), "ISO-27001 SECURE" (a certification
-                    this organisation does not hold), and "ED25519 COMPLIANT" (there is
-                    no Ed25519 key anywhere in the system). Say only what is true.
-                  */}
-                  <div className="bg-slate-900 text-white border border-[#E9ECEF] rounded-2xl p-8 shadow-sm card-shadow space-y-4">
-                    <h3 className="font-serif italic text-2xl">How verification works</h3>
-                    <p className="text-xs text-slate-400 leading-relaxed">
-                      Each certificate is signed with HMAC-SHA256 over its recipient, program, and dates,
-                      using a secret key held only on this server. Editing any signed field invalidates the
-                      signature. Issuance, revocation, and verification are appended to a per-certificate
-                      event log with UTC timestamps.
-                    </p>
-                    <div className="pt-4 border-t border-white/10 text-slate-400 text-[10px] font-mono flex flex-wrap gap-x-8 gap-y-2">
-                      <span>• SIGNATURE: HMAC-SHA256</span>
-                      <span>• VERIFIER: THIS REGISTRY ONLY</span>
-                      <span>• REVOCATION: SEPARATE FROM SIGNATURE</span>
-                    </div>
-                  </div>
-
-                </div>
-              )}
-
-              {/* TAB 8: EMAIL LOGS SIMULATOR */}
+              {/* TAB: EMAIL ACTIVITY */}
               {activeTab === 'emails' && (
-                <div className="space-y-8 animate-fade-in">
-                  
-                  {/* Title Bar */}
-                  <div className="border-b border-slate-200 pb-3">
-                    <h2 className="font-serif text-3xl italic text-slate-950">Email Dispatch Simulator Logs</h2>
-                    <p className="text-slate-500 text-sm mt-1">Verify email notification delivery events, recipient claim links, and custom SMTP body wrappers.</p>
-                  </div>
-
-                  {/* Table Card */}
-                  <div className="bg-white border border-[#E9ECEF] rounded-2xl shadow-sm overflow-hidden card-shadow">
+                <div className="mx-auto max-w-6xl space-y-4">
+                  <div className={`${card} overflow-hidden`}>
                     {emailLogs.length === 0 ? (
-                      <div className="p-16 text-center text-slate-400 space-y-4">
-                        <Mail className="w-12 h-12 mx-auto text-slate-300" />
+                      <div className="space-y-3 p-16 text-center text-slate-400">
+                        <Mail className="mx-auto h-10 w-10 text-slate-300" />
                         <div className="space-y-1">
-                          <p className="text-sm font-semibold text-slate-800">No dispatched emails found</p>
-                          <p className="text-xs">Issue a batch of certificates via the "Bulk CSV Issuance" tab to trigger automated dispatch notification templates.</p>
+                          <p className="text-[14px] font-semibold text-slate-800">No emails yet</p>
+                          <p className="text-[13px]">Issue certificates from the "Issued Certificates" tab to send notification emails.</p>
                         </div>
                       </div>
                     ) : (
                       <>
-                        {/* Desktop View Table */}
-                        <div className="hidden md:block overflow-x-auto">
-                          <table className="w-full text-left text-xs divide-y divide-slate-100">
-                            <thead className="bg-slate-550/5 text-[#9CA3AF] uppercase text-[10px] tracking-wider font-semibold font-mono">
+                        {/* Desktop table */}
+                        <div className="hidden overflow-x-auto md:block">
+                          <table className="w-full border-collapse text-left">
+                            <thead className="border-b border-slate-200 bg-slate-50">
                               <tr>
-                                <th className="px-6 py-4">Timestamp</th>
-                                <th className="px-6 py-4">Recipient</th>
-                                <th className="px-6 py-4">Subject</th>
-                                <th className="px-6 py-4">Status</th>
-                                <th className="px-6 py-4 text-right">Actions</th>
+                                <th className={th}>Time</th>
+                                <th className={th}>Recipient</th>
+                                <th className={th}>Subject</th>
+                                <th className={th}>Status</th>
+                                <th className={`${th} text-right`}>Actions</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-100 text-slate-700">
+                            <tbody className="divide-y divide-slate-100 text-[13px] text-slate-600">
                               {emailLogs.map((log) => (
-                                <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
-                                  <td className="px-6 py-4 whitespace-nowrap font-mono text-[10px] text-slate-400">
+                                <tr key={log.id} className="transition-colors hover:bg-slate-50/60">
+                                  <td className="whitespace-nowrap px-4 py-3.5 text-[12px] text-slate-500">
                                     {new Date(log.sentTime).toLocaleString()}
                                   </td>
-                                  <td className="px-6 py-4">
-                                    <div className="font-semibold text-slate-900 capitalize">{log.recipientName}</div>
-                                    <div className="text-[10px] text-slate-400 font-mono">{log.recipientEmail}</div>
+                                  <td className="px-4 py-3.5">
+                                    <div className="font-medium capitalize text-slate-900">{log.recipientName}</div>
+                                    <div className="text-[12px] text-slate-400">{log.recipientEmail}</div>
                                   </td>
-                                  <td className="px-6 py-4 font-medium max-w-xs truncate">
-                                    {log.subject}
-                                  </td>
-                                  <td className="px-6 py-4 whitespace-nowrap">
-                                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-mono font-bold uppercase border ${emailDisplayBadge(log).className}`}>
-                                      ● {emailDisplayBadge(log).label}
+                                  <td className="max-w-xs truncate px-4 py-3.5">{log.subject}</td>
+                                  <td className="whitespace-nowrap px-4 py-3.5">
+                                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${emailDisplayBadge(log).className}`}>
+                                      <span className="h-1.5 w-1.5 rounded-full bg-current" /> {emailDisplayBadge(log).label}
                                     </span>
                                     {emailDetailText(log) && (
-                                      <p className="mt-1 text-[9px] text-rose-500 font-mono max-w-[200px] truncate" title={emailDetailText(log)}>
+                                      <p className="mt-1 max-w-[220px] truncate text-[11px] text-rose-500" title={emailDetailText(log)}>
                                         {emailDetailText(log)}
                                       </p>
                                     )}
                                     {!log.deliveryStatus && log.status === 'pending' && log.attempts > 0 && (
-                                      <p className="mt-1 text-[9px] text-amber-500 font-mono">retry {log.attempts}</p>
+                                      <p className="mt-1 text-[11px] text-amber-500">retry {log.attempts}</p>
                                     )}
                                   </td>
-                                  <td className="px-6 py-4 text-right space-x-2 whitespace-nowrap">
+                                  <td className="space-x-2 whitespace-nowrap px-4 py-3.5 text-right">
                                     <button
                                       onClick={() => setSelectedEmailLog(log)}
-                                      className="bg-slate-105 hover:bg-slate-100 text-slate-750 text-[10px] px-3 py-1.5 rounded-lg border font-bold transition-all"
+                                      className="rounded-md border border-slate-200 px-2.5 py-1.5 text-[12px] font-medium text-slate-600 transition-colors hover:bg-slate-50"
                                     >
-                                      View Email
+                                      View email
                                     </button>
                                     <button
                                       onClick={() => onViewCertificatePage(log.certificateId)}
-                                      className="bg-slate-950 hover:bg-slate-800 text-white text-[10px] px-3 py-1.5 rounded-lg font-bold transition-all shadow-sm"
+                                      className="rounded-md bg-blue-600 px-2.5 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-blue-700"
                                     >
-                                      Verify Credential
+                                      Certificate
                                     </button>
                                   </td>
                                 </tr>
@@ -3154,46 +2569,32 @@ export function Dashboard({
                           </table>
                         </div>
 
-                        {/* Mobile View Cards list */}
-                        <div className="block md:hidden divide-y divide-slate-100">
+                        {/* Mobile cards */}
+                        <div className="block divide-y divide-slate-100 md:hidden">
                           {emailLogs.map((log) => (
-                            <div key={log.id} className="p-5 space-y-4">
-                              <div className="flex justify-between items-start">
-                                <span className="font-mono text-[10px] text-slate-405">
+                            <div key={log.id} className="space-y-3 p-4">
+                              <div className="flex items-start justify-between">
+                                <span className="text-[12px] text-slate-400">
                                   {new Date(log.sentTime).toLocaleString()}
                                 </span>
-                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono font-bold uppercase border ${emailDisplayBadge(log).className}`}>
+                                <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${emailDisplayBadge(log).className}`}>
                                   {emailDisplayBadge(log).label}
                                 </span>
                               </div>
-
                               {emailDetailText(log) && (
-                                <p className="text-[10px] text-rose-500 font-mono break-words">{emailDetailText(log)}</p>
+                                <p className="break-words text-[12px] text-rose-500">{emailDetailText(log)}</p>
                               )}
-
-                              <div className="space-y-1">
-                                <p className="text-[9px] uppercase tracking-wider text-slate-405 font-bold">Recipient</p>
-                                <div className="font-semibold text-slate-900 capitalize">{log.recipientName}</div>
-                                <div className="text-[10px] text-slate-405 font-mono">{log.recipientEmail}</div>
+                              <div className="space-y-0.5 text-[13px]">
+                                <div className="font-medium capitalize text-slate-900">{log.recipientName}</div>
+                                <div className="text-[12px] text-slate-400">{log.recipientEmail}</div>
+                                <div className="truncate text-slate-600">{log.subject}</div>
                               </div>
-
-                              <div className="space-y-1">
-                                <p className="text-[9px] uppercase tracking-wider text-slate-405 font-bold">Subject</p>
-                                <div className="text-xs text-slate-700 font-medium truncate">{log.subject}</div>
-                              </div>
-
-                              <div className="flex gap-3 pt-3 border-t border-slate-100">
-                                <button
-                                  onClick={() => setSelectedEmailLog(log)}
-                                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-705 text-[10px] py-2 rounded-lg border font-bold transition-all"
-                                >
-                                  View Email
+                              <div className="flex gap-2 border-t border-slate-100 pt-3">
+                                <button onClick={() => setSelectedEmailLog(log)} className={`${btnSecondary} flex-1 justify-center`}>
+                                  View email
                                 </button>
-                                <button
-                                  onClick={() => onViewCertificatePage(log.certificateId)}
-                                  className="flex-1 bg-slate-950 hover:bg-slate-800 text-white text-[10px] py-2 rounded-lg font-bold transition-all text-center shadow-sm"
-                                >
-                                  Verify
+                                <button onClick={() => onViewCertificatePage(log.certificateId)} className={`${btnPrimary} flex-1 justify-center`}>
+                                  Certificate
                                 </button>
                               </div>
                             </div>
@@ -3204,111 +2605,566 @@ export function Dashboard({
                   </div>
                 </div>
               )}
+
+              {/* TAB: BRANDING & EMAIL */}
+              {activeTab === 'branding' && (
+                <div className="mx-auto max-w-4xl space-y-6">
+
+                  {/* Email template designer card — replaces the old plain-text email settings */}
+                  <div className={`${card} overflow-hidden`}>
+                    <div className="flex flex-col justify-between gap-4 border-b border-slate-100 p-6 sm:flex-row sm:items-center">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-[14px] font-semibold text-slate-900">Issuance email design</h3>
+                          {currentWorkspace?.emailTemplate ? (
+                            <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">Custom template</span>
+                          ) : (
+                            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-500">Default template</span>
+                          )}
+                        </div>
+                        <p className="max-w-lg text-[13px] leading-relaxed text-slate-500">
+                          Design the email recipients receive when a certificate is issued. Drag and drop text, images, and buttons on a freeform canvas — the design is rendered as HTML for every send.
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        {currentWorkspace?.emailTemplate && (
+                          <button
+                            onClick={() => {
+                              if (confirm('Discard the custom email design and go back to the default template?')) {
+                                handleSaveEmailTemplate(null);
+                              }
+                            }}
+                            disabled={isActionPending('emailTemplate:save')}
+                            className={btnSecondary}
+                          >
+                            Reset to default
+                          </button>
+                        )}
+                        <button onClick={() => setShowEmailDesigner(true)} className={btnPrimary}>
+                          <PenLine className="h-3.5 w-3.5" /> Open email designer
+                        </button>
+                      </div>
+                    </div>
+
+                    {currentWorkspace?.emailTemplate && emailPreviewHtml && (
+                      <div className="bg-slate-50 p-6">
+                        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Current design (sample data)</p>
+                        <iframe
+                          title="Current email template"
+                          sandbox=""
+                          srcDoc={emailPreviewHtml}
+                          className="h-72 w-full rounded-md border border-slate-200 bg-white"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Digest email designer card — for "send list to one address" */}
+                  <div className={`${card} overflow-hidden`}>
+                    <div className="flex flex-col justify-between gap-4 border-b border-slate-100 p-6 sm:flex-row sm:items-center">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-[14px] font-semibold text-slate-900">Digest email design</h3>
+                          {currentWorkspace?.digestEmailTemplate ? (
+                            <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">Custom template</span>
+                          ) : (
+                            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-500">Default template</span>
+                          )}
+                        </div>
+                        <p className="max-w-lg text-[13px] leading-relaxed text-slate-500">
+                          Used when you select certificates in the registry and send the whole list to one address. The <span className="font-medium text-slate-700">certificate list</span> block expands into one link per certificate.
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        {currentWorkspace?.digestEmailTemplate && (
+                          <button
+                            onClick={() => {
+                              if (confirm('Discard the custom digest design and go back to the default template?')) {
+                                handleSaveDigestTemplate(null);
+                              }
+                            }}
+                            disabled={isActionPending('emailTemplate:save')}
+                            className={btnSecondary}
+                          >
+                            Reset to default
+                          </button>
+                        )}
+                        <button onClick={() => setShowDigestDesigner(true)} className={btnPrimary}>
+                          <List className="h-3.5 w-3.5" /> Open digest designer
+                        </button>
+                      </div>
+                    </div>
+
+                    {currentWorkspace?.digestEmailTemplate && digestPreviewHtml && (
+                      <div className="bg-slate-50 p-6">
+                        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Current design (sample data)</p>
+                        <iframe
+                          title="Current digest template"
+                          sandbox=""
+                          srcDoc={digestPreviewHtml}
+                          className="h-72 w-full rounded-md border border-slate-200 bg-white"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Brand & sender identity */}
+                  <div className={`${card} space-y-5 p-6`}>
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                      <div>
+                        <h3 className="text-[14px] font-semibold text-slate-900">Brand & sender identity</h3>
+                        <p className="text-[13px] text-slate-500">Applied to certificate pages and email headers.</p>
+                      </div>
+                      <button
+                        onClick={handleSaveBrandingDraft}
+                        disabled={!brandingDirty || isActionPending('branding:save')}
+                        className={btnPrimary}
+                      >
+                        {isActionPending('branding:save') && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                        {isActionPending('branding:save') ? 'Saving…' : 'Save changes'}
+                      </button>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className={labelBase}>Public brand name</label>
+                      <input
+                        type="text"
+                        value={brandingDraft.brandName}
+                        onChange={(e) => setBranding({ brandName: capitalizeWords(e.target.value) })}
+                        className={inputBase}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <label className={labelBase}>Primary color</label>
+                        <div className="flex gap-2">
+                          <input
+                            type="color"
+                            value={brandingDraft.primaryColor}
+                            onChange={(e) => setBranding({ primaryColor: e.target.value })}
+                            className="h-9 w-11 cursor-pointer rounded-md border border-slate-300 bg-white p-1"
+                          />
+                          <input
+                            type="text"
+                            value={brandingDraft.primaryColor}
+                            onChange={(e) => setBranding({ primaryColor: e.target.value })}
+                            className={`${inputBase} font-mono`}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className={labelBase}>Accent color</label>
+                        <div className="flex gap-2">
+                          <input
+                            type="color"
+                            value={brandingDraft.accentColor}
+                            onChange={(e) => setBranding({ accentColor: e.target.value })}
+                            className="h-9 w-11 cursor-pointer rounded-md border border-slate-300 bg-white p-1"
+                          />
+                          <input
+                            type="text"
+                            value={brandingDraft.accentColor}
+                            onChange={(e) => setBranding({ accentColor: e.target.value })}
+                            className={`${inputBase} font-mono`}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <label className={labelBase}>Sender name</label>
+                        <input
+                          type="text"
+                          value={brandingDraft.senderName}
+                          onChange={(e) => setBranding({ senderName: capitalizeWords(e.target.value) })}
+                          className={inputBase}
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className={labelBase}>Sender email</label>
+                        <input
+                          type="email"
+                          value={brandingDraft.senderEmail}
+                          onChange={(e) => setBranding({ senderEmail: e.target.value })}
+                          className={`${inputBase} font-mono`}
+                        />
+                        <p className="text-[12px] leading-snug text-slate-400">Only the name part is used; the domain is set by the address verified with your mail provider (MAIL_FROM).</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className={labelBase}>Email footer text</label>
+                      <input
+                        type="text"
+                        value={brandingDraft.footerText}
+                        onChange={(e) => setBranding({ footerText: capitalizeWords(e.target.value) })}
+                        className={inputBase}
+                      />
+                    </div>
+                  </div>
+
+                </div>
+              )}
             </>
           )}
 
         </div>
       </main>
 
-      {/* MODAL: Email Preview Simulator Box overlay */}
-      {selectedEmailLog && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-6">
-          <div className="bg-white border text-left border-slate-205 rounded-2xl max-w-2xl w-full shadow-2xl relative flex flex-col max-h-[85vh] overflow-hidden">
-            {/* Window header */}
-            <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shrink-0">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 bg-red-500 rounded-full"></span>
-                <span className="w-2.5 h-2.5 bg-yellow-500 rounded-full"></span>
-                <span className="w-2.5 h-2.5 bg-green-500 rounded-full"></span>
-                <span className="font-mono text-xs text-slate-400 ml-2">Outbox Message</span>
+      {/* MODAL: Bulk issue wizard */}
+      {showBulkIssueModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+          <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-slate-200 bg-white text-left shadow-2xl">
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-6 py-4">
+              <div>
+                <h3 className="text-[15px] font-semibold text-slate-900">Bulk issue certificates</h3>
+                <p className="text-[12px] text-slate-500">
+                  {bulkStep === 'program' && 'Step 1 of 3 — choose a certification program'}
+                  {bulkStep === 'input' && 'Step 2 of 3 — paste recipient data'}
+                  {bulkStep === 'preview' && 'Step 3 of 3 — review and issue'}
+                  {bulkStep === 'success' && 'Done'}
+                </p>
               </div>
               <button
-                onClick={() => setSelectedEmailLog(null)}
-                className="text-slate-400 hover:text-white text-xs uppercase tracking-widest font-bold"
+                type="button"
+                onClick={closeBulkIssueModal}
+                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-900"
+                title="Close"
               >
-                Close Window
+                <X className="h-4 w-4" />
               </button>
             </div>
 
-            {/* Email Headers container */}
-            <div className="p-6 border-b border-slate-100 bg-slate-50 shrink-0 space-y-2.5 text-xs text-slate-600 font-sans">
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+              {/* Step 1: program selection */}
+              {bulkStep === 'program' && (
+                <div className="space-y-2">
+                  {programs.map((p) => {
+                    const fields = p.recipientFields.filter(f => !['name', 'email', 'date', 'id', 'program'].includes(f.toLowerCase()));
+                    const isActive = selectedProgramId === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setSelectedProgramId(p.id)}
+                        className={`w-full rounded-md border p-4 text-left transition-colors ${
+                          isActive ? 'border-blue-500 bg-blue-50/60 ring-1 ring-blue-500' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[14px] font-medium capitalize text-slate-900">{p.name}</p>
+                          {isActive && <CheckCircle2 className="h-4 w-4 shrink-0 text-blue-600" />}
+                        </div>
+                        {p.description && <p className="mt-0.5 truncate text-[12px] text-slate-500">{p.description}</p>}
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {['Email', 'Name', ...fields].map((f, i) => (
+                            <span key={i} className="rounded border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[11px] text-slate-500">{f}</span>
+                          ))}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Step 2: CSV input, placeholder derived from the chosen program */}
+              {bulkStep === 'input' && (() => {
+                const program = programs.find(p => p.id === selectedProgramId);
+                if (!program) return null;
+                const fields = program.recipientFields.filter(f => !['name', 'email', 'date', 'id', 'program'].includes(f.toLowerCase()));
+                const headerLine = ['Email', 'Name', ...fields].join(',');
+                const exampleValues = fields.map((f, i) => `${f} value ${i + 1}`.replace(/,/g, ' '));
+                const placeholder = `${headerLine}\nalex.rivera@example.com,Alex Rivera${exampleValues.length ? ',' + exampleValues.join(',') : ''}\njordan.vance@example.com,Jordan Vance${exampleValues.length ? ',' + exampleValues.join(',') : ''}`;
+                return (
+                  <div className="space-y-4">
+                    <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-[12px] font-medium text-slate-700">
+                        Program: <span className="capitalize text-blue-700">{program.name}</span>
+                      </p>
+                      <p className="mt-1 text-[12px] text-slate-500">
+                        Expected columns: <span className="font-mono text-slate-700">{headerLine}</span>
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <label className={labelBase}>Recipient rows (CSV)</label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const sampleRows = `${headerLine}\nalex.rivera@trustops-mail.com,Alex Rivera${fields.length ? ',' + fields.map(() => 'Sample').join(',') : ''}\njordan.vance@trustops-mail.com,Jordan Vance${fields.length ? ',' + fields.map(() => 'Sample').join(',') : ''}`;
+                          setRawCsvInput(sampleRows);
+                        }}
+                        className="text-[12px] font-medium text-blue-600 hover:text-blue-800"
+                      >
+                        Load sample
+                      </button>
+                    </div>
+                    <textarea
+                      value={rawCsvInput}
+                      onChange={(e) => setRawCsvInput(e.target.value)}
+                      placeholder={placeholder}
+                      className={`${inputBase} h-48 resize-y font-mono text-[12px]`}
+                    />
+                    <p className="text-[12px] text-slate-400">
+                      A header row is optional — plain lists of emails, "Name &lt;email&gt;", or "name, email" rows also work.
+                    </p>
+                  </div>
+                );
+              })()}
+
+              {/* Step 3: validation preview */}
+              {bulkStep === 'preview' && (
+                <div className="space-y-4">
+                  {importErrors.length > 0 && (
+                    <div className="space-y-1 rounded-md border border-rose-200 bg-rose-50 p-4 text-[13px] text-rose-800">
+                      <p className="flex items-center gap-1.5 font-medium"><AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" /> Structure issues found:</p>
+                      <ul className="list-disc space-y-0.5 pl-5 text-[12px]">
+                        {importErrors.map((err, idx) => <li key={idx}>{err}</li>)}
+                      </ul>
+                    </div>
+                  )}
+
+                  <p className="text-[13px] text-slate-600">
+                    <span className="font-semibold text-emerald-600">{validatedRecipients.filter(r => r.isValid).length} valid</span>
+                    {' · '}
+                    <span className={`font-semibold ${validatedRecipients.filter(r => !r.isValid).length > 0 ? 'text-rose-600' : 'text-slate-400'}`}>
+                      {validatedRecipients.filter(r => !r.isValid).length} invalid
+                    </span>
+                    {' '}rows. Only valid rows will be issued.
+                  </p>
+
+                  <div className="overflow-hidden rounded-md border border-slate-200">
+                    <div className="max-h-72 overflow-y-auto">
+                      <table className="w-full border-collapse text-left text-[13px]">
+                        <thead className="sticky top-0 border-b border-slate-200 bg-slate-50">
+                          <tr>
+                            <th className={th}>Name</th>
+                            <th className={th}>Email</th>
+                            <th className={th}>Fields</th>
+                            <th className={`${th} text-right`}>Check</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-slate-600">
+                          {validatedRecipients.map((rec, idx) => (
+                            <tr key={idx} className={rec.isValid ? '' : 'bg-rose-50/50'}>
+                              <td className="px-4 py-2.5 font-medium capitalize text-slate-900">{rec.name || 'N/A'}</td>
+                              <td className="px-4 py-2.5 font-mono text-[12px] text-slate-500">{rec.email}</td>
+                              <td className="px-4 py-2.5">
+                                <div className="flex max-w-[200px] flex-wrap gap-1">
+                                  {Object.entries(rec.customFields).map(([k, v], id) => (
+                                    <span key={id} className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px] text-slate-600">
+                                      {k}: {v}
+                                    </span>
+                                  ))}
+                                </div>
+                              </td>
+                              <td className="px-4 py-2.5 text-right">
+                                {rec.isValid ? (
+                                  <span className="inline-flex items-center justify-end gap-1 text-[11px] font-semibold text-emerald-600">
+                                    <CheckCircle2 className="h-3.5 w-3.5" /> Ready
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center justify-end gap-1 text-[11px] font-semibold text-rose-600" title={rec.errors?.join(', ')}>
+                                    <AlertTriangle className="h-3.5 w-3.5" /> Invalid
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 4: success */}
+              {bulkStep === 'success' && (
+                <div className="space-y-5 py-4 text-center">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-600">
+                    <Check className="h-6 w-6 stroke-[3]" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="text-[16px] font-semibold text-slate-900">Certificates issued</h3>
+                    <p className="mx-auto max-w-sm text-[13px] leading-relaxed text-slate-500">
+                      {mappedCertificates.length} certificate{mappedCertificates.length === 1 ? '' : 's'} generated with verification links.{' '}
+                      {bulkSentEmail
+                        ? 'Notification emails are being sent in the background.'
+                        : 'No emails were sent — select them in the registry to email recipients later.'}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Wizard footer */}
+            <div className="flex shrink-0 justify-between gap-2 border-t border-slate-100 bg-slate-50 px-6 py-4">
+              <div>
+                {bulkStep === 'input' && (
+                  <button type="button" onClick={() => setBulkStep('program')} className={btnSecondary}>
+                    <ChevronLeft className="h-3.5 w-3.5" /> Back
+                  </button>
+                )}
+                {bulkStep === 'preview' && (
+                  <button type="button" disabled={isActionPending('certificates:bulk')} onClick={() => setBulkStep('input')} className={btnSecondary}>
+                    <ChevronLeft className="h-3.5 w-3.5" /> Edit data
+                  </button>
+                )}
+              </div>
+              <div className="flex gap-2">
+                {bulkStep === 'program' && (
+                  <button
+                    type="button"
+                    disabled={!selectedProgramId}
+                    onClick={() => setBulkStep('input')}
+                    className={btnPrimary}
+                  >
+                    Continue <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                {bulkStep === 'input' && (
+                  <button
+                    type="button"
+                    disabled={!rawCsvInput.trim()}
+                    onClick={handleParseRecipients}
+                    className={btnPrimary}
+                  >
+                    Validate rows <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                {bulkStep === 'preview' && (() => {
+                  const validCount = validatedRecipients.filter(r => r.isValid).length;
+                  const busy = isActionPending('certificates:bulk');
+                  return (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => runBulkIssue(false)}
+                        disabled={busy || validCount === 0}
+                        className={btnSecondary}
+                        title="Create the certificates now; send emails later from the registry"
+                      >
+                        Issue only
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => runBulkIssue(true)}
+                        disabled={busy || validCount === 0}
+                        className={btnPrimary}
+                      >
+                        {busy ? (
+                          <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Issuing…</>
+                        ) : (
+                          <><Play className="h-3.5 w-3.5 fill-current" /> Issue &amp; send {validCount} email{validCount === 1 ? '' : 's'}</>
+                        )}
+                      </button>
+                    </>
+                  );
+                })()}
+                {bulkStep === 'success' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => { setBulkStep('program'); setSelectedProgramId(''); setValidatedRecipients([]); }}
+                      className={btnSecondary}
+                    >
+                      Issue another batch
+                    </button>
+                    <button type="button" onClick={closeBulkIssueModal} className={btnPrimary}>
+                      Done
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Email Preview */}
+      {selectedEmailLog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-6 backdrop-blur-sm">
+          <div className="relative flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-slate-200 bg-white text-left shadow-2xl">
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-6 py-4">
+              <h3 className="text-[15px] font-semibold text-slate-900">Outbox message</h3>
+              <button
+                onClick={() => setSelectedEmailLog(null)}
+                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-900"
+                title="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="shrink-0 space-y-2 border-b border-slate-100 bg-slate-50 p-6 text-[13px] text-slate-600">
               <div className="flex">
-                <span className="w-16 font-semibold text-slate-400 uppercase tracking-wider font-mono">From:</span>
-                <span className="font-semibold text-slate-800">
+                <span className="w-16 shrink-0 text-[12px] font-medium text-slate-400">From</span>
+                <span className="font-medium text-slate-800">
                   {currentWorkspace?.branding?.senderName || "Glint"} &lt;{currentWorkspace?.branding?.senderEmail || "sender not configured"}&gt;
                 </span>
               </div>
               <div className="flex">
-                <span className="w-16 font-semibold text-slate-400 uppercase tracking-wider font-mono">To:</span>
-                <span className="font-semibold text-slate-800">
+                <span className="w-16 shrink-0 text-[12px] font-medium text-slate-400">To</span>
+                <span className="font-medium text-slate-800">
                   {selectedEmailLog.recipientName} &lt;{selectedEmailLog.recipientEmail}&gt;
                 </span>
               </div>
               <div className="flex">
-                <span className="w-16 font-semibold text-slate-400 uppercase tracking-wider font-mono">Subject:</span>
-                <span className="font-bold text-slate-900">
-                  {selectedEmailLog.subject}
-                </span>
+                <span className="w-16 shrink-0 text-[12px] font-medium text-slate-400">Subject</span>
+                <span className="font-semibold text-slate-900">{selectedEmailLog.subject}</span>
               </div>
               <div className="flex">
-                <span className="w-16 font-semibold text-slate-400 uppercase tracking-wider font-mono">Date:</span>
-                <span className="text-slate-500">
-                  {new Date(selectedEmailLog.sentTime).toLocaleString()}
-                </span>
+                <span className="w-16 shrink-0 text-[12px] font-medium text-slate-400">Date</span>
+                <span>{new Date(selectedEmailLog.sentTime).toLocaleString()}</span>
               </div>
               <div className="flex items-center">
-                <span className="w-16 font-semibold text-slate-400 uppercase tracking-wider font-mono">Status:</span>
-                <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-mono font-bold uppercase border ${emailDisplayBadge(selectedEmailLog).className}`}>
-                  ● {emailDisplayBadge(selectedEmailLog).label}
+                <span className="w-16 shrink-0 text-[12px] font-medium text-slate-400">Status</span>
+                <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${emailDisplayBadge(selectedEmailLog).className}`}>
+                  <span className="h-1.5 w-1.5 rounded-full bg-current" /> {emailDisplayBadge(selectedEmailLog).label}
                   {selectedEmailLog.attempts > 0 && ` · ${selectedEmailLog.attempts} attempt${selectedEmailLog.attempts === 1 ? '' : 's'}`}
                 </span>
               </div>
               {emailDetailText(selectedEmailLog) && (
                 <div className="flex">
-                  <span className="w-16 font-semibold text-slate-400 uppercase tracking-wider font-mono shrink-0">Detail:</span>
-                  <span className="text-rose-600 font-mono text-[11px] break-words">{emailDetailText(selectedEmailLog)}</span>
+                  <span className="w-16 shrink-0 text-[12px] font-medium text-slate-400">Detail</span>
+                  <span className="break-words font-mono text-[12px] text-rose-600">{emailDetailText(selectedEmailLog)}</span>
                 </div>
               )}
             </div>
 
-            {/* Email Body content */}
-            <div className="p-8 overflow-y-auto bg-white flex-1 text-slate-800 text-sm font-sans space-y-6">
-              <div className="max-w-xl mx-auto border border-slate-100 p-8 rounded-xl shadow-sm bg-slate-550/5 space-y-4">
-                {/* Real message header, followed by the exact text stored in the outbox */}
-                <div className="flex items-center gap-2 pb-4 border-b border-slate-150 justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-5 h-5 bg-slate-950 rounded flex items-center justify-center text-white text-[8px] font-bold">★</div>
-                    <span className="font-display font-black text-slate-950 text-xs tracking-tight uppercase">{currentWorkspace?.branding?.brandName}</span>
-                  </div>
-                  <span className="text-[9px] font-mono text-[#9CA3AF] uppercase">Credential Notification</span>
+            <div className="flex-1 space-y-4 overflow-y-auto bg-white p-6 text-[13px] text-slate-800">
+              <div className="mx-auto max-w-xl space-y-4 rounded-lg border border-slate-100 bg-slate-50/50 p-6">
+                <div className="flex items-center justify-between gap-2 border-b border-slate-200 pb-3">
+                  <span className="text-[13px] font-semibold text-slate-900">{currentWorkspace?.branding?.brandName}</span>
+                  <span className="text-[11px] text-slate-400">Certificate notification</span>
                 </div>
 
-                <pre className="whitespace-pre-wrap font-sans text-xs text-slate-700 leading-relaxed">{selectedEmailLog.body}</pre>
+                <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed text-slate-700">{selectedEmailLog.body}</pre>
 
-                <div className="py-2 text-center">
+                <div className="py-1 text-center">
                   <button
                     onClick={() => {
                       setSelectedEmailLog(null);
                       onViewCertificatePage(selectedEmailLog.certificateId);
                     }}
-                    className="inline-block bg-slate-950 hover:bg-slate-850 text-white text-xs px-6 py-3 rounded-full font-bold shadow-md hover:shadow-lg transition-all tracking-wide uppercase"
+                    className={btnPrimary}
                   >
-                    View Certificate Page
+                    View certificate page
                   </button>
                 </div>
 
-                <p className="text-slate-400 text-[10px] leading-relaxed pt-4 border-t border-slate-150 font-mono">
-                  This is the exact message body recorded in the outbox for this recipient. The delivered email is rendered with {currentWorkspace?.branding?.brandName} branding.
+                <p className="border-t border-slate-200 pt-3 text-[11px] leading-relaxed text-slate-400">
+                  This is the plain-text body recorded in the outbox. The delivered email is rendered with your {currentWorkspace?.emailTemplate ? 'custom email template' : 'workspace branding'}.
                 </p>
               </div>
             </div>
 
-            {/* Window footer */}
-            <div className="bg-slate-50 px-6 py-4 border-t border-slate-205 flex justify-end shrink-0">
-              <button
-                onClick={() => setSelectedEmailLog(null)}
-                className="bg-slate-950 text-white text-xs px-4 py-2 rounded-lg font-bold"
-              >
+            <div className="flex shrink-0 justify-end border-t border-slate-100 bg-slate-50 px-6 py-4">
+              <button onClick={() => setSelectedEmailLog(null)} className={btnSecondary}>
                 Close
               </button>
             </div>
@@ -3316,74 +3172,70 @@ export function Dashboard({
         </div>
       )}
 
-      {/* MODAL: Onboard Organization Workspace overlay */}
+      {/* MODAL: Create Workspace */}
       {showWorkspaceModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-6">
-          <div className="bg-white border text-left border-slate-200 rounded-2xl max-w-md w-full p-8 shadow-2xl relative space-y-6">
-            <h3 className="font-serif text-3xl italic text-slate-950 pb-3 border-b">Onboard Organization</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-6 backdrop-blur-sm">
+          <div className="relative w-full max-w-md space-y-5 rounded-lg border border-slate-200 bg-white p-6 text-left shadow-2xl">
+            <h3 className="border-b border-slate-100 pb-3 text-[15px] font-semibold text-slate-900">Add organization</h3>
 
             <form onSubmit={handleCreateWorkspace} className="space-y-4">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Workspace Legal Name</label>
+              <div className="space-y-1.5">
+                <label className={labelBase}>Organization name</label>
                 <input
                   type="text"
                   required
                   placeholder="e.g. Columbia University Global"
                   value={newWsName}
                   onChange={(e) => setNewWsName(capitalizeWords(e.target.value))}
-                  className="w-full bg-slate-50 text-xs py-2 px-3 rounded border focus:outline-none"
+                  className={inputBase}
                 />
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold uppercase text-slate-440 tracking-wider">Branded Registry Title</label>
+              <div className="space-y-1.5">
+                <label className={labelBase}>Public brand name</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Columbia Credentials Authority"
+                  placeholder="e.g. Columbia Certificate Authority"
                   value={newWsBrandName}
                   onChange={(e) => setNewWsBrandName(capitalizeWords(e.target.value))}
-                  className="w-full bg-slate-50 text-xs py-2 px-3 rounded border focus:outline-none"
+                  className={inputBase}
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase text-slate-440 tracking-wider">Primary Color</label>
+                <div className="space-y-1.5">
+                  <label className={labelBase}>Primary color</label>
                   <input
                     type="color"
                     value={newWsColor}
                     onChange={(e) => setNewWsColor(e.target.value)}
-                    className="w-full h-8 bg-slate-50 p-1 rounded border cursor-pointer"
+                    className="h-9 w-full cursor-pointer rounded-md border border-slate-300 bg-white p-1"
                   />
                 </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase text-slate-440 tracking-wider">Accent Color</label>
+                <div className="space-y-1.5">
+                  <label className={labelBase}>Accent color</label>
                   <input
                     type="color"
                     value={newWsAccent}
                     onChange={(e) => setNewWsAccent(e.target.value)}
-                    className="w-full h-8 bg-slate-50 p-1 rounded border cursor-pointer"
+                    className="h-9 w-full cursor-pointer rounded-md border border-slate-300 bg-white p-1"
                   />
                 </div>
               </div>
 
-              <div className="flex gap-3 justify-end pt-4">
+              <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
                 <button
                   type="button"
                   disabled={isActionPending('workspace:create')}
                   onClick={() => setShowWorkspaceModal(false)}
-                  className="bg-slate-100 text-slate-700 text-xs px-4 py-2 rounded-lg font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                  className={btnSecondary}
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  disabled={isActionPending('workspace:create')}
-                  className="bg-slate-950 text-white text-xs px-5 py-2.5 rounded-lg font-bold hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
-                >
-                  {isActionPending('workspace:create') && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                  {isActionPending('workspace:create') ? 'Onboarding...' : 'Onboard Workspace'}
+                <button type="submit" disabled={isActionPending('workspace:create')} className={btnPrimary}>
+                  {isActionPending('workspace:create') && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                  {isActionPending('workspace:create') ? 'Creating…' : 'Create organization'}
                 </button>
               </div>
             </form>
@@ -3391,41 +3243,42 @@ export function Dashboard({
         </div>
       )}
 
+      {/* MODAL: Audit trail */}
       {selectedAuditTrailCert && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-6">
-          <div className="bg-white border text-left border-slate-200 rounded-2xl max-w-xl w-full p-8 shadow-2xl relative flex flex-col max-h-[80vh]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-6 backdrop-blur-sm">
+          <div className="relative flex max-h-[80vh] w-full max-w-xl flex-col rounded-lg border border-slate-200 bg-white p-6 text-left shadow-2xl">
             <button
               onClick={() => setSelectedAuditTrailCert(null)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-900 transition-colors cursor-pointer"
+              className="absolute right-4 top-4 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-900"
               type="button"
               title="Close audit view"
             >
-              <X className="w-5 h-5" />
+              <X className="h-4 w-4" />
             </button>
-            <h3 className="font-serif text-2xl italic text-slate-950 pb-3 border-b">
+            <h3 className="border-b border-slate-100 pb-3 text-[15px] font-semibold text-slate-900">
               Certificate history
             </h3>
-            <p className="text-xs text-slate-500 mt-2 mb-4">
-              Recorded events for credential <span className="font-mono text-slate-800">{selectedAuditTrailCert.id}</span> issued to <span className="font-bold text-slate-800">{selectedAuditTrailCert.recipientName}</span>.
+            <p className="mb-4 mt-2 text-[13px] text-slate-500">
+              Recorded events for <span className="font-mono text-slate-800">{selectedAuditTrailCert.id}</span> issued to <span className="font-medium text-slate-800">{selectedAuditTrailCert.recipientName}</span>.
             </p>
 
-            <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+            <div className="flex-1 space-y-4 overflow-y-auto pr-2">
               {(() => {
                 const logs = auditTrailLogs;
                 if (auditTrailLoading) {
                   return (
-                    <div className="text-center py-8 text-slate-400 font-mono text-xs">Loading history…</div>
+                    <div className="py-8 text-center text-[13px] text-slate-400">Loading history…</div>
                   );
                 }
                 if (logs.length === 0) {
                   return (
-                    <div className="text-center py-8 text-slate-400 font-mono text-xs">
+                    <div className="py-8 text-center text-[13px] text-slate-400">
                       No events recorded yet.
                     </div>
                   );
                 }
                 return (
-                  <div className="relative border-l-2 border-slate-100 pl-4 ml-2 space-y-6">
+                  <div className="relative ml-2 space-y-6 border-l-2 border-slate-100 pl-4">
                     {logs.map((log: any, idx: number) => {
                       let Icon = CheckCircle2;
                       let iconColor = 'text-emerald-500 bg-emerald-50';
@@ -3442,16 +3295,16 @@ export function Dashboard({
 
                       return (
                         <div key={idx} className="relative">
-                          <span className={`absolute -left-[25px] top-0.5 rounded-full p-0.5 border-2 border-white ${iconColor}`}>
-                            <Icon className="w-3.5 h-3.5" />
+                          <span className={`absolute -left-[25px] top-0.5 rounded-full border-2 border-white p-0.5 ${iconColor}`}>
+                            <Icon className="h-3.5 w-3.5" />
                           </span>
                           <div className="space-y-1">
                             <div className="flex items-center justify-between gap-2">
-                              <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">{log.event || 'VERIFIED'}</span>
-                              <span className="text-[10px] text-slate-400 font-mono">{new Date(log.timestamp).toLocaleString()}</span>
+                              <span className="text-[12px] font-semibold uppercase tracking-wide text-slate-900">{log.event || 'VERIFIED'}</span>
+                              <span className="text-[11px] text-slate-400">{new Date(log.timestamp).toLocaleString()}</span>
                             </div>
-                            <p className="text-xs text-slate-600 leading-normal">{log.details}</p>
-                            <p className="text-[10px] text-slate-400 font-mono">Operator: {log.performedBy}</p>
+                            <p className="text-[13px] leading-normal text-slate-600">{log.details}</p>
+                            <p className="text-[11px] text-slate-400">Operator: {log.performedBy}</p>
                           </div>
                         </div>
                       );
@@ -3461,46 +3314,41 @@ export function Dashboard({
               })()}
             </div>
 
-            <div className="flex justify-end pt-4 border-t mt-4">
-              <button
-                onClick={() => setSelectedAuditTrailCert(null)}
-                className="bg-slate-950 text-white text-xs px-5 py-2.5 rounded-lg font-bold hover:bg-slate-800"
-              >
-                Close Audit Viewer
+            <div className="mt-4 flex justify-end border-t border-slate-100 pt-4">
+              <button onClick={() => setSelectedAuditTrailCert(null)} className={btnSecondary}>
+                Close
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL: Single Recipient Issuance Overlay */}
+      {/* MODAL: Single Certificate Issuance */}
       {showSingleIssueModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[99] flex items-center justify-center p-4">
-          <div className="bg-white border text-left border-[#E9ECEF] rounded-2xl p-6 md:p-8 card-shadow space-y-6 max-w-xl w-full max-h-[90vh] overflow-y-auto animate-scale-up">
-            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
-              <h3 className="text-sm font-bold text-slate-950 uppercase tracking-widest flex items-center gap-1.5 font-sans">
-                <Plus className="w-4 h-4 text-indigo-650" /> Issue Single Certificate
-              </h3>
-              <button 
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+          <div className="max-h-[90vh] w-full max-w-xl space-y-5 overflow-y-auto rounded-lg border border-slate-200 bg-white p-6 text-left shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-[15px] font-semibold text-slate-900">Issue certificate</h3>
+              <button
                 type="button"
                 onClick={() => setShowSingleIssueModal(false)}
-                className="text-slate-400 hover:text-slate-900 transition-colors cursor-pointer"
-                title="Close modal"
+                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-900"
+                title="Close"
               >
-                <X className="w-4 h-4" />
+                <X className="h-4 w-4" />
               </button>
             </div>
 
-            <form onSubmit={handleIssueSingleCertificate} className="space-y-4">
-              <div className="space-y-1">
-                <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Select Certification Program</label>
+            <form onSubmit={(e) => { e.preventDefault(); issueSingleCertificate(true); }} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className={labelBase}>Certification program</label>
                 <select
                   value={singleProgramId}
                   onChange={(e) => {
                     setSingleProgramId(e.target.value);
                     setSingleCustomFields({});
                   }}
-                  className="w-full bg-slate-50 text-xs py-2.5 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-slate-900 cursor-pointer"
+                  className={`${inputBase} cursor-pointer`}
                 >
                   {programs.map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
@@ -3508,40 +3356,40 @@ export function Dashboard({
                 </select>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Recipient Full Name</label>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label className={labelBase}>Recipient name</label>
                   <input
                     type="text"
                     required
                     placeholder="e.g. Alex Rivera"
                     value={singleRecipientName}
                     onChange={(e) => setSingleRecipientName(capitalizeWords(e.target.value))}
-                    className="w-full bg-slate-50 text-xs py-2.5 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-slate-900"
+                    className={inputBase}
                   />
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Recipient Email Address</label>
+                <div className="space-y-1.5">
+                  <label className={labelBase}>Recipient email</label>
                   <input
                     type="email"
                     required
                     placeholder="e.g. alex@example.com"
                     value={singleRecipientEmail}
                     onChange={(e) => setSingleRecipientEmail(e.target.value)}
-                    className="w-full bg-slate-50 text-xs py-2.5 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-slate-900"
+                    className={inputBase}
                   />
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Issue Date</label>
+              <div className="space-y-1.5">
+                <label className={labelBase}>Issue date</label>
                 <input
                   type="date"
                   required
                   value={singleIssueDate}
                   onChange={(e) => setSingleIssueDate(e.target.value)}
-                  className="w-full bg-slate-50 text-xs py-2.5 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-slate-900"
+                  className={inputBase}
                 />
               </div>
 
@@ -3553,11 +3401,11 @@ export function Dashboard({
                 if (filteredFields.length === 0) return null;
                 return (
                   <div className="space-y-3 border-t border-slate-100 pt-4">
-                    <h4 className="text-[10px] uppercase font-bold text-slate-450 tracking-wider">Program Custom Variables</h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <h4 className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">Program fields</h4>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       {filteredFields.map(field => (
-                        <div key={field} className="space-y-1">
-                          <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">{field}</label>
+                        <div key={field} className="space-y-1.5">
+                          <label className={labelBase}>{field}</label>
                           <input
                             type="text"
                             required
@@ -3567,7 +3415,7 @@ export function Dashboard({
                               ...singleCustomFields,
                               [field]: e.target.value
                             })}
-                            className="w-full bg-slate-50 text-xs py-2.5 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-slate-900"
+                            className={inputBase}
                           />
                         </div>
                       ))}
@@ -3576,22 +3424,32 @@ export function Dashboard({
                 );
               })()}
 
-              <div className="flex gap-3 justify-end pt-4 border-t border-slate-100">
+              <div className="flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:justify-end">
                 <button
                   type="button"
                   disabled={isActionPending('certificate:single')}
                   onClick={() => setShowSingleIssueModal(false)}
-                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs px-4 py-2.5 rounded-lg font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className={btnSecondary}
                 >
                   Cancel
                 </button>
                 <button
-                  type="submit"
+                  type="button"
                   disabled={isActionPending('certificate:single')}
-                  className="bg-slate-950 hover:bg-slate-800 text-white text-xs px-5 py-2.5 rounded-lg font-bold shadow-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
+                  onClick={() => issueSingleCertificate(false)}
+                  className={btnSecondary}
+                  title="Create the certificate now; send the email later from the registry"
                 >
-                  {isActionPending('certificate:single') && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                  {isActionPending('certificate:single') ? 'Issuing...' : 'Issue Certificate'}
+                  Issue only
+                </button>
+                <button
+                  type="button"
+                  disabled={isActionPending('certificate:single')}
+                  onClick={() => issueSingleCertificate(true)}
+                  className={btnPrimary}
+                >
+                  {isActionPending('certificate:single') && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                  {isActionPending('certificate:single') ? 'Issuing…' : 'Issue & send email'}
                 </button>
               </div>
             </form>
@@ -3599,25 +3457,93 @@ export function Dashboard({
         </div>
       )}
 
-      {/* MODAL: Cryptographic Status Check */}
+      {/* MODAL: Send digest to one address */}
+      {showDigestModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md space-y-5 rounded-lg border border-slate-200 bg-white p-6 text-left shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-[15px] font-semibold text-slate-900">Send list to one address</h3>
+              <button
+                type="button"
+                onClick={() => setShowDigestModal(false)}
+                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-900"
+                title="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <p className="text-[13px] leading-relaxed text-slate-500">
+              One email listing the verification links for the <strong className="text-slate-800">{selectedCertIds.size}</strong> selected certificate{selectedCertIds.size === 1 ? '' : 's'} will be sent to the address below. The individual recipients are not emailed.
+            </p>
+            {!currentWorkspace?.digestEmailTemplate && (
+              <p className="rounded-md bg-slate-50 px-3 py-2 text-[12px] text-slate-500">
+                Using the default digest layout. Customise it under <span className="font-medium text-slate-700">Branding &amp; Email → Digest email design</span>.
+              </p>
+            )}
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (digestEmail.trim()) sendEmailsForSelection('digest', { digestEmail: digestEmail.trim(), digestName: digestName.trim() });
+              }}
+              className="space-y-4"
+            >
+              <div className="space-y-1.5">
+                <label className={labelBase}>Recipient email</label>
+                <input
+                  type="email"
+                  required
+                  placeholder="e.g. program.office@example.com"
+                  value={digestEmail}
+                  onChange={(e) => setDigestEmail(e.target.value)}
+                  className={inputBase}
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className={labelBase}>Recipient name (optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Program Office"
+                  value={digestName}
+                  onChange={(e) => setDigestName(capitalizeWords(e.target.value))}
+                  className={inputBase}
+                />
+              </div>
+              <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+                <button type="button" onClick={() => setShowDigestModal(false)} className={btnSecondary}>
+                  Cancel
+                </button>
+                <button type="submit" disabled={sendingEmails || !digestEmail.trim()} className={btnPrimary}>
+                  {sendingEmails ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                  {sendingEmails ? 'Sending…' : 'Send digest'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Signature Status */}
       {selectedCryptoProofCert && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-6">
-          <div className="bg-white border text-left border-slate-200 rounded-2xl max-w-lg w-full p-8 shadow-2xl relative space-y-6 animate-scale-up">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-6 backdrop-blur-sm">
+          <div className="relative w-full max-w-lg space-y-5 rounded-lg border border-slate-200 bg-white p-6 text-left shadow-2xl">
             <button
               onClick={() => setSelectedCryptoProofCert(null)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-900 transition-colors cursor-pointer"
+              className="absolute right-4 top-4 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-900"
               type="button"
               title="Close panel"
             >
-              <X className="w-5 h-5" />
+              <X className="h-4 w-4" />
             </button>
-            <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
-              <span className="p-2 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100">
-                <ShieldCheck className="w-6 h-6 animate-pulse" />
+            <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 p-2 text-emerald-600">
+                <ShieldCheck className="h-5 w-5" />
               </span>
               <div>
-                <h3 className="font-serif text-2xl italic text-slate-950">Signature</h3>
-                <p className="text-[10px] text-slate-400 font-mono tracking-wide uppercase mt-0.5">
+                <h3 className="text-[15px] font-semibold text-slate-900">Signature</h3>
+                <p className="mt-0.5 font-mono text-[11px] uppercase tracking-wide text-slate-400">
                   {selectedCryptoProofCert.signatureAlg} · v{selectedCryptoProofCert.signatureVersion}
                 </p>
               </div>
@@ -3629,12 +3555,12 @@ export function Dashboard({
               produced by Math.random(). There is no blockchain, no Ed25519, and
               no asymmetric key. What exists is an HMAC, and it is described as one.
             */}
-            <div className="space-y-4 text-xs">
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex gap-3">
-                <CheckCircle2 className="w-5 h-5 text-slate-500 shrink-0 mt-0.5" />
+            <div className="space-y-4 text-[13px]">
+              <div className="flex gap-3 rounded-md border border-slate-200 bg-slate-50 p-4">
+                <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-slate-500" />
                 <div className="space-y-1">
-                  <h4 className="font-bold text-slate-900">Keyed message authentication code</h4>
-                  <p className="text-slate-600 leading-normal">
+                  <h4 className="font-semibold text-slate-900">Keyed message authentication code</h4>
+                  <p className="leading-normal text-slate-600">
                     The recipient, program, and dates are signed with a secret key held on this server.
                     Any edit to those fields invalidates the signature. Because the key is symmetric,
                     only this registry can verify it — a third party cannot check it independently.
@@ -3642,69 +3568,64 @@ export function Dashboard({
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2 py-2 border-y border-slate-100 font-sans">
+              <div className="grid grid-cols-3 gap-2 border-y border-slate-100 py-3">
                 <div className="space-y-0.5">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Status</span>
-                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-full text-[9px] font-bold uppercase inline-block">
-                    {selectedCryptoProofCert.status}
-                  </span>
+                  <span className="block text-[11px] font-medium uppercase tracking-wide text-slate-400">Status</span>
+                  {statusBadge(selectedCryptoProofCert.status)}
                 </div>
                 <div className="space-y-0.5">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Algorithm</span>
-                  <span className="font-mono text-slate-800 font-semibold block text-[10px]">{selectedCryptoProofCert.signatureAlg}</span>
+                  <span className="block text-[11px] font-medium uppercase tracking-wide text-slate-400">Algorithm</span>
+                  <span className="block font-mono text-[12px] font-medium text-slate-800">{selectedCryptoProofCert.signatureAlg}</span>
                 </div>
                 <div className="space-y-0.5">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Verified</span>
-                  <span className="font-mono text-slate-800 font-semibold block text-[10px]">{selectedCryptoProofCert.verifyCount}×</span>
+                  <span className="block text-[11px] font-medium uppercase tracking-wide text-slate-400">Verified</span>
+                  <span className="block font-mono text-[12px] font-medium text-slate-800">{selectedCryptoProofCert.verifyCount}×</span>
                 </div>
               </div>
 
-              <div className="space-y-1.5 font-mono">
-                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Signature (hex)</label>
-                <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 break-all text-[10px] text-slate-700 font-semibold">
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-medium uppercase tracking-wide text-slate-400">Signature (hex)</label>
+                <div className="break-all rounded-md border border-slate-200 bg-slate-50 p-2.5 font-mono text-[11px] font-medium text-slate-700">
                   {selectedCryptoProofCert.signature}
                 </div>
               </div>
 
-              <div className="space-y-1.5 font-mono">
-                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Signed fields</label>
-                <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-[10px] text-slate-700 leading-relaxed">
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-medium uppercase tracking-wide text-slate-400">Signed fields</label>
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-2.5 font-mono text-[11px] leading-relaxed text-slate-700">
                   id · workspace · program · recipient name · recipient email · issue date · expiry date
-                  <p className="text-slate-400 mt-1 not-italic">
+                  <p className="mt-1 text-slate-400">
                     Status is not signed. Revoking a certificate does not invalidate its signature.
                   </p>
                 </div>
               </div>
             </div>
 
-            <div className="flex justify-end pt-3 border-t border-slate-100">
-              <button
-                onClick={() => setSelectedCryptoProofCert(null)}
-                className="bg-slate-950 hover:bg-slate-800 text-white text-xs px-5 py-2.5 rounded-lg font-bold transition-colors cursor-pointer"
-              >
-                Close Status Panel
+            <div className="flex justify-end border-t border-slate-100 pt-4">
+              <button onClick={() => setSelectedCryptoProofCert(null)} className={btnSecondary}>
+                Close
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL: JSON Envelope View */}
+      {/* MODAL: JSON Record */}
       {selectedJsonEnvelopeCert && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-6">
-          <div className="bg-white border text-left border-slate-200 rounded-2xl max-w-xl w-full p-8 shadow-2xl relative flex flex-col max-h-[85vh] animate-scale-up">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-6 backdrop-blur-sm">
+          <div className="relative flex max-h-[85vh] w-full max-w-xl flex-col rounded-lg border border-slate-200 bg-white p-6 text-left shadow-2xl">
             <button
               onClick={() => setSelectedJsonEnvelopeCert(null)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-900 transition-colors cursor-pointer"
+              className="absolute right-4 top-4 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-900"
               type="button"
               title="Close panel"
             >
-              <X className="w-5 h-5" />
+              <X className="h-4 w-4" />
             </button>
-            <div className="pb-3 border-b border-slate-100">
-              <h3 className="font-serif text-2xl italic text-slate-950">Credential JSON</h3>
-              <p className="text-xs text-slate-500 mt-1">
-                Registry record for ID: <span className="font-mono text-slate-800">{selectedJsonEnvelopeCert.id}</span>
+            <div className="border-b border-slate-100 pb-3">
+              <h3 className="text-[15px] font-semibold text-slate-900">Certificate JSON</h3>
+              <p className="mt-1 text-[13px] text-slate-500">
+                Registry record for <span className="font-mono text-slate-800">{selectedJsonEnvelopeCert.id}</span>
               </p>
             </div>
 
@@ -3715,8 +3636,8 @@ export function Dashboard({
               string. None of it was real, and anything consuming it as a VC would
               have failed — or worse, trusted it. This is the actual record.
             */}
-            <div className="flex-1 overflow-y-auto my-4 bg-slate-950 rounded-xl p-4 text-[11px] font-mono text-emerald-400 border border-slate-800 scrollbar-thin">
-              <pre className="whitespace-pre-wrap leading-relaxed select-all">
+            <div className="my-4 flex-1 overflow-y-auto rounded-md border border-slate-800 bg-slate-950 p-4 font-mono text-[11px] text-emerald-400">
+              <pre className="select-all whitespace-pre-wrap leading-relaxed">
                 {JSON.stringify({
                   id: selectedJsonEnvelopeCert.id,
                   issuer: currentWorkspaceId,
@@ -3744,103 +3665,91 @@ export function Dashboard({
               </pre>
             </div>
 
-            <div className="flex gap-3 justify-end pt-3 border-t border-slate-100">
+            <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
               <button
                 onClick={() => {
                   const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(selectedJsonEnvelopeCert, null, 2));
                   const downloadAnchor = document.createElement('a');
                   downloadAnchor.setAttribute("href", dataStr);
-                  downloadAnchor.setAttribute("download", `credential-${selectedJsonEnvelopeCert.id}.json`);
+                  downloadAnchor.setAttribute("download", `certificate-${selectedJsonEnvelopeCert.id}.json`);
                   document.body.appendChild(downloadAnchor);
                   downloadAnchor.click();
                   downloadAnchor.remove();
-                  toast.success('JSON metadata downloaded successfully!');
+                  toast.success('JSON metadata downloaded.');
                 }}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs px-4 py-2.5 rounded-lg font-bold transition-colors cursor-pointer"
+                className={btnSecondary}
               >
-                Download Metadata
+                Download JSON
               </button>
-              <button
-                onClick={() => setSelectedJsonEnvelopeCert(null)}
-                className="bg-slate-950 hover:bg-slate-800 text-white text-xs px-5 py-2.5 rounded-lg font-bold transition-colors cursor-pointer"
-              >
-                Close Envelope View
+              <button onClick={() => setSelectedJsonEnvelopeCert(null)} className={btnPrimary}>
+                Close
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL: Card / Certificate PDF Preview */}
+      {/* MODAL: Certificate Preview Card */}
       {selectedPreviewCert && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-6">
-          <div className="bg-white border text-left border-slate-200 rounded-2xl max-w-2xl w-full p-8 shadow-2xl relative flex flex-col max-h-[90vh] animate-scale-up">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-6 backdrop-blur-sm">
+          <div className="relative flex max-h-[90vh] w-full max-w-2xl flex-col rounded-lg border border-slate-200 bg-white p-6 text-left shadow-2xl">
             <button
               onClick={() => setSelectedPreviewCert(null)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-900 transition-colors cursor-pointer"
+              className="absolute right-4 top-4 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-900"
               type="button"
               title="Close panel"
             >
-              <X className="w-5 h-5" />
+              <X className="h-4 w-4" />
             </button>
-            <div className="pb-3 border-b border-slate-100">
-              <h3 className="font-serif text-2xl italic text-slate-950">Credential Design Preview</h3>
-              <p className="text-xs text-slate-500 mt-1">Exportable secure preview card for verification audits.</p>
+            <div className="border-b border-slate-100 pb-3">
+              <h3 className="text-[15px] font-semibold text-slate-900">Certificate preview</h3>
+              <p className="mt-1 text-[13px] text-slate-500">Print-ready preview card for verification audits.</p>
             </div>
 
-            <div className="flex-1 my-6 overflow-y-auto flex items-center justify-center bg-slate-50 border border-slate-250 rounded-xl p-6">
-              <div className="bg-white w-full max-w-lg aspect-[1.6/1] border-8 border-double border-slate-800 p-8 flex flex-col justify-between text-center relative shadow-md font-serif">
-                {/* Micro security watermark */}
-                <div className="absolute top-2 right-3 font-mono text-[6px] text-slate-300">GLINT PUBLIC REGISTRY ANCHORED PROOF</div>
-                
+            <div className="my-6 flex flex-1 items-center justify-center overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-6">
+              <div className="relative flex aspect-[1.6/1] w-full max-w-lg flex-col justify-between border-8 border-double border-slate-800 bg-white p-8 text-center font-serif shadow-md">
+                <div className="absolute right-3 top-2 font-mono text-[6px] text-slate-300">GLINT PUBLIC REGISTRY ANCHORED PROOF</div>
+
                 <div className="space-y-1">
                   <h4 className="text-xl font-bold uppercase tracking-wider text-slate-900">Certificate of Achievement</h4>
-                  <p className="text-[10px] italic text-slate-500 font-sans">This certifies that the recipient is officially registered in the Registry database.</p>
+                  <p className="font-sans text-[10px] italic text-slate-500">This certifies that the recipient is officially registered in the Registry database.</p>
                 </div>
 
                 <div className="my-3 space-y-1">
-                  <p className="text-[11px] text-slate-400 font-sans">This is proud credential validation of</p>
-                  <h2 className="text-2xl font-bold text-slate-950 capitalize italic underline decoration-1 decoration-slate-400 underline-offset-8">{selectedPreviewCert.recipientName}</h2>
+                  <p className="font-sans text-[11px] text-slate-400">This is proud certificate validation of</p>
+                  <h2 className="text-2xl font-bold capitalize italic text-slate-950 underline decoration-slate-400 decoration-1 underline-offset-8">{selectedPreviewCert.recipientName}</h2>
                 </div>
 
                 <div className="space-y-1">
-                  <p className="text-[11px] text-slate-400 font-sans">for completing the official program requirements in</p>
-                  <h3 className="text-sm font-bold text-slate-800 font-sans uppercase tracking-wide">{selectedPreviewCert.programName || "Certification Program"}</h3>
+                  <p className="font-sans text-[11px] text-slate-400">for completing the official program requirements in</p>
+                  <h3 className="font-sans text-sm font-bold uppercase tracking-wide text-slate-800">{selectedPreviewCert.programName || "Certification Program"}</h3>
                 </div>
 
-                <div className="flex justify-between items-end border-t border-slate-150 pt-4 mt-2 text-[8px] text-slate-500 font-sans">
-                  <div className="text-left space-y-0.5">
+                <div className="mt-2 flex items-end justify-between border-t border-slate-200 pt-4 font-sans text-[8px] text-slate-500">
+                  <div className="space-y-0.5 text-left">
                     <p>VERIFICATION AUTHORITY ID</p>
-                    <p className="font-mono text-slate-900 font-semibold">{selectedPreviewCert.id.substring(0, 16)}...</p>
+                    <p className="font-mono font-semibold text-slate-900">{selectedPreviewCert.id.substring(0, 16)}...</p>
                   </div>
-                  <div className="text-center space-y-0.5">
+                  <div className="space-y-0.5 text-center">
                     <p>STATUS</p>
                     <p className={`font-bold uppercase ${selectedPreviewCert.status === 'valid' ? 'text-emerald-600' : 'text-rose-600'}`}>
                       {selectedPreviewCert.status}
                     </p>
                   </div>
-                  <div className="text-right space-y-0.5">
+                  <div className="space-y-0.5 text-right">
                     <p>DATE ISSUED</p>
-                    <p className="font-mono text-slate-900 font-semibold">{selectedPreviewCert.issueDate}</p>
+                    <p className="font-mono font-semibold text-slate-900">{selectedPreviewCert.issueDate}</p>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="flex gap-3 justify-end pt-3 border-t border-slate-100">
-              <button
-                onClick={() => {
-                  window.print();
-                }}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs px-4 py-2.5 rounded-lg font-bold transition-colors cursor-pointer"
-              >
-                Print / PDF Export
+            <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+              <button onClick={() => window.print()} className={btnSecondary}>
+                Print / PDF
               </button>
-              <button
-                onClick={() => setSelectedPreviewCert(null)}
-                className="bg-slate-950 hover:bg-slate-800 text-white text-xs px-5 py-2.5 rounded-lg font-bold transition-colors cursor-pointer"
-              >
-                Close Preview
+              <button onClick={() => setSelectedPreviewCert(null)} className={btnPrimary}>
+                Close
               </button>
             </div>
           </div>

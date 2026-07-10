@@ -84,6 +84,50 @@ export const createWorkspaceSchema = z.object({
   accentColor: hexColor.optional(),
 });
 
+/**
+ * The email designer's canvas document (see lib/emailTemplateHtml.ts). Every
+ * numeric field is clamped and the block list is capped so a stored template
+ * cannot be used to bloat the workspaces table or the rendered email.
+ */
+const emailBlockSchema = z.object({
+  id: shortText(64),
+  type: z.enum(['text', 'image', 'button', 'divider', 'certificateList']),
+  x: z.number().min(-600).max(1200),
+  y: z.number().min(-600).max(8000),
+  width: z.number().min(1).max(600),
+  height: z.number().min(1).max(4000),
+  text: z.string().max(4000).optional(),
+  fontSize: z.number().min(6).max(120).optional(),
+  fontFamily: z.string().max(120).optional(),
+  fontWeight: z.enum(['normal', 'bold']).optional(),
+  fontStyle: z.enum(['normal', 'italic']).optional(),
+  textDecoration: z.enum(['none', 'underline']).optional(),
+  lineHeight: z.number().min(0.5).max(4).optional(),
+  letterSpacing: z.number().min(-10).max(40).optional(),
+  color: z.string().max(32).optional(),
+  align: z.enum(['left', 'center', 'right']).optional(),
+  backgroundColor: z.string().max(32).optional(),
+  borderRadius: z.number().min(0).max(200).optional(),
+  imageUrl: safeUrl,
+  href: z.string().max(2000).optional(),
+  linkLabel: z.string().max(200).optional(),
+  showProgram: z.boolean().optional(),
+  showDate: z.boolean().optional(),
+  intro: z.string().max(2000).optional(),
+});
+
+export const emailTemplateSchema = z.object({
+  version: z.literal(1),
+  subject: shortText(300),
+  canvas: z.object({
+    backgroundColor: z.string().max(32),
+    bodyColor: z.string().max(32),
+    height: z.number().min(120).max(8000),
+    borderRadius: z.number().min(0).max(64),
+  }),
+  blocks: z.array(emailBlockSchema).max(60),
+});
+
 export const updateWorkspaceSchema = z.object({
   name: shortText(120).optional(),
   plan: z.enum(['free', 'pro', 'enterprise']).optional(),
@@ -100,6 +144,10 @@ export const updateWorkspaceSchema = z.object({
       customDomain: optionalText(253),
     })
     .optional(),
+  /** null clears the custom design and falls back to the built-in default. */
+  emailTemplate: emailTemplateSchema.nullable().optional(),
+  /** Digest email (list of links to one address). null clears it. */
+  digestEmailTemplate: emailTemplateSchema.nullable().optional(),
 });
 
 // -----------------------------------------------------------------------------
@@ -203,6 +251,7 @@ export const templateBodySchema = z.object({
   secondarySignatureWidth: z.number().min(0).max(1000).optional().nullable(),
   textElements: z.array(textElementSchema).max(60).optional(),
   customFonts: z.array(customFontSchema).max(12).optional(),
+  dateFormat: z.enum(['iso', 'long', 'medium', 'us', 'eu', 'dmy-long', 'dot']).optional(),
   showWatermarkTags: z.boolean().optional(),
   logoRotation: z.number().min(-360).max(360).optional(),
   logoFlipH: z.boolean().optional(),
@@ -252,7 +301,30 @@ export const issueSchema = z.object({
     )
     .min(1, 'At least one recipient is required')
     .max(1000, 'A single batch may not exceed 1000 recipients'),
+  /**
+   * Whether to queue notification emails now. Defaults to true to preserve the
+   * historic behaviour; the dashboard passes false for "issue now, send later".
+   */
+  sendEmail: z.boolean().optional(),
 });
+
+/**
+ * Manual bulk send from the issued registry.
+ *   individual — each certificate's recipient gets its own email.
+ *   digest     — one email listing every selected certificate's link goes to a
+ *                single manually-entered address.
+ */
+export const sendCertificateEmailsSchema = z
+  .object({
+    certificateIds: z.array(shortText(80)).min(1, 'Select at least one certificate').max(2000),
+    mode: z.enum(['individual', 'digest']),
+    digestEmail: email.optional(),
+    digestName: optionalText(120),
+  })
+  .refine((v) => v.mode !== 'digest' || !!v.digestEmail, {
+    message: 'A recipient email is required for a digest send',
+    path: ['digestEmail'],
+  });
 
 export const certificateStatusSchema = z.object({
   status: z.enum(['valid', 'revoked']),

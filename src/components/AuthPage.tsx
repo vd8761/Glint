@@ -116,7 +116,7 @@ export function AuthPage({ onLoginSuccess, onBackToHome }: AuthPageProps) {
             <path d="M24 7C24 9.2 25.2 10 27 10C25.2 10 24 10.8 24 13C24 10.8 22.8 10 21 10C22.8 10 24 9.2 24 7Z" fill="#F59E0B" />
           </svg>
           <h2 className="font-display font-extrabold text-slate-950 text-xl tracking-wider uppercase">Glint Registry</h2>
-          <p className="text-xs text-slate-500">Secure cryptographic credentials issuance portal</p>
+          <p className="text-xs text-slate-500">Secure cryptographic certificates issuance portal</p>
         </div>
 
         {/* Tab Selector */}

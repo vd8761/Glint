@@ -22,6 +22,10 @@ export interface OrganizationWorkspace {
   createdTime: string;
   branding: OrganizationBranding;
   plan: 'free' | 'pro' | 'enterprise';
+  /** Custom issuance-email design (lib/emailTemplateHtml.ts). Absent = default. */
+  emailTemplate?: import('../lib/emailTemplateHtml').EmailTemplateDoc;
+  /** Custom digest-email design (bulk list of links to one address). */
+  digestEmailTemplate?: import('../lib/emailTemplateHtml').EmailTemplateDoc;
 }
 
 export type TextFontWeight = 'normal' | 'medium' | 'bold' | string;
@@ -120,6 +124,8 @@ export interface CertificateTemplate {
   
   backgroundImageUrl?: string;
   qrCodeCustomUrl?: string;
+  /** How the {{date}} placeholder is formatted (see lib/certificateDate.ts). */
+  dateFormat?: 'iso' | 'long' | 'medium' | 'us' | 'eu' | 'dmy-long' | 'dot';
   customFonts?: CustomFontAsset[];
   /** Decorative corner watermark tags (e.g. "…AUTHORIZED DISPATCH"). Default on. */
   showWatermarkTags?: boolean;
