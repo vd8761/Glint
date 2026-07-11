@@ -5,10 +5,10 @@ import { toast } from 'sonner';
  */
 
 import React, { useState, useEffect } from 'react';
-import { 
-  Building, Award, ShieldAlert, LogOut, Search, Plus, Trash2, Edit2, 
+import {
+  Building, Award, ShieldAlert, LogOut, Search, Plus, Trash2, Edit2,
   RefreshCw, Check, AlertTriangle, X, ShieldCheck, Layout, ExternalLink, Menu,
-  ArrowLeft, Eye, MoreHorizontal, Mail
+  ArrowLeft, Eye, MoreHorizontal, Mail, Users, UserPlus, KeyRound, Lock
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -21,8 +21,311 @@ const capitalizeWords = (str: string) => {
   return str.replace(/\b\w/g, char => char.toUpperCase());
 };
 
+const roleBadge = (role: string) => {
+  const styles: Record<string, string> = {
+    super_admin: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+    admin: 'bg-blue-50 text-blue-700 border-blue-200',
+    issuer: 'bg-slate-50 text-slate-600 border-slate-200',
+  };
+  const label = role === 'super_admin' ? 'Super Admin' : role === 'admin' ? 'Admin' : 'Issuer';
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${styles[role] ?? styles.issuer}`}>
+      {label}
+    </span>
+  );
+};
+
+/**
+ * User directory and account-recovery controls.
+ *
+ * Any admin can list users and create issuer accounts. Only a super_admin sees
+ * the per-user "Set password" action — the button is hidden entirely when the
+ * signed-in operator is not a super_admin, and the server enforces the same
+ * (requireSuperAdmin on the endpoint), so hiding it is convenience, not the
+ * security boundary.
+ */
+function AdminUsersPanel({
+  token,
+  isSuperAdmin,
+  currentUserId,
+  workspaces,
+  searchQuery,
+}: {
+  token: string | null;
+  isSuperAdmin: boolean;
+  currentUserId: string | null;
+  workspaces: any[];
+  searchQuery: string;
+}) {
+  const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+  const [users, setUsers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Create-issuer form
+  const [showCreate, setShowCreate] = useState(false);
+  const [ceEmail, setCeEmail] = useState('');
+  const [ceName, setCeName] = useState('');
+  const [cePassword, setCePassword] = useState('');
+  const [ceWorkspace, setCeWorkspace] = useState('');
+  const [creating, setCreating] = useState(false);
+
+  // Set-password modal
+  const [pwTarget, setPwTarget] = useState<any | null>(null);
+  const [pwValue, setPwValue] = useState('');
+  const [pwSaving, setPwSaving] = useState(false);
+
+  const loadUsers = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/users', { headers: authHeaders });
+      if (res.ok) setUsers(await res.json());
+    } catch (err) {
+      console.error('Failed to load users', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadUsers(); /* eslint-disable-next-line */ }, []);
+
+  const handleCreateIssuer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreating(true);
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({
+          email: ceEmail.trim(),
+          name: ceName.trim(),
+          password: cePassword,
+          workspaceId: ceWorkspace || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to create issuer');
+      toast.success('Issuer account created');
+      setShowCreate(false);
+      setCeEmail(''); setCeName(''); setCePassword(''); setCeWorkspace('');
+      loadUsers();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create issuer');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleSetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pwTarget) return;
+    setPwSaving(true);
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(pwTarget.id)}/set-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ password: pwValue }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to set password');
+      toast.success(`Password reset for ${pwTarget.email}. Their existing sessions were signed out.`);
+      setPwTarget(null);
+      setPwValue('');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to set password');
+    } finally {
+      setPwSaving(false);
+    }
+  };
+
+  const q = searchQuery.trim().toLowerCase();
+  const filtered = q
+    ? users.filter((u) =>
+        [u.email, u.name, u.role, u.workspaceName, u.recoveryEmail]
+          .filter(Boolean)
+          .some((v: string) => v.toLowerCase().includes(q)),
+      )
+    : users;
+
+  const fmtDate = (v: string | null) => (v ? new Date(v).toLocaleDateString() : '—');
+
+  return (
+    <div className="space-y-6">
+      {/* Summary metrics */}
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="space-y-1 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">Total Users</p>
+          <h4 className="font-display text-3xl font-bold text-slate-950">{users.length}</h4>
+        </div>
+        <div className="space-y-1 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">Issuers</p>
+          <h4 className="font-display text-3xl font-bold text-slate-950">{users.filter((u) => u.role === 'issuer').length}</h4>
+        </div>
+        <div className="space-y-1 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">Admins</p>
+          <h4 className="font-display text-3xl font-bold text-slate-950">{users.filter((u) => u.role === 'admin' || u.role === 'super_admin').length}</h4>
+        </div>
+        <div className="space-y-1 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">Locked</p>
+          <h4 className="font-display text-3xl font-bold text-slate-950">{users.filter((u) => u.locked).length}</h4>
+        </div>
+      </div>
+
+      {/* Create issuer */}
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-slate-100 p-5">
+          <div className="flex items-center gap-2.5">
+            <UserPlus className="h-4 w-4 text-slate-500" />
+            <h3 className="text-sm font-bold text-slate-900">Create issuer account</h3>
+          </div>
+          <button
+            onClick={() => setShowCreate((s) => !s)}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-slate-950 px-3.5 py-2 text-xs font-bold text-white transition-colors hover:bg-slate-800"
+            id="btn-create-issuer-toggle"
+          >
+            <Plus className="h-3.5 w-3.5" /> {showCreate ? 'Cancel' : 'New issuer'}
+          </button>
+        </div>
+        {showCreate && (
+          <form onSubmit={handleCreateIssuer} className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Full name</label>
+              <input required value={ceName} onChange={(e) => setCeName(capitalizeWords(e.target.value))} placeholder="Jane Doe"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-800 focus:border-slate-950 focus:bg-white focus:outline-none" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Email</label>
+              <input required type="email" value={ceEmail} onChange={(e) => setCeEmail(e.target.value)} placeholder="jane@org.com"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 font-mono text-xs text-slate-800 focus:border-slate-950 focus:bg-white focus:outline-none" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Temporary password</label>
+              <input required type="text" value={cePassword} onChange={(e) => setCePassword(e.target.value)} placeholder="At least 12 characters" minLength={12}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 font-mono text-xs text-slate-800 focus:border-slate-950 focus:bg-white focus:outline-none" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Assign to workspace (optional)</label>
+              <select value={ceWorkspace} onChange={(e) => setCeWorkspace(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-800 focus:border-slate-950 focus:bg-white focus:outline-none">
+                <option value="">— Unassigned —</option>
+                {workspaces.map((w) => (
+                  <option key={w.id} value={w.id}>{w.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="sm:col-span-2 flex justify-end">
+              <button type="submit" disabled={creating}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white transition-colors hover:bg-blue-700 disabled:opacity-60">
+                {creating ? 'Creating…' : 'Create issuer'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+
+      {/* Users table */}
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50/60">
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">User</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">Role</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">Workspace</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">Recovery</th>
+                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">Last login</th>
+                <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-500">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={6} className="px-4 py-10 text-center text-xs text-slate-400">Loading users…</td></tr>
+              ) : filtered.length === 0 ? (
+                <tr><td colSpan={6} className="px-4 py-10 text-center text-xs text-slate-400">No users found.</td></tr>
+              ) : (
+                filtered.map((u) => (
+                  <tr key={u.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-950 text-[11px] font-bold uppercase text-white">
+                          {(u.name ?? 'U').charAt(0)}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-semibold text-slate-900">{u.name}</p>
+                          <p className="truncate font-mono text-[11px] text-slate-400">{u.email}</p>
+                        </div>
+                        {u.locked && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">
+                            <Lock className="h-2.5 w-2.5" /> Locked
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">{roleBadge(u.role)}</td>
+                    <td className="px-4 py-3 text-xs text-slate-600">{u.workspaceName || <span className="text-slate-300">—</span>}</td>
+                    <td className="px-4 py-3 font-mono text-[11px] text-slate-500">{u.recoveryEmail || <span className="text-slate-300">—</span>}</td>
+                    <td className="px-4 py-3 text-xs text-slate-500">{fmtDate(u.lastLoginAt)}</td>
+                    <td className="px-4 py-3 text-right">
+                      {isSuperAdmin && !(u.role === 'super_admin' && u.id !== currentUserId) ? (
+                        <button
+                          onClick={() => { setPwTarget(u); setPwValue(''); }}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-900"
+                        >
+                          <KeyRound className="h-3 w-3" /> Set password
+                        </button>
+                      ) : (
+                        <span className="text-[11px] text-slate-300">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Set-password modal */}
+      {pwTarget && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+              <div className="flex items-center gap-2.5">
+                <KeyRound className="h-4 w-4 text-slate-500" />
+                <h3 className="text-sm font-bold text-slate-900">Set password</h3>
+              </div>
+              <button onClick={() => setPwTarget(null)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-50 hover:text-slate-900">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <form onSubmit={handleSetPassword} className="space-y-4 p-6">
+              <p className="text-xs leading-relaxed text-slate-500">
+                Setting a new password for <span className="font-semibold text-slate-900">{pwTarget.email}</span> immediately
+                signs out all of their existing sessions and clears any lockout.
+              </p>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">New password</label>
+                <input required type="text" value={pwValue} onChange={(e) => setPwValue(e.target.value)} placeholder="At least 12 characters" minLength={12}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 font-mono text-xs text-slate-800 focus:border-slate-950 focus:bg-white focus:outline-none" />
+              </div>
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => setPwTarget(null)}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50">Cancel</button>
+                <button type="submit" disabled={pwSaving}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-60">
+                  {pwSaving ? 'Saving…' : 'Set password'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'workspaces' | 'programs' | 'certificates'>('workspaces');
+  const [activeTab, setActiveTab] = useState<'workspaces' | 'programs' | 'certificates' | 'users'>('workspaces');
+  const isSuperAdmin = user?.role === 'super_admin';
   const [workspaces, setWorkspaces] = useState<any[]>([]);
   const [programs, setPrograms] = useState<any[]>([]);
   const [certificates, setCertificates] = useState<any[]>([]);
@@ -738,6 +1041,16 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
               </span>
               <span className="text-[10px] font-mono opacity-80">{certificates.length}</span>
             </button>
+
+            <button
+              onClick={() => { setActiveTab('users'); setSearchQuery(''); setIsMobileSidebarOpen(false); }}
+              className={`w-full flex items-center justify-between py-2.5 px-3.5 rounded-xl font-semibold text-xs transition-all ${activeTab === 'users' ? 'bg-slate-950 text-white shadow-md' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'}`}
+              id="tab-admin-users"
+            >
+              <span className="flex items-center gap-2.5">
+                <Users className="w-4 h-4" /> Users &amp; Access
+              </span>
+            </button>
           </nav>
         </div>
 
@@ -788,6 +1101,7 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
               {activeTab === 'workspaces' && 'Organizations Directory'}
               {activeTab === 'programs' && 'Platform Certifications'}
               {activeTab === 'certificates' && 'Global Registry Ledger'}
+              {activeTab === 'users' && 'Users & Access Control'}
             </h1>
           </div>
 
@@ -1233,6 +1547,17 @@ export function AdminDashboard({ token, user, onLogout }: AdminDashboardProps) {
                     )}
                   </div>
                 </div>
+              )}
+
+              {/* TAB 4: USERS & ACCESS */}
+              {activeTab === 'users' && (
+                <AdminUsersPanel
+                  token={token}
+                  isSuperAdmin={isSuperAdmin}
+                  currentUserId={user?.id ?? null}
+                  workspaces={workspaces}
+                  searchQuery={searchQuery}
+                />
               )}
             </>
           )}

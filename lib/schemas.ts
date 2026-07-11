@@ -73,6 +73,60 @@ export const registerSchema = z.object({
   workspaceName: shortText(120),
 });
 
+/**
+ * An admin (or super_admin) creating an issuer account. The password is held to
+ * the same policy as self-registration. `workspaceId` is optional — an issuer
+ * can be created unassigned and slotted into a workspace later.
+ */
+export const adminCreateUserSchema = z.object({
+  email,
+  password,
+  name: shortText(120),
+  workspaceId: shortText(64).optional().nullable(),
+});
+
+/** A super_admin setting a target account's password to a provided value. */
+export const setPasswordSchema = z.object({
+  password,
+});
+
+/**
+ * A logged-in user setting their own recovery address. An empty string clears
+ * it; any other value must be a valid email and is stored lowercased.
+ */
+export const recoveryEmailSchema = z.object({
+  recoveryEmail: z.union([email, z.literal('')]),
+});
+
+/**
+ * A logged-in user changing their own password. The current password is checked
+ * against the stored hash before the change is applied; the new password is held
+ * to the full registration policy. `currentPassword` is validated laxly (like
+ * the login path) so this endpoint never reveals the policy for the old value.
+ */
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1).max(128),
+  newPassword: password,
+});
+
+/**
+ * Start of the forgot-password flow. Uses a lax email (like the login path):
+ * revealing the policy here would leak nothing useful and the response is
+ * uniform regardless of validity.
+ */
+export const forgotPasswordSchema = z.object({
+  email,
+});
+
+/**
+ * Completing a reset. The token is the raw hex value from the emailed link; the
+ * new password is held to the full registration policy.
+ */
+export const resetPasswordSchema = z.object({
+  token: z.string().trim().min(16).max(256),
+  password,
+});
+
 // -----------------------------------------------------------------------------
 // Workspace
 // -----------------------------------------------------------------------------

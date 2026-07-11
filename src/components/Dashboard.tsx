@@ -4,13 +4,14 @@ import { toast } from 'sonner';
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Award, BarChart3, Calendar, Check, CheckCircle2, ChevronLeft, ChevronRight,
   Database, Download, ExternalLink, Eye, Globe, Layers, List, LogOut, Mail, Menu,
   MoreHorizontal, PenLine, Play, Plus, RefreshCw, Search, Send, ShieldAlert,
-  ShieldCheck, Sliders, Trash2, Upload, X, AlertTriangle, ArrowLeft, ArrowUpRight,
+  ShieldCheck, Sliders, Trash2, Upload, X, AlertTriangle, ArrowLeft, ArrowUpRight, Info,
+  UserCircle, KeyRound, Image as ImageIcon, Building2, Eye as EyeIcon, EyeOff, Sparkles,
 } from 'lucide-react';
 import {
   OrganizationWorkspace, CertificateProgram, CertificateTemplate,
@@ -27,6 +28,8 @@ import {
   GlintFileError, isGlintFileName, parseGlintFile,
   serializeGlintFile, glintFileNameFor, downloadTextFile,
 } from '../lib/glintFile';
+import { type Plan, highestPlan, limitsFor, minPlanSatisfying, formatLimit } from '../../lib/plans';
+import { PlanLockButton, UpgradeModal } from './PlanGate';
 
 const capitalizeWords = (str: string) => {
   return str.replace(/\b\w/g, char => char.toUpperCase());
@@ -84,7 +87,7 @@ const emailDetailText = (log: EmailLog): string | undefined => {
   return undefined;
 };
 
-type DashboardTab = 'overview' | 'programs' | 'templates' | 'issued' | 'emails' | 'branding';
+type DashboardTab = 'overview' | 'programs' | 'templates' | 'issued' | 'emails' | 'branding' | 'profile';
 type LegacyTab = DashboardTab | 'recipients' | 'settings';
 
 /** Old bookmarks still say ?tab=recipients / ?tab=settings; land them somewhere sane. */
@@ -103,6 +106,8 @@ interface DashboardProps {
   token: string | null;
   user: any;
   onLogout: () => void;
+  /** Swap the in-memory + stored session token, e.g. after a password change. */
+  onSessionRefresh?: (token: string) => void;
 }
 
 /* ── Shared design tokens (Cloudflare-flat) ──────────────────────────────── */
@@ -141,7 +146,8 @@ export function Dashboard({
   onViewCertificatePage,
   token,
   user,
-  onLogout
+  onLogout,
+  onSessionRefresh,
 }: DashboardProps) {
   const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
   const todayIso = () => new Date().toISOString().split('T')[0];
@@ -165,10 +171,58 @@ export function Dashboard({
   const [currentWorkspace, setCurrentWorkspace] = useState<OrganizationWorkspace | null>(null);
   const [programs, setPrograms] = useState<CertificateProgram[]>([]);
   const [templates, setTemplates] = useState<CertificateTemplate[]>([]);
+  // Certificate templates across ALL of the issuer's organizations, each tagged
+  // with its owning org name. The program editor picks from these so a template
+  // built in one org can be reused in another. The `templates` list above stays
+  // scoped to the current workspace (the Templates tab and plan-limit count).
+  const [allTemplates, setAllTemplates] = useState<CertificateTemplate[]>([]);
   const [certificates, setCertificates] = useState<Certificate[]>([]);
   const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
   const [selectedEmailLog, setSelectedEmailLog] = useState<EmailLog | null>(null);
   const [analytics, setAnalytics] = useState<WorkspaceAnalytics | null>(null);
+
+  // Plan gating (mirrors server enforcement). The effective plan is
+  // account-wide: the most capable plan across all of the issuer's workspaces.
+  // Admins are never plan-limited.
+  const isAdmin = user?.role === 'admin';
+  const effectivePlan = useMemo<Plan>(() => highestPlan(workspaces.map((w) => w.plan)), [workspaces]);
+  const planLimits = limitsFor(effectivePlan);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const openUpgradeModal = () => setShowUpgradeModal(true);
+
+  // Recovery email (self-service account recovery). Seeded from /api/auth/me,
+  // which returns recoveryEmail alongside the session user.
+  const [recoveryEmail, setRecoveryEmail] = useState('');
+  const [recoverySaving, setRecoverySaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/auth/me', { headers: authHeaders })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((me) => { if (!cancelled && me) setRecoveryEmail(me.recoveryEmail ?? ''); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [token]);
+
+  const handleSaveRecoveryEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRecoverySaving(true);
+    try {
+      const res = await fetch('/api/auth/recovery', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ recoveryEmail: recoveryEmail.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to save recovery email');
+      setRecoveryEmail(data.recoveryEmail ?? '');
+      toast.success(data.recoveryEmail ? 'Recovery email saved' : 'Recovery email cleared');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save recovery email');
+    } finally {
+      setRecoverySaving(false);
+    }
+  };
 
   // Loading States
   const [loading, setLoading] = useState(true);
@@ -192,6 +246,35 @@ export function Dashboard({
   const [progExpiryDate, setProgExpiryDate] = useState('');
   const [fieldString, setFieldString] = useState('');
   const [editingProgram, setEditingProgram] = useState<CertificateProgram | null>(null);
+
+  // Certificate-template picker for the program editor. Options span every org
+  // the issuer owns; they are grouped by organization with the current org
+  // first, so a cross-org template is clearly labelled with its owner.
+  const templateOrgGroups = useMemo(() => {
+    const groups = new Map<string, { organizationName: string; items: CertificateTemplate[] }>();
+    for (const t of allTemplates) {
+      const key = t.workspaceId;
+      const organizationName =
+        t.organizationName ||
+        workspaces.find((w) => w.id === t.workspaceId)?.branding.brandName ||
+        workspaces.find((w) => w.id === t.workspaceId)?.name ||
+        'Organization';
+      if (!groups.has(key)) groups.set(key, { organizationName, items: [] });
+      groups.get(key)!.items.push(t);
+    }
+    return Array.from(groups.entries())
+      .map(([workspaceId, g]) => ({ workspaceId, ...g }))
+      .sort((a, b) =>
+        a.workspaceId === currentWorkspaceId ? -1 : b.workspaceId === currentWorkspaceId ? 1 : 0,
+      );
+  }, [allTemplates, workspaces, currentWorkspaceId]);
+
+  // The template that will actually be attached, and whether it belongs to a
+  // different organization than the program being edited (drives the notice).
+  const effectiveProgTemplateId = progTemplateId || allTemplates[0]?.id || '';
+  const selectedProgTemplate = allTemplates.find((t) => t.id === effectiveProgTemplateId) || null;
+  const progTemplateCrossOrg =
+    !!selectedProgTemplate && selectedProgTemplate.workspaceId !== currentWorkspaceId;
 
   // Template Editor states
   const [editingTemplate, setEditingTemplate] = useState<CertificateTemplate | null>(null);
@@ -228,7 +311,9 @@ export function Dashboard({
   const [resendingCertId, setResendingCertId] = useState<string | null>(null);
   const [revocationReason, setRevocationReason] = useState('');
   const [activeActionMenuId, setActiveActionMenuId] = useState<string | null>(null);
-  const [actionMenuPosition, setActionMenuPosition] = useState<{ top: number; left: number; direction: 'down' | 'up' } | null>(null);
+  const [actionMenuAnchor, setActionMenuAnchor] = useState<{ top: number; bottom: number; left: number } | null>(null);
+  const [actionMenuTop, setActionMenuTop] = useState<number | null>(null);
+  const actionMenuRef = useRef<HTMLDivElement>(null);
   const [selectedCryptoProofCert, setSelectedCryptoProofCert] = useState<Certificate | null>(null);
   const [selectedJsonEnvelopeCert, setSelectedJsonEnvelopeCert] = useState<Certificate | null>(null);
   const [selectedPreviewCert, setSelectedPreviewCert] = useState<Certificate | null>(null);
@@ -249,9 +334,10 @@ export function Dashboard({
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   // Branding draft — edited locally, persisted with an explicit Save (the old
-  // form fired a PUT + toast on every keystroke).
+  // form fired a PUT + toast on every keystroke). Brand name and colours moved
+  // out: the name lives in Profile (it snapshots onto certificates) and colours
+  // are handled in the email template designer.
   const [brandingDraft, setBrandingDraft] = useState({
-    brandName: '', primaryColor: '#0F172A', accentColor: '#F59E0B',
     senderName: '', senderEmail: '', footerText: '',
   });
   const [brandingDirty, setBrandingDirty] = useState(false);
@@ -259,9 +345,6 @@ export function Dashboard({
   useEffect(() => {
     if (!currentWorkspace) return;
     setBrandingDraft({
-      brandName: currentWorkspace.branding.brandName || '',
-      primaryColor: currentWorkspace.branding.primaryColor || '#0F172A',
-      accentColor: currentWorkspace.branding.accentColor || '#F59E0B',
       senderName: currentWorkspace.branding.senderName || '',
       senderEmail: currentWorkspace.branding.senderEmail || '',
       footerText: currentWorkspace.branding.footerText || '',
@@ -273,6 +356,24 @@ export function Dashboard({
     setBrandingDraft((d) => ({ ...d, ...patch }));
     setBrandingDirty(true);
   };
+
+  // Profile — issuer identity + account security. The issuer/organization name
+  // and logo write the workspace branding; the name is frozen onto each
+  // certificate at issue time, so renaming here only affects future issuances.
+  const [profileName, setProfileName] = useState('');
+  const [profileNameDirty, setProfileNameDirty] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [pwCurrent, setPwCurrent] = useState('');
+  const [pwNew, setPwNew] = useState('');
+  const [pwConfirm, setPwConfirm] = useState('');
+  const [pwSaving, setPwSaving] = useState(false);
+  const [showPw, setShowPw] = useState(false);
+
+  useEffect(() => {
+    if (!currentWorkspace) return;
+    setProfileName(currentWorkspace.branding.brandName || currentWorkspace.name || '');
+    setProfileNameDirty(false);
+  }, [currentWorkspace]);
 
   const pendingActionLabels: Record<string, string> = {
     'workspace:create': 'Creating workspace...',
@@ -372,13 +473,16 @@ export function Dashboard({
     if (!options.silent) setLoading(true);
     try {
       // Parallel fetch to load workspace resources speed-first
-      const [programsRes, templatesRes, certsRes, emailsRes, analyticsRes, workspaceRes] = await Promise.all([
+      const [programsRes, templatesRes, certsRes, emailsRes, analyticsRes, workspaceRes, allTemplatesRes] = await Promise.all([
         fetch(`/api/programs?workspaceId=${currentWorkspaceId}`, { headers: authHeaders }),
         fetch(`/api/templates?workspaceId=${currentWorkspaceId}`, { headers: authHeaders }),
         fetch(`/api/certificates?workspaceId=${currentWorkspaceId}`, { headers: authHeaders }),
         fetch(`/api/email-logs?workspaceId=${currentWorkspaceId}`, { headers: authHeaders }),
         fetch(`/api/analytics?workspaceId=${currentWorkspaceId}`, { headers: authHeaders }),
-        fetch(`/api/workspaces/${currentWorkspaceId}`, { headers: authHeaders })
+        fetch(`/api/workspaces/${currentWorkspaceId}`, { headers: authHeaders }),
+        // No workspaceId → every template the issuer can reach, tagged with its
+        // owning organization name, for cross-org selection in the program editor.
+        fetch(`/api/templates`, { headers: authHeaders })
       ]);
 
       if (programsRes.status === 401) {
@@ -393,6 +497,7 @@ export function Dashboard({
       }
       if (programsRes.ok) setPrograms(await programsRes.json());
       if (templatesRes.ok) setTemplates(await templatesRes.json());
+      if (allTemplatesRes.ok) setAllTemplates(await allTemplatesRes.json());
       if (certsRes.ok) setCertificates(await certsRes.json());
       if (emailsRes.ok) setEmailLogs(await emailsRes.json());
       if (analyticsRes.ok) setAnalytics(await analyticsRes.json());
@@ -468,7 +573,7 @@ export function Dashboard({
   // 3. Create or Edit a Program
   const handleCreateProgram = async (e: React.FormEvent) => {
     e.preventDefault();
-    const selectedTemplateId = progTemplateId || templates[0]?.id || '';
+    const selectedTemplateId = progTemplateId || allTemplates[0]?.id || '';
     if (!progName || !selectedTemplateId) {
       toast.error('Add a program name and choose a certificate template.');
       return;
@@ -1096,13 +1201,121 @@ export function Dashboard({
 
   const handleSaveBrandingDraft = () =>
     handleUpdateBrandingConfig({
-      brandName: brandingDraft.brandName,
-      primaryColor: brandingDraft.primaryColor,
-      accentColor: brandingDraft.accentColor,
       senderName: brandingDraft.senderName,
       senderEmail: brandingDraft.senderEmail || undefined,
       footerText: brandingDraft.footerText,
     });
+
+  // ── Profile: issuer identity + account security ──────────────────────────
+  // These write a PARTIAL branding object directly (not via
+  // handleUpdateBrandingConfig, which re-spreads the whole branding and can
+  // resend a null senderEmail). The server COALESCEs, so only the sent field
+  // changes.
+  const patchWorkspaceBranding = async (
+    patch: Record<string, unknown>,
+    successMessage: string,
+    actionKey: string,
+  ): Promise<boolean> => {
+    if (!currentWorkspace) return false;
+    if (!beginAction(actionKey)) return false;
+    try {
+      const res = await fetch(`/api/workspaces/${currentWorkspace.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ branding: patch }),
+      });
+      if (res.ok) {
+        await triggerDataRefresh();
+        toast.success(successMessage);
+        return true;
+      }
+      toast.error(await readApiError(res, 'Failed to save your profile.'));
+      return false;
+    } catch (err) {
+      console.error('Failed saving profile', err);
+      toast.error('Network error saving your profile.');
+      return false;
+    } finally {
+      endAction(actionKey);
+    }
+  };
+
+  const handleSaveProfileName = async () => {
+    const name = profileName.trim();
+    if (!name) {
+      toast.error('Issuer name cannot be empty.');
+      return;
+    }
+    const ok = await patchWorkspaceBranding(
+      { brandName: name },
+      'Issuer name updated. New certificates will carry this name; already-issued ones keep theirs.',
+      'profile:name',
+    );
+    if (ok) setProfileNameDirty(false);
+  };
+
+  // Cap the source image well under the schema's data-URI ceiling. Any
+  // resolution is allowed; only the byte size is limited.
+  const LOGO_MAX_BYTES = 2 * 1024 * 1024;
+  const handleUploadLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!/^image\/(png|jpe?g|svg\+xml|webp|gif)$/i.test(file.type)) {
+      toast.error('Please choose a PNG, JPG, SVG, WEBP, or GIF image.');
+      return;
+    }
+    if (file.size > LOGO_MAX_BYTES) {
+      toast.error('That image is larger than 2 MB. Please choose a smaller file.');
+      return;
+    }
+    setUploadingLogo(true);
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+      await patchWorkspaceBranding({ logoUrl: dataUrl }, 'Logo updated.', 'profile:logo');
+    } catch (err) {
+      console.error('Failed reading logo', err);
+      toast.error('Could not read that image file.');
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pwNew !== pwConfirm) {
+      toast.error('The new password and confirmation do not match.');
+      return;
+    }
+    if (pwNew.length < 12) {
+      toast.error('Your new password must be at least 12 characters.');
+      return;
+    }
+    setPwSaving(true);
+    try {
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ currentPassword: pwCurrent, newPassword: pwNew }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to change password.');
+      // The server rotated token_version; adopt the fresh token it returned so
+      // this session survives while any other sessions are signed out.
+      if (data.token && onSessionRefresh) onSessionRefresh(data.token);
+      setPwCurrent(''); setPwNew(''); setPwConfirm('');
+      toast.success('Password changed. Other devices have been signed out.');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to change password.');
+    } finally {
+      setPwSaving(false);
+    }
+  };
 
   const handleSaveEmailTemplate = async (doc: EmailTemplateDoc | null) => {
     if (!currentWorkspace) return;
@@ -1349,13 +1562,13 @@ export function Dashboard({
 
   const closeCertActionMenu = () => {
     setActiveActionMenuId(null);
-    setActionMenuPosition(null);
+    setActionMenuAnchor(null);
+    setActionMenuTop(null);
   };
 
   const toggleCertActionMenu = (
     event: React.MouseEvent<HTMLButtonElement>,
     certId: string,
-    direction: 'down' | 'up',
   ) => {
     event.stopPropagation();
     if (activeActionMenuId === certId) {
@@ -1367,31 +1580,52 @@ export function Dashboard({
     const menuWidth = 208;
     const viewportPadding = 12;
     const maxLeft = Math.max(viewportPadding, window.innerWidth - menuWidth - viewportPadding);
-    setActionMenuPosition({
-      top: direction === 'up' ? rect.top - 4 : rect.bottom + 4,
+    setActionMenuTop(null);
+    setActionMenuAnchor({
+      top: rect.top,
+      bottom: rect.bottom,
       left: Math.min(maxLeft, Math.max(viewportPadding, rect.right - menuWidth)),
-      direction,
     });
     setActiveActionMenuId(certId);
   };
 
+  // Measures the menu once it mounts (hidden) and clamps it to the viewport —
+  // flips above the trigger when there isn't room below (e.g. the last rows
+  // in a long list), so it never runs off the bottom of the screen.
+  useLayoutEffect(() => {
+    if (!activeActionMenuId || !actionMenuAnchor || !actionMenuRef.current) return;
+    const viewportPadding = 12;
+    const menuHeight = actionMenuRef.current.offsetHeight;
+    const spaceBelow = window.innerHeight - actionMenuAnchor.bottom;
+    const spaceAbove = actionMenuAnchor.top;
+    const openUp = spaceBelow < menuHeight + viewportPadding && spaceAbove > spaceBelow;
+    const rawTop = openUp ? actionMenuAnchor.top - menuHeight - 4 : actionMenuAnchor.bottom + 4;
+    const maxTop = Math.max(viewportPadding, window.innerHeight - menuHeight - viewportPadding);
+    setActionMenuTop(Math.min(Math.max(rawTop, viewportPadding), maxTop));
+  }, [activeActionMenuId, actionMenuAnchor]);
+
   /** Kebab menu with every per-certificate operation. Used by both registries. */
-  const renderCertActionsMenu = (c: Certificate, direction: 'down' | 'up' = 'down') => (
+  const renderCertActionsMenu = (c: Certificate) => (
     <div className="inline-block text-left">
       <button
-        onClick={(e) => toggleCertActionMenu(e, c.id, direction)}
+        onClick={(e) => toggleCertActionMenu(e, c.id)}
         className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-900"
         title="Actions"
         type="button"
       >
         <MoreHorizontal className="h-4 w-4" />
       </button>
-      {activeActionMenuId === c.id && actionMenuPosition && createPortal(
+      {activeActionMenuId === c.id && actionMenuAnchor && createPortal(
         <>
           <div className="fixed inset-0 z-[80]" onClick={closeCertActionMenu} />
           <div
-            className={`fixed z-[90] w-52 divide-y divide-slate-100 rounded-md border border-slate-200 bg-white py-1 text-left shadow-2xl ${actionMenuPosition.direction === 'up' ? '-translate-y-full' : ''}`}
-            style={{ top: actionMenuPosition.top, left: actionMenuPosition.left }}
+            ref={actionMenuRef}
+            className="fixed z-[90] w-52 divide-y divide-slate-100 rounded-md border border-slate-200 bg-white py-1 text-left shadow-2xl"
+            style={{
+              top: actionMenuTop ?? actionMenuAnchor.bottom + 4,
+              left: actionMenuAnchor.left,
+              visibility: actionMenuTop === null ? 'hidden' : 'visible',
+            }}
           >
             <div className="py-1">
               <button
@@ -1657,6 +1891,12 @@ export function Dashboard({
         { tab: 'branding', label: 'Branding & Email', icon: <Globe className="h-4 w-4" /> },
       ],
     },
+    {
+      label: 'Account',
+      items: [
+        { tab: 'profile', label: 'Profile & Security', icon: <UserCircle className="h-4 w-4" /> },
+      ],
+    },
   ];
 
   const TAB_META: Record<DashboardTab, { title: string; description: string }> = {
@@ -1666,6 +1906,7 @@ export function Dashboard({
     issued: { title: 'Issued Certificates', description: 'Every certificate issued from this workspace' },
     emails: { title: 'Email Activity', description: 'Outbox and delivery status of issuance emails' },
     branding: { title: 'Branding & Email', description: 'Brand identity, sender details, and the issuance email design' },
+    profile: { title: 'Profile & Security', description: 'Your issuer identity, logo, password, and recovery email' },
   };
 
   return (
@@ -1725,12 +1966,17 @@ export function Dashboard({
               </select>
               <ChevronRight className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 rotate-90 text-slate-400" />
             </div>
-            <button
+            <PlanLockButton
+              locked={!isAdmin && workspaces.length >= planLimits.organizations}
+              minPlan={minPlanSatisfying((l) => l.organizations > workspaces.length)}
+              reason={`Your plan includes ${formatLimit(planLimits.organizations)} organization${planLimits.organizations === 1 ? '' : 's'}. Upgrade to add more.`}
+              onUpgrade={openUpgradeModal}
               onClick={() => setShowWorkspaceModal(true)}
-              className="flex items-center gap-1 px-1 pt-0.5 text-[12px] font-medium text-blue-600 transition-colors hover:text-blue-800"
+              align="left"
+              className="flex items-center gap-1 px-1 pt-0.5 text-[12px] font-medium text-blue-600 transition-colors hover:text-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Plus className="h-3 w-3" /> Add organization
-            </button>
+            </PlanLockButton>
           </div>
 
           {/* Navigation */}
@@ -1762,7 +2008,14 @@ export function Dashboard({
         <div className="shrink-0 space-y-3 border-t border-slate-100 px-4 py-4">
           <div className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
             <p className="truncate text-[12px] font-medium text-slate-700">{currentWorkspace?.branding?.brandName}</p>
-            <span className="rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 ring-1 ring-slate-200">{currentWorkspace?.plan}</span>
+            <button
+              type="button"
+              onClick={openUpgradeModal}
+              title="View plans & upgrade"
+              className="rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 ring-1 ring-slate-200 transition-colors hover:bg-blue-50 hover:text-blue-700 hover:ring-blue-200"
+            >
+              {currentWorkspace?.plan}
+            </button>
           </div>
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-[12px] font-semibold text-white">
@@ -1804,9 +2057,15 @@ export function Dashboard({
               <p className="hidden truncate text-[12px] text-slate-500 sm:block">{TAB_META[activeTab].description}</p>
             </div>
           </div>
-          <span className="hidden shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600 sm:inline-block">
+          <button
+            type="button"
+            onClick={openUpgradeModal}
+            title="View plans & upgrade"
+            className="hidden shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 sm:inline-flex"
+          >
+            <Sparkles className="h-3 w-3" />
             {currentWorkspace?.plan?.toUpperCase()} plan
-          </span>
+          </button>
         </header>
 
         {/* Content */}
@@ -1960,7 +2219,7 @@ export function Dashboard({
                         {!showProgramForm && (
                           <button
                             onClick={() => {
-                              if (templates.length === 0) {
+                              if (allTemplates.length === 0) {
                                 toast.error('Create at least one certificate template before configuring programs.');
                                 return;
                               }
@@ -1969,7 +2228,11 @@ export function Dashboard({
                               setProgDesc('');
                               setProgExpiryDate('');
                               setFieldString('');
-                              setProgTemplateId(templates[0].id);
+                              // Prefer a template from the current org, else fall
+                              // back to any of the issuer's other orgs.
+                              setProgTemplateId(
+                                (allTemplates.find((t) => t.workspaceId === currentWorkspaceId) ?? allTemplates[0]).id,
+                              );
                               setProgIssueDate(todayIso());
                               setShowProgramForm(true);
                             }}
@@ -2002,16 +2265,39 @@ export function Dashboard({
                             <div className="space-y-1.5">
                               <label className={labelBase}>Certificate template</label>
                               <select
-                                value={progTemplateId || templates[0]?.id || ''}
+                                value={effectiveProgTemplateId}
                                 onChange={(e) => setProgTemplateId(e.target.value)}
                                 className={`${inputBase} cursor-pointer`}
                               >
-                                {templates.map(t => (
-                                  <option key={t.id} value={t.id}>{t.name}</option>
+                                {templateOrgGroups.map((group) => (
+                                  <optgroup
+                                    key={group.workspaceId}
+                                    label={
+                                      group.workspaceId === currentWorkspaceId
+                                        ? group.organizationName
+                                        : `${group.organizationName} (other organization)`
+                                    }
+                                  >
+                                    {group.items.map((t) => (
+                                      <option key={t.id} value={t.id}>
+                                        {t.name}
+                                        {t.workspaceId !== currentWorkspaceId ? ` · ${group.organizationName}` : ''}
+                                      </option>
+                                    ))}
+                                  </optgroup>
                                 ))}
                               </select>
                             </div>
                           </div>
+
+                          {progTemplateCrossOrg && selectedProgTemplate && (
+                            <div className="flex items-start gap-2 rounded-md border border-sky-200 bg-sky-50 p-3 text-[12px] text-sky-800">
+                              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                              <span>
+                                This template belongs to '{selectedProgTemplate.organizationName}'.
+                              </span>
+                            </div>
+                          )}
 
                           <div className="space-y-1.5">
                             <label className={labelBase}>Description</label>
@@ -2137,9 +2423,17 @@ export function Dashboard({
                                           <button type="button" onClick={() => handleEditProgram(prog)} className="text-[12px] font-medium text-blue-600 hover:text-blue-800 hover:underline">
                                             Edit
                                           </button>
-                                          <button type="button" onClick={() => openBulkIssueModal(prog.id)} className="text-[12px] font-medium text-blue-600 hover:text-blue-800 hover:underline">
+                                          <PlanLockButton
+                                            locked={!isAdmin && planLimits.bulkIssueMax === 1}
+                                            minPlan={minPlanSatisfying((l) => l.bulkIssueMax > 1)}
+                                            reason="Bulk issuance from a CSV is available on the Pro plan. You can still issue certificates one at a time."
+                                            onUpgrade={openUpgradeModal}
+                                            onClick={() => openBulkIssueModal(prog.id)}
+                                            align="right"
+                                            className="text-[12px] font-medium text-blue-600 hover:text-blue-800 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                                          >
                                             Bulk issue
-                                          </button>
+                                          </PlanLockButton>
                                           <button
                                             type="button"
                                             disabled={isActionPending(`program:delete:${prog.id}`)}
@@ -2180,7 +2474,17 @@ export function Dashboard({
                                   <div className="flex items-center justify-between border-t border-slate-100 pt-3">
                                     <div className="flex gap-3">
                                       <button type="button" onClick={() => handleEditProgram(prog)} className="text-[12px] font-medium text-blue-600">Edit</button>
-                                      <button type="button" onClick={() => openBulkIssueModal(prog.id)} className="text-[12px] font-medium text-blue-600">Bulk issue</button>
+                                      <PlanLockButton
+                                        locked={!isAdmin && planLimits.bulkIssueMax === 1}
+                                        minPlan={minPlanSatisfying((l) => l.bulkIssueMax > 1)}
+                                        reason="Bulk issuance from a CSV is available on the Pro plan. You can still issue certificates one at a time."
+                                        onUpgrade={openUpgradeModal}
+                                        onClick={() => openBulkIssueModal(prog.id)}
+                                        align="left"
+                                        className="text-[12px] font-medium text-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
+                                      >
+                                        Bulk issue
+                                      </PlanLockButton>
                                     </div>
                                     <button
                                       type="button"
@@ -2210,16 +2514,24 @@ export function Dashboard({
                     <p className="text-[13px] text-slate-500">
                       Import or export designs as portable <span className="font-mono text-slate-600">.glint</span> files.
                     </p>
-                    <div className="flex flex-wrap gap-2">
-                      <button
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[12px] text-slate-500">
+                        {templates.length} / {formatLimit(planLimits.templates)} templates
+                      </span>
+                      <PlanLockButton
+                        locked={!isAdmin && templates.length >= planLimits.templates}
+                        minPlan={minPlanSatisfying((l) => l.templates > planLimits.templates)}
+                        reason={`Importing a .glint design adds a template, and your plan includes ${formatLimit(planLimits.templates)} template${planLimits.templates === 1 ? '' : 's'} per workspace. Upgrade to add more.`}
+                        onUpgrade={openUpgradeModal}
                         onClick={() => document.getElementById('dashboard-design-upload')?.click()}
                         disabled={isActionPending('template:upload')}
                         title="Upload a Glint template (.glint) file"
+                        align="right"
                         className={btnSecondary}
                       >
                         {isActionPending('template:upload') ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
                         {isActionPending('template:upload') ? 'Uploading…' : 'Import .glint'}
-                      </button>
+                      </PlanLockButton>
                       <input
                         type="file"
                         id="dashboard-design-upload"
@@ -2227,10 +2539,19 @@ export function Dashboard({
                         onChange={handleUploadCertificateDesign}
                         className="hidden"
                       />
-                      <button onClick={handleAddNewTemplate} disabled={isActionPending('template:create')} className={btnPrimary}>
+                      <PlanLockButton
+                        locked={!isAdmin && templates.length >= planLimits.templates}
+                        minPlan={minPlanSatisfying((l) => l.templates > planLimits.templates)}
+                        reason={`Your plan includes ${formatLimit(planLimits.templates)} template${planLimits.templates === 1 ? '' : 's'} per workspace. Upgrade to add more.`}
+                        onUpgrade={openUpgradeModal}
+                        onClick={handleAddNewTemplate}
+                        disabled={isActionPending('template:create')}
+                        align="right"
+                        className={btnPrimary}
+                      >
                         {isActionPending('template:create') ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
                         {isActionPending('template:create') ? 'Creating…' : 'New template'}
-                      </button>
+                      </PlanLockButton>
                     </div>
                   </div>
 
@@ -2307,9 +2628,17 @@ export function Dashboard({
                       <button onClick={() => openSingleIssueModal()} className={btnSecondary}>
                         <Plus className="h-3.5 w-3.5" /> Issue certificate
                       </button>
-                      <button onClick={() => openBulkIssueModal()} className={btnPrimary}>
+                      <PlanLockButton
+                        locked={!isAdmin && planLimits.bulkIssueMax === 1}
+                        minPlan={minPlanSatisfying((l) => l.bulkIssueMax > 1)}
+                        reason="Bulk issuance from a CSV is available on the Pro plan. You can still issue certificates one at a time."
+                        onUpgrade={openUpgradeModal}
+                        onClick={() => openBulkIssueModal()}
+                        align="right"
+                        className={btnPrimary}
+                      >
                         <Upload className="h-3.5 w-3.5" /> Bulk issue certificates
-                      </button>
+                      </PlanLockButton>
 
                       {/* Rows per page */}
                       <select
@@ -2520,7 +2849,7 @@ export function Dashboard({
                             </div>
                             <div className="relative flex items-center justify-between border-t border-slate-100 pt-2">
                               <span className="text-[12px] text-slate-400">{c.viewCount} views · {c.downloadCount} downloads</span>
-                              {renderCertActionsMenu(c, 'up')}
+                              {renderCertActionsMenu(c)}
                             </div>
                           </div>
                         ))}
@@ -2671,9 +3000,17 @@ export function Dashboard({
                             Reset to default
                           </button>
                         )}
-                        <button onClick={() => setShowEmailDesigner(true)} className={btnPrimary}>
+                        <PlanLockButton
+                          locked={!isAdmin && !planLimits.customEmailTemplate}
+                          minPlan={minPlanSatisfying((l) => l.customEmailTemplate)}
+                          reason="Custom email designs are available on the Pro plan. Free workspaces send the default branded email."
+                          onUpgrade={openUpgradeModal}
+                          onClick={() => setShowEmailDesigner(true)}
+                          align="right"
+                          className={btnPrimary}
+                        >
                           <PenLine className="h-3.5 w-3.5" /> Open email designer
-                        </button>
+                        </PlanLockButton>
                       </div>
                     </div>
 
@@ -2720,9 +3057,17 @@ export function Dashboard({
                             Reset to default
                           </button>
                         )}
-                        <button onClick={() => setShowDigestDesigner(true)} className={btnPrimary}>
+                        <PlanLockButton
+                          locked={!isAdmin && !planLimits.customEmailTemplate}
+                          minPlan={minPlanSatisfying((l) => l.customEmailTemplate)}
+                          reason="Custom email designs are available on the Pro plan. Free workspaces send the default branded email."
+                          onUpgrade={openUpgradeModal}
+                          onClick={() => setShowDigestDesigner(true)}
+                          align="right"
+                          className={btnPrimary}
+                        >
                           <List className="h-3.5 w-3.5" /> Open digest designer
-                        </button>
+                        </PlanLockButton>
                       </div>
                     </div>
 
@@ -2739,12 +3084,12 @@ export function Dashboard({
                     )}
                   </div>
 
-                  {/* Brand & sender identity */}
+                  {/* Sender identity */}
                   <div className={`${card} space-y-5 p-6`}>
                     <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                       <div>
-                        <h3 className="text-[14px] font-semibold text-slate-900">Brand & sender identity</h3>
-                        <p className="text-[13px] text-slate-500">Applied to certificate pages and email headers.</p>
+                        <h3 className="text-[14px] font-semibold text-slate-900">Sender identity</h3>
+                        <p className="text-[13px] text-slate-500">Applied to the headers and footer of issuance emails.</p>
                       </div>
                       <button
                         onClick={handleSaveBrandingDraft}
@@ -2754,54 +3099,6 @@ export function Dashboard({
                         {isActionPending('branding:save') && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
                         {isActionPending('branding:save') ? 'Saving…' : 'Save changes'}
                       </button>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className={labelBase}>Public brand name</label>
-                      <input
-                        type="text"
-                        value={brandingDraft.brandName}
-                        onChange={(e) => setBranding({ brandName: capitalizeWords(e.target.value) })}
-                        className={inputBase}
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                      <div className="space-y-1.5">
-                        <label className={labelBase}>Primary color</label>
-                        <div className="flex gap-2">
-                          <input
-                            type="color"
-                            value={brandingDraft.primaryColor}
-                            onChange={(e) => setBranding({ primaryColor: e.target.value })}
-                            className="h-9 w-11 cursor-pointer rounded-md border border-slate-300 bg-white p-1"
-                          />
-                          <input
-                            type="text"
-                            value={brandingDraft.primaryColor}
-                            onChange={(e) => setBranding({ primaryColor: e.target.value })}
-                            className={`${inputBase} font-mono`}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <label className={labelBase}>Accent color</label>
-                        <div className="flex gap-2">
-                          <input
-                            type="color"
-                            value={brandingDraft.accentColor}
-                            onChange={(e) => setBranding({ accentColor: e.target.value })}
-                            className="h-9 w-11 cursor-pointer rounded-md border border-slate-300 bg-white p-1"
-                          />
-                          <input
-                            type="text"
-                            value={brandingDraft.accentColor}
-                            onChange={(e) => setBranding({ accentColor: e.target.value })}
-                            className={`${inputBase} font-mono`}
-                          />
-                        </div>
-                      </div>
                     </div>
 
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -2836,6 +3133,207 @@ export function Dashboard({
                         className={inputBase}
                       />
                     </div>
+
+                    <p className="flex items-start gap-1.5 rounded-md bg-slate-50 px-3 py-2 text-[12px] leading-relaxed text-slate-500">
+                      <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
+                      Your issuer name and logo now live in{' '}
+                      <button
+                        type="button"
+                        onClick={() => changeTab('profile')}
+                        className="font-medium text-blue-600 hover:text-blue-800"
+                      >
+                        Profile &amp; Security
+                      </button>
+                      . Certificate colours are set in the email &amp; certificate designers.
+                    </p>
+                  </div>
+
+                </div>
+              )}
+
+              {/* TAB: PROFILE & SECURITY */}
+              {activeTab === 'profile' && (
+                <div className="mx-auto max-w-3xl space-y-6">
+
+                  {/* Issuer identity: logo + name */}
+                  <div className={`${card} space-y-5 p-6`}>
+                    <div className="border-b border-slate-100 pb-4">
+                      <h3 className="flex items-center gap-2 text-[14px] font-semibold text-slate-900">
+                        <Building2 className="h-4 w-4 text-slate-400" /> Issuer identity
+                      </h3>
+                      <p className="mt-1 text-[13px] leading-relaxed text-slate-500">
+                        The name and logo that represent you as the issuer on certificate pages and emails.
+                      </p>
+                    </div>
+
+                    {/* Logo */}
+                    <div className="space-y-2">
+                      <label className={labelBase}>Issuer logo</label>
+                      <div className="flex flex-wrap items-center gap-4">
+                        <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                          {currentWorkspace?.branding?.logoUrl ? (
+                            <img
+                              src={currentWorkspace.branding.logoUrl}
+                              alt="Issuer logo"
+                              className="h-full w-full object-contain"
+                            />
+                          ) : (
+                            <ImageIcon className="h-7 w-7 text-slate-300" />
+                          )}
+                        </div>
+                        <div className="space-y-1.5">
+                          <button
+                            type="button"
+                            onClick={() => document.getElementById('profile-logo-upload')?.click()}
+                            disabled={uploadingLogo}
+                            className={btnSecondary}
+                          >
+                            {uploadingLogo ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                            {uploadingLogo ? 'Uploading…' : currentWorkspace?.branding?.logoUrl ? 'Replace logo' : 'Upload logo'}
+                          </button>
+                          <input
+                            type="file"
+                            id="profile-logo-upload"
+                            accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif"
+                            onChange={handleUploadLogo}
+                            className="hidden"
+                          />
+                          <p className="text-[12px] leading-snug text-slate-400">PNG, JPG, SVG, WEBP, or GIF · any resolution · up to 2 MB.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Issuer name */}
+                    <div className="space-y-1.5">
+                      <label className={labelBase}>Issuer name</label>
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <input
+                          type="text"
+                          value={profileName}
+                          onChange={(e) => { setProfileName(capitalizeWords(e.target.value)); setProfileNameDirty(true); }}
+                          className={inputBase}
+                          placeholder="e.g. Acme University"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleSaveProfileName}
+                          disabled={!profileNameDirty || isActionPending('profile:name')}
+                          className={`${btnPrimary} shrink-0`}
+                        >
+                          {isActionPending('profile:name') && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                          {isActionPending('profile:name') ? 'Saving…' : 'Save name'}
+                        </button>
+                      </div>
+                      <p className="flex items-start gap-1.5 text-[12px] leading-relaxed text-slate-400">
+                        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
+                        Renaming only affects certificates issued from now on. Already-issued certificates keep the
+                        name they were issued under.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Password */}
+                  <div className={`${card} space-y-5 p-6`}>
+                    <div className="border-b border-slate-100 pb-4">
+                      <h3 className="flex items-center gap-2 text-[14px] font-semibold text-slate-900">
+                        <KeyRound className="h-4 w-4 text-slate-400" /> Password
+                      </h3>
+                      <p className="mt-1 text-[13px] leading-relaxed text-slate-500">
+                        Change your password. Doing so signs you out of every other device.
+                      </p>
+                    </div>
+                    <form onSubmit={handleChangePassword} className="space-y-4">
+                      <div className="space-y-1.5">
+                        <label className={labelBase}>Current password</label>
+                        <input
+                          type="password"
+                          autoComplete="current-password"
+                          value={pwCurrent}
+                          onChange={(e) => setPwCurrent(e.target.value)}
+                          className={inputBase}
+                          required
+                        />
+                      </div>
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div className="space-y-1.5">
+                          <label className={labelBase}>New password</label>
+                          <div className="relative">
+                            <input
+                              type={showPw ? 'text' : 'password'}
+                              autoComplete="new-password"
+                              value={pwNew}
+                              onChange={(e) => setPwNew(e.target.value)}
+                              className={`${inputBase} pr-9`}
+                              required
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowPw((v) => !v)}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:text-slate-700"
+                              title={showPw ? 'Hide password' : 'Show password'}
+                            >
+                              {showPw ? <EyeOff className="h-3.5 w-3.5" /> : <EyeIcon className="h-3.5 w-3.5" />}
+                            </button>
+                          </div>
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className={labelBase}>Confirm new password</label>
+                          <input
+                            type={showPw ? 'text' : 'password'}
+                            autoComplete="new-password"
+                            value={pwConfirm}
+                            onChange={(e) => setPwConfirm(e.target.value)}
+                            className={inputBase}
+                            required
+                          />
+                        </div>
+                      </div>
+                      <p className="text-[12px] leading-snug text-slate-400">At least 12 characters. Longer is stronger — avoid predictable words.</p>
+                      <div className="flex justify-end">
+                        <button type="submit" disabled={pwSaving || !pwCurrent || !pwNew} className={btnPrimary}>
+                          {pwSaving && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                          {pwSaving ? 'Changing…' : 'Change password'}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+
+                  {/* Account recovery */}
+                  <div className={`${card} space-y-5 p-6`}>
+                    <div className="border-b border-slate-100 pb-4">
+                      <h3 className="flex items-center gap-2 text-[14px] font-semibold text-slate-900">
+                        <Mail className="h-4 w-4 text-slate-400" /> Account recovery
+                      </h3>
+                      <p className="mt-1 text-[13px] leading-relaxed text-slate-500">
+                        Add an alternate email you control. If you ever forget your password, you can request a
+                        reset link using either your login email or this recovery email. The link is always sent to
+                        your primary login address.
+                      </p>
+                    </div>
+                    <form onSubmit={handleSaveRecoveryEmail} className="space-y-4">
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div className="space-y-1.5">
+                          <label className={labelBase}>Login email</label>
+                          <input type="email" value={user?.email ?? ''} disabled className={`${inputBase} bg-slate-50 font-mono text-slate-500`} />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className={labelBase}>Recovery email</label>
+                          <input
+                            type="email"
+                            value={recoveryEmail}
+                            onChange={(e) => setRecoveryEmail(e.target.value)}
+                            placeholder="you@personal.com"
+                            className={`${inputBase} font-mono`}
+                          />
+                          <p className="text-[12px] leading-snug text-slate-400">Leave blank to remove your recovery email.</p>
+                        </div>
+                      </div>
+                      <div className="flex justify-end">
+                        <button type="submit" disabled={recoverySaving} className={btnPrimary}>
+                          {recoverySaving ? 'Saving…' : 'Save recovery email'}
+                        </button>
+                      </div>
+                    </form>
                   </div>
 
                 </div>
@@ -2845,6 +3343,9 @@ export function Dashboard({
 
         </div>
       </main>
+
+      {/* MODAL: Plan comparison / upgrade */}
+      <UpgradeModal open={showUpgradeModal} onClose={() => setShowUpgradeModal(false)} currentPlan={effectivePlan} />
 
       {/* MODAL: Bulk issue wizard */}
       {showBulkIssueModal && (
@@ -2919,6 +3420,11 @@ export function Dashboard({
                       <p className="mt-1 text-[12px] text-slate-500">
                         Expected columns: <span className="font-mono text-slate-700">{headerLine}</span>
                       </p>
+                      {!isAdmin && Number.isFinite(planLimits.bulkIssueMax) && planLimits.bulkIssueMax > 1 && (
+                        <p className="mt-1 text-[12px] text-slate-500">
+                          Your plan allows up to <span className="font-medium text-slate-700">{planLimits.bulkIssueMax}</span> recipients per batch.
+                        </p>
+                      )}
                     </div>
 
                     <div className="flex items-center justify-between">

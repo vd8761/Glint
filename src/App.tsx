@@ -8,17 +8,21 @@ import { LandingPage } from './components/LandingPage';
 const Dashboard = lazy(() => import('./components/Dashboard').then(m => ({ default: m.Dashboard })));
 const CertificateViewer = lazy(() => import('./components/CertificateViewer').then(m => ({ default: m.CertificateViewer })));
 const AuthPage = lazy(() => import('./components/AuthPage').then(m => ({ default: m.AuthPage })));
+const ResetPasswordPage = lazy(() => import('./components/AuthPage').then(m => ({ default: m.ResetPasswordPage })));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
 import { Toaster } from 'sonner';
 
-type RouteState = 
+type RouteState =
   | { type: 'home' }
-  | { type: 'auth' }
-  | { type: 'dashboard'; workspaceId: string; tab: 'overview' | 'programs' | 'templates' | 'recipients' | 'issued' | 'branding' | 'settings' | 'emails' }
-  | { type: 'admin'; tab: 'workspaces' | 'programs' | 'certificates' }
+  | { type: 'auth'; mode?: 'login' | 'register' }
+  | { type: 'reset'; token: string }
+  | { type: 'dashboard'; workspaceId: string; tab: 'overview' | 'programs' | 'templates' | 'recipients' | 'issued' | 'branding' | 'settings' | 'emails' | 'profile' }
+  | { type: 'admin'; tab: 'workspaces' | 'programs' | 'certificates' | 'users' }
   | { type: 'credential'; id: string };
 
-const isAdmin = (user: any): boolean => user?.role === 'admin';
+// admin OR super_admin reach the operator console; super_admin additionally
+// unlocks the per-user "set password" action inside it.
+const isAdmin = (user: any): boolean => user?.role === 'admin' || user?.role === 'super_admin';
 
 export default function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('glint_token'));
@@ -44,6 +48,14 @@ export default function App() {
       const pathMatch = window.location.pathname.match(/^\/c\/([^/]+)\/?$/);
       if (pathMatch) {
         setRoute({ type: 'credential', id: decodeURIComponent(pathMatch[1]) });
+        return;
+      }
+
+      // The password-reset link emailed by /api/auth/forgot-password. The SPA is
+      // served for this path; the token travels as a query param.
+      if (window.location.pathname === '/reset-password') {
+        const resetToken = new URLSearchParams(window.location.search).get('token') ?? '';
+        setRoute({ type: 'reset', token: resetToken });
         return;
       }
 
@@ -102,7 +114,9 @@ export default function App() {
             window.location.hash = `#/dashboard?workspaceId=${user?.workspaceId ?? ''}&tab=overview`;
           }
         } else {
-          setRoute({ type: 'auth' });
+          const queryIndex = hash.indexOf('?');
+          const params = queryIndex === -1 ? null : new URLSearchParams(hash.substring(queryIndex));
+          setRoute({ type: 'auth', mode: params?.get('mode') === 'register' ? 'register' : 'login' });
         }
       } else {
         setRoute({ type: 'home' });
@@ -163,10 +177,10 @@ export default function App() {
     setRoute({ type: 'credential', id });
   };
 
-  const navigateToAuth = () => {
+  const navigateToAuth = (mode: 'login' | 'register' = 'login') => {
     leaveCertificatePath();
-    window.location.hash = '#auth';
-    setRoute({ type: 'auth' });
+    window.location.hash = mode === 'register' ? '#auth?mode=register' : '#auth';
+    setRoute({ type: 'auth', mode });
   };
 
   const handleLoginSuccess = (newToken: string, newUser: any) => {
@@ -180,6 +194,13 @@ export default function App() {
     } else {
       window.location.hash = `#/dashboard?workspaceId=${newUser.workspaceId ?? ''}&tab=overview`;
     }
+  };
+
+  /** Adopt a freshly-minted token (e.g. after a self-service password change) so
+   *  the session survives the token_version bump the server just applied. */
+  const handleSessionRefresh = (newToken: string) => {
+    localStorage.setItem('glint_token', newToken);
+    setToken(newToken);
   };
 
   const handleLogout = () => {
@@ -202,16 +223,29 @@ export default function App() {
       }>
         {route.type === 'home' && (
           <LandingPage
-            onStartFree={token ? () => navigateToDashboard(user?.workspaceId, 'overview') : navigateToAuth}
-            onViewSample={(id) => navigateToCredential(id)}
-            onSelectWorkspace={token ? (id) => navigateToDashboard(id, 'overview') : navigateToAuth}
+            onStartFree={token ? () => navigateToDashboard(user?.workspaceId, 'overview') : () => navigateToAuth('register')}
+            onSignIn={token ? () => navigateToDashboard(user?.workspaceId, 'overview') : () => navigateToAuth('login')}
           />
         )}
 
         {route.type === 'auth' && (
-          <AuthPage 
+          <AuthPage
             onLoginSuccess={handleLoginSuccess}
             onBackToHome={navigateToHome}
+            initialMode={route.mode}
+          />
+        )}
+
+        {route.type === 'reset' && (
+          <ResetPasswordPage
+            token={route.token}
+            onDone={() => {
+              // Land on the login screen at the SPA root; the reset just
+              // succeeded so the old session (if any) is already invalidated.
+              window.history.pushState({}, '', '/');
+              window.location.hash = '#auth';
+              setRoute({ type: 'auth' });
+            }}
           />
         )}
 
@@ -222,6 +256,7 @@ export default function App() {
             token={token}
             user={user}
             onLogout={handleLogout}
+            onSessionRefresh={handleSessionRefresh}
             onTabChange={(tab) => navigateToDashboard(route.workspaceId, tab)}
             onWorkspaceChange={(id) => navigateToDashboard(id, route.tab)}
             onViewCertificatePage={(id) => navigateToCredential(id)}

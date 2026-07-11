@@ -5,7 +5,7 @@ import { toast } from 'sonner';
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Award, ShieldAlert, BadgeAlert, Printer, Share2, Copy, Play, Database, Landmark, RefreshCw, Sparkles, QrCode, Download } from 'lucide-react';
+import { Award, ShieldCheck, ShieldAlert, BadgeAlert, Printer, Share2, Copy, Check, Database, Landmark, RefreshCw, Sparkles, QrCode, Download, ArrowLeft, Clock } from 'lucide-react';
 import type {
   AuditLogEntry,
   CertificateTemplate,
@@ -13,11 +13,12 @@ import type {
   OrganizationBranding,
   PublicCertificate,
   RichTextRun,
-  VerificationResult,
 } from '../types';
 import { resolveRichTextRuns } from '../lib/richText';
 import { elementTransform } from '../lib/transform';
 import { formatCertificateDate } from '../lib/certificateDate';
+import { buildCertPdfKeywords } from '../lib/certPdfMeta';
+import { VerifyCertificateModal } from './VerifyCertificateModal';
 
 interface CertificateViewerProps {
   certificateId: string;
@@ -26,6 +27,43 @@ interface CertificateViewerProps {
 
 /** Certificate links are `/c/<id>`. The origin is wherever this page is served from. */
 const certificateUrl = (id: string) => `${window.location.origin}/c/${id}`;
+
+/**
+ * Defense in depth: the server already scopes the public `auditTrail` to
+ * ISSUED/REVOKED/RESTORED/EXPIRED and swaps `performedBy` for the org name,
+ * but the timeline is public-facing, so it's filtered again here rather than
+ * trusting the response shape to stay that way forever.
+ */
+const PUBLIC_HISTORY_EVENTS = new Set(['ISSUED', 'REVOKED', 'RESTORED', 'EXPIRED']);
+
+/* ── Shared design tokens, matching the dashboard shell (Cloudflare-flat) ──── */
+const cardCls = 'rounded-lg border border-slate-200 bg-white';
+const btnPrimaryCls =
+  'inline-flex items-center justify-center gap-1.5 rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60';
+const btnSecondaryCls =
+  'inline-flex items-center justify-center gap-1.5 rounded-md border border-slate-300 bg-white px-3.5 py-2 text-[13px] font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60';
+const sectionLabelCls = 'text-[11px] font-semibold uppercase tracking-wide text-slate-400';
+
+/** Certificate status → its badge presentation on the public page. */
+const STATUS_BADGE = {
+  valid: { label: 'Valid', cls: 'border-emerald-200 bg-emerald-50 text-emerald-700', Icon: ShieldCheck },
+  revoked: { label: 'Revoked', cls: 'border-rose-200 bg-rose-50 text-rose-700', Icon: ShieldAlert },
+  expired: { label: 'Expired', cls: 'border-amber-200 bg-amber-50 text-amber-700', Icon: Clock },
+} as const;
+
+/** The Glint wordmark, identical to the one in the dashboard sidebar. */
+function GlintMark() {
+  return (
+    <div className="flex items-center gap-2">
+      <svg className="h-7 w-7 shrink-0" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M23 16C23 19.866 19.866 23 16 23C12.134 23 9 19.866 9 16C9 12.134 12.134 9 16 9C18.6 9 20.9 10.4 22.1 12.5" stroke="#0F172A" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M15 16H23" stroke="#0F172A" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M24 7C24 9.2 25.2 10 27 10C25.2 10 24 10.8 24 13C24 10.8 22.8 10 21 10C22.8 10 24 9.2 24 7Z" fill="#F59E0B" />
+      </svg>
+      <span className="text-[15px] font-semibold tracking-tight text-slate-900">Glint</span>
+    </div>
+  );
+}
 
 const richTextRunStyle = (run: RichTextRun): React.CSSProperties => ({
   color: run.color,
@@ -42,11 +80,10 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const [auditProgress, setAuditProgress] = useState<'idle' | 'running' | 'done'>('idle');
-  const [verification, setVerification] = useState<VerificationResult | null>(null);
   const [copied, setCopied] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
+  const [showVerify, setShowVerify] = useState(false);
 
   const printRef = useRef<HTMLDivElement>(null);
   const loadedCustomFontsRef = useRef<Set<string>>(new Set());
@@ -118,47 +155,6 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
     } finally {
       setLoading(false);
     }
-  };
-
-  /**
-   * Asks the server to recompute the HMAC over this certificate's issuance facts
-   * and compare it, in constant time, with the stored signature.
-   *
-   * The previous version was three `setTimeout` calls printing "Decoding
-   * tamper-proof security stamp…", after which it reported success — including
-   * when the request failed, and including for revoked certificates. The server
-   * endpoint it called returned `verified: true` unconditionally.
-   */
-  const runSignatureCheck = async () => {
-    if (!cert) return;
-    setAuditProgress('running');
-    setVerification(null);
-
-    try {
-      const res = await fetch(`/api/certificates/${encodeURIComponent(cert.id)}/verify`, { method: 'POST' });
-      if (!res.ok) throw new Error('Verification request failed');
-
-      const result: VerificationResult = await res.json();
-      setVerification(result);
-      setCert(result.certificate);
-      setAuditProgress('done');
-    } catch {
-      setVerification(null);
-      setAuditProgress('idle');
-      toast.error('Could not reach the verification service. Try again.');
-    }
-  };
-
-  const verificationSummary = (result: VerificationResult): string => {
-    if (result.verified) return 'Signature valid. This certificate is authentic and currently in force.';
-    if (!result.signatureValid) {
-      return 'Signature does NOT match. This record has been altered since it was issued, or was not issued by this registry.';
-    }
-    if (result.reasons.includes('revoked')) {
-      return 'Signature is valid, but the issuer has revoked this certificate. It is no longer in force.';
-    }
-    if (result.reasons.includes('expired')) return 'Signature is valid, but this certificate has expired.';
-    return 'This certificate could not be verified.';
   };
 
   /** Fire-and-forget counter bump. Merges the returned counters into local state. */
@@ -234,7 +230,18 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
         width,
         height,
       );
-      pdf.save(`Glint_Certificate_${cert.id}.pdf`);
+      // Embed the id + signature so "Verify a certificate" can recognise this
+      // file no matter what it is later renamed to. See lib/certPdfMeta.
+      pdf.setProperties({
+        title: `${cert.recipientName} — ${cert.programName}`,
+        subject: `Glint certificate ${cert.id}`,
+        author: branding?.brandName || cert.programName,
+        keywords: buildCertPdfKeywords(cert.id, cert.signature),
+        creator: 'Glint',
+      });
+
+      const safeName = cert.recipientName.trim().replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'Certificate';
+      pdf.save(`${safeName}_${cert.id}.pdf`);
     } catch (err: any) {
       console.error(err);
       toast.error('Could not generate the PDF. Try the Print option instead.');
@@ -316,14 +323,13 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
   }, [qrTargetUrl, template?.showQrCode]);
 
   const activeTemplate = template;
+  const publicHistory = auditTrail.filter((log) => PUBLIC_HISTORY_EVENTS.has(log.event));
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#F8F9FA] flex flex-col items-center justify-center p-6 text-slate-500 font-sans">
-        <div className="flex flex-col items-center gap-4">
-          <RefreshCw className="w-8 h-8 text-slate-900 animate-spin" />
-          <p className="text-xs font-mono tracking-widest uppercase">Querying public authority vault...</p>
-        </div>
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-[#f6f7f9] p-6 font-sans text-slate-500">
+        <RefreshCw className="h-6 w-6 animate-spin text-slate-400" />
+        <p className="text-[13px]">Loading certificate…</p>
       </div>
     );
   }
@@ -333,258 +339,151 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
   // do, and it meant nobody noticed the template was never loading at all.
   if (error || !cert || !activeTemplate) {
     return (
-      <div className="min-h-screen bg-[#F8F9FA] flex flex-col items-center justify-center p-6 font-sans">
-        <div className="max-w-md w-full bg-white border border-[#E9ECEF] rounded-2xl p-8 text-center space-y-6 card-shadow">
-          <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto border border-rose-100">
-            <ShieldAlert className="w-6 h-6" />
+      <div className="flex min-h-screen flex-col items-center justify-center bg-[#f6f7f9] p-6 font-sans">
+        <div className={`${cardCls} w-full max-w-md space-y-5 p-8 text-center`}>
+          <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full border border-rose-100 bg-rose-50 text-rose-600">
+            <ShieldAlert className="h-5 w-5" />
           </div>
-          <div className="space-y-2">
-            <h3 className="font-serif text-2xl italic text-slate-900">Certificate unavailable</h3>
-            <p className="text-xs text-slate-500 leading-relaxed">
+          <div className="space-y-1.5">
+            <h3 className="text-[16px] font-semibold text-slate-900">Certificate unavailable</h3>
+            <p className="text-[13px] leading-relaxed text-slate-500">
               {error ||
                 (cert
                   ? 'This certificate exists, but the template it was issued against is missing. The issuer needs to restore it.'
                   : 'No certificate is registered under this identifier.')}
             </p>
           </div>
-          <div className="bg-slate-50 border border-slate-100 p-3 rounded-lg text-left text-[10px] text-slate-400 font-mono break-all">
+          <p className="break-all rounded-md border border-slate-200 bg-slate-50 p-3 text-left font-mono text-[11px] text-slate-400">
             ID: {certificateId || 'unknown'}
-          </div>
-          <button
-            onClick={onBackToHome}
-            className="w-full bg-slate-950 text-white text-xs py-3 rounded-xl font-medium hover:bg-slate-800 transition-colors"
-          >
-            Return to home
+          </p>
+          <button onClick={onBackToHome} className={`${btnPrimaryCls} w-full`}>
+            Return home
           </button>
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="min-h-screen bg-[#F8F9FA] text-slate-800 font-sans pb-20 print:pb-0 print:bg-white">
-      
-      {/* Search Header banner */}
-      <header className="bg-white border-b border-[#E9ECEF] py-3 px-4 sm:px-6 lg:px-16 flex flex-col sm:flex-row items-center justify-between gap-3 sticky top-0 z-40 print:hidden min-h-16">
-        <div className="flex items-center gap-2 flex-wrap justify-center sm:justify-start w-full sm:w-auto">
-          <button 
-            type="button" 
-            onClick={onBackToHome}
-            className="text-[10px] uppercase font-bold tracking-widest text-slate-400 hover:text-slate-900 transition-colors"
-          >
-            ← Public Portal
-          </button>
-          <span className="text-slate-200 hidden sm:inline">|</span>
-          <div className="flex items-center gap-1.5 flex-wrap justify-center sm:justify-start">
-            <span className="font-mono text-[9px] font-bold text-slate-400 uppercase hidden md:inline">Trust Registry System:</span>
-            <span className="font-mono text-[10px] font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded">{cert.id}</span>
-          </div>
-        </div>
+  const statusBadge = STATUS_BADGE[cert.status] ?? STATUS_BADGE.valid;
+  const StatusIcon = statusBadge.Icon;
+  // Prefer the organization name frozen onto the certificate at issue time, so a
+  // later rename never rewrites this credential's attribution. Live brand name is
+  // only a fallback for legacy certificates issued before the snapshot existed.
+  const issuerName = cert.issuerName || branding?.brandName || cert.programName;
 
-        <div className="flex items-center gap-2 justify-center sm:justify-end w-full sm:w-auto">
-          {cert.status !== 'revoked' && (
-            <button 
-              onClick={executeDownloadStat}
-              className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] px-3.5 py-1.5 rounded-full font-bold transition-all shadow-sm flex items-center gap-1.5 shrink-0"
-            >
-              <Printer className="w-3 h-3" /> Print
-            </button>
-          )}
-          <button 
-            onClick={executePdfDownload}
-            disabled={isDownloadingPdf || cert.status === 'revoked'}
-            className="bg-slate-950 hover:bg-slate-800 text-white text-[10px] px-4 py-1.5 rounded-full font-bold transition-all shadow-sm flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed shrink-0"
-          >
-            <Download className="w-3.5 h-3.5" /> {cert.status === 'revoked' ? 'Download Blocked' : (isDownloadingPdf ? 'Downloading...' : 'Download PDF')}
+  return (
+    <div className="min-h-screen bg-[#f6f7f9] font-sans text-slate-800 pb-16 print:bg-white print:pb-0">
+
+      {/* Top bar — matches the dashboard shell */}
+      <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-slate-200 bg-white px-4 md:px-8 print:hidden">
+        <div className="flex items-center gap-3">
+          <GlintMark />
+          <span className="hidden h-4 w-px bg-slate-200 sm:block" />
+          <span className="hidden text-[12px] text-slate-500 sm:block">Certificate verification</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setShowVerify(true)} className={btnPrimaryCls}>
+            <ShieldCheck className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Verify a certificate</span><span className="sm:hidden">Verify</span>
+          </button>
+          <button type="button" onClick={onBackToHome} className={btnSecondaryCls}>
+            <ArrowLeft className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Home</span>
           </button>
         </div>
       </header>
 
-      {/* Main layout container (Grid) */}
-      <div className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-16 pt-4 sm:pt-10 grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-10 print:block print:p-0 print:m-0 print:max-w-none">
-        
-        {/* Left Side: Proof verification details & high trust signals */}
-        <div className="lg:col-span-4 space-y-6 lg:space-y-8 order-2 lg:order-1 print:hidden">
-          
-          {/* Main Verification status badge */}
-          <div className="bg-white border border-[#E9ECEF] rounded-2xl p-6 space-y-6 card-shadow">
-            <div className="flex justify-between items-start">
-              <p className="text-[10px] uppercase tracking-widest text-[#9CA3AF] font-bold">Registry status</p>
-              
-              {cert.status === 'valid' && (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold uppercase tracking-wider border border-emerald-200">
-                  ✓ Valid Secure
-                </span>
-              )}
-              {cert.status === 'revoked' && (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 text-rose-700 text-xs font-bold uppercase tracking-wider border border-rose-200">
-                  ⚠ Revoked / Void
-                </span>
-              )}
-              {cert.status === 'expired' && (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 text-amber-700 text-xs font-bold uppercase tracking-wider border border-amber-200">
-                  ✗ State Expired
-                </span>
-              )}
+      <VerifyCertificateModal open={showVerify} onClose={() => setShowVerify(false)} />
+
+      {/* Main layout */}
+      <div className="mx-auto grid max-w-6xl grid-cols-1 gap-6 px-4 pt-6 sm:px-6 md:px-8 lg:grid-cols-12 lg:gap-8 print:block print:m-0 print:max-w-none print:p-0">
+
+        {/* Left: certificate details */}
+        <div className="order-2 space-y-6 lg:order-1 lg:col-span-4 print:hidden">
+
+          {/* Status + identity */}
+          <div className={`${cardCls} space-y-5 p-5`}>
+            <div className="flex items-center justify-between gap-3">
+              <span className={sectionLabelCls}>Status</span>
+              <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium ${statusBadge.cls}`}>
+                <StatusIcon className="h-3.5 w-3.5" /> {statusBadge.label}
+              </span>
             </div>
 
-            <div className="space-y-2">
-              <h1 className="font-serif text-3xl italic text-slate-950 tracking-tight">Certificate record</h1>
-              <p className="text-xs text-slate-500 leading-relaxed">
-                This record is held by the issuer's registry. Run the signature check below to confirm
-                its contents have not been altered since it was issued.
-              </p>
+            <div className="space-y-1">
+              <h1 className="text-[17px] font-semibold leading-tight tracking-tight text-slate-900">{cert.recipientName}</h1>
+              <p className="text-[13px] text-slate-500">{cert.programName}</p>
             </div>
 
-            {/* Revoked Warning specific output */}
+            <dl className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
+              <div className="space-y-0.5">
+                <dt className="text-[11px] text-slate-400">Issued</dt>
+                <dd className="text-[13px] font-medium text-slate-900">{formatCertificateDate(cert.issueDate, activeTemplate.dateFormat)}</dd>
+              </div>
+              <div className="space-y-0.5">
+                <dt className="text-[11px] text-slate-400">Expires</dt>
+                <dd className="text-[13px] font-medium text-slate-900">
+                  {cert.expiryDate ? formatCertificateDate(cert.expiryDate, activeTemplate.dateFormat) : 'No expiry'}
+                </dd>
+              </div>
+            </dl>
+
             {cert.status === 'revoked' && (
-              <div className="bg-rose-50 border border-rose-100 rounded-xl p-4 space-y-2">
-                <div className="flex gap-2 items-center text-rose-800 text-xs font-bold">
-                  <BadgeAlert className="w-4 h-4 text-rose-600 shrink-0" />
-                  CREDENTIAL STATE NULLIFIED
+              <div className="flex gap-2 rounded-md border border-rose-200 bg-rose-50 p-3">
+                <BadgeAlert className="h-4 w-4 shrink-0 text-rose-600" />
+                <div className="space-y-0.5">
+                  <p className="text-[12px] font-semibold text-rose-800">This certificate has been revoked</p>
+                  <p className="text-[12px] leading-relaxed text-rose-700">{cert.revocationReason || 'Revoked by the issuer.'}</p>
                 </div>
-                <p className="text-[11px] text-rose-700 leading-relaxed font-mono">
-                  Reason: {cert.revocationReason || 'Violations of academic program standards / voluntary void request.'}
-                </p>
               </div>
             )}
 
-            {/* Quick stats engagement metrics */}
-            <div className="grid grid-cols-3 gap-2 pt-4 border-t border-slate-100 text-center">
-              <div>
-                <p className="text-[9px] text-[#9CA3AF] uppercase">Audit Views</p>
-                <p className="font-display font-bold text-slate-900 text-base">{cert.viewCount || 0}</p>
+            <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
+              <div className="space-y-0.5">
+                <p className="text-[11px] text-slate-400">Views</p>
+                <p className="text-lg font-semibold tracking-tight text-slate-900">{cert.viewCount || 0}</p>
               </div>
-              <div>
-                <p className="text-[9px] text-[#9CA3AF] uppercase">Downloads</p>
-                <p className="font-display font-bold text-slate-900 text-base">{cert.downloadCount || 0}</p>
-              </div>
-              <div>
-                <p className="text-[9px] text-[#9CA3AF] uppercase">LinkedIn Shares</p>
-                <p className="font-display font-bold text-slate-900 text-base">{cert.shareCount || 0}</p>
+              <div className="space-y-0.5">
+                <p className="text-[11px] text-slate-400">Downloads</p>
+                <p className="text-lg font-semibold tracking-tight text-slate-900">{cert.downloadCount || 0}</p>
               </div>
             </div>
 
-            {/* Sharing action row */}
-            <div className="space-y-3 pt-4 border-t border-slate-100">
-              <button
-                onClick={copyUrl}
-                className="w-full bg-slate-50 border border-[#E9ECEF] hover:bg-slate-100 text-slate-800 text-xs py-2.5 rounded-lg font-medium transition-all flex items-center justify-center gap-2"
-              >
-                {copied ? (
-                  <>✓ Copied verification link</>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5" /> Copy Secured Look-up URL
-                  </>
-                )}
+            <div className="grid grid-cols-2 gap-2 border-t border-slate-100 pt-4">
+              <button onClick={copyUrl} className={btnSecondaryCls}>
+                {copied ? <><Check className="h-3.5 w-3.5" /> Copied</> : <><Copy className="h-3.5 w-3.5" /> Copy link</>}
               </button>
-
-              <button
-                onClick={shareToLinkedIn}
-                disabled={cert.status === 'revoked'}
-                className="w-full bg-sky-50 hover:bg-sky-100 text-sky-800 text-xs py-2.5 rounded-lg font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                <Share2 className="w-3.5 h-3.5" /> {cert.status === 'revoked' ? 'Sharing Disabled (Revoked)' : 'Share Verification to LinkedIn Profile'}
+              <button onClick={shareToLinkedIn} disabled={cert.status === 'revoked'} className={btnSecondaryCls}>
+                <Share2 className="h-3.5 w-3.5" /> Share
               </button>
             </div>
           </div>
 
-          {/* Signature details */}
-          <div className="bg-white border border-[#E9ECEF] rounded-2xl p-6 space-y-4 card-shadow">
-            <h4 className="text-xs font-bold text-slate-950 uppercase tracking-widest flex items-center gap-1.5">
-              <Database className="w-3.5 h-3.5 text-slate-900" />
-              Signature
-            </h4>
-            <p className="text-[11px] text-slate-500 leading-relaxed font-sans">
-              The issuer signs the recipient, program, and dates with a secret key held on their server.
-              Verification recomputes that signature — it is checked by the issuer, not by your browser.
-            </p>
-            <div className="space-y-1 bg-slate-50 border border-slate-200 p-3 rounded-lg">
-              <p className="text-[9px] uppercase text-slate-400 font-mono">{cert.signatureAlg}</p>
-              <p className="text-[9px] text-slate-800 font-mono break-all font-semibold leading-normal">{cert.signature}</p>
+          {/* Signature */}
+          <div className={`${cardCls} space-y-4 p-5`}>
+            <div className="flex items-center justify-between">
+              <span className={sectionLabelCls}>Signature</span>
+              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">{cert.signatureAlg}</span>
             </div>
-
-            <div className="space-y-1.5">
-              <p className="text-[10px] uppercase text-slate-400 font-mono">Issued by</p>
-              <div className="flex items-center gap-2 text-xs">
-                <Landmark className="w-3.5 h-3.5 text-slate-700" />
-                <span className="font-semibold text-slate-900">{branding?.brandName || cert.programName}</span>
-              </div>
-              {branding?.customDomain && (
-                <p className="text-[10px] text-slate-400 leading-tight">{branding.customDomain}</p>
-              )}
-            </div>
-          </div>
-
-          {/* Signature verification */}
-          <div className="bg-slate-900 text-white rounded-2xl p-6 space-y-4 card-shadow">
-            <h4 className="serif italic text-lg text-[#F8F9FA] flex items-center gap-2">
-              <Play className="w-5 h-5 text-[#B4C6FC]" />
-              Verify signature
-            </h4>
-            <p className="text-[11px] text-slate-400 leading-relaxed">
-              Asks the issuer's registry to recompute this certificate's signature and compare it with the stored value.
+            <p className="text-[12px] leading-relaxed text-slate-500">
+              Signed by the issuer over the recipient, program, and dates — this is what a verifier recomputes to confirm the record is authentic.
             </p>
-
-            {auditProgress === 'idle' && (
-              <button
-                type="button"
-                onClick={runSignatureCheck}
-                className="w-full bg-[#1a73e8] hover:bg-[#155fc0] text-white text-xs py-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5"
-              >
-                Run verification
-              </button>
-            )}
-
-            {auditProgress === 'running' && (
-              <div className="flex items-center gap-2 text-xs text-[#B4C6FC]">
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                <span>Verifying…</span>
+            <p className="break-all rounded-md border border-slate-200 bg-slate-50 p-3 font-mono text-[11px] leading-relaxed text-slate-700">{cert.signature}</p>
+            <div className="space-y-1 border-t border-slate-100 pt-4">
+              <p className="text-[11px] text-slate-400">Issued by</p>
+              <div className="flex items-center gap-2">
+                <Landmark className="h-3.5 w-3.5 text-slate-600" />
+                <span className="text-[13px] font-medium text-slate-900">{issuerName}</span>
               </div>
-            )}
-
-            {auditProgress === 'done' && verification && (
-              <div className="space-y-3">
-                <div
-                  className={`p-3 rounded border space-y-1 ${
-                    verification.verified
-                      ? 'bg-emerald-500/10 border-emerald-500/30'
-                      : 'bg-rose-500/10 border-rose-500/30'
-                  }`}
-                >
-                  <p
-                    className={`text-[9px] font-bold uppercase tracking-wider font-mono ${
-                      verification.verified ? 'text-emerald-400' : 'text-rose-400'
-                    }`}
-                  >
-                    {verification.verified ? '✓ Verified' : '✗ Not verified'}
-                  </p>
-                  <p className="text-[10px] text-white leading-relaxed">{verificationSummary(verification)}</p>
-                  <p className="text-[9px] text-slate-400 font-mono pt-1">
-                    {verification.algorithm} · checked {new Date(verification.verifiedAt).toLocaleString()}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setAuditProgress('idle')}
-                  className="text-[9px] text-[#9CA3AF] hover:text-white uppercase font-bold tracking-widest font-mono"
-                >
-                  Reset
-                </button>
-              </div>
-            )}
+              {branding?.customDomain && <p className="text-[11px] text-slate-400">{branding.customDomain}</p>}
+            </div>
           </div>
         </div>
 
-        {/* Right Side: Render of the High Fidelity Styled Certificate Preview, and complete Audit trail */}
-        <div className="lg:col-span-8 space-y-6 lg:space-y-8 order-1 lg:order-2 print:p-0 print:m-0 print:space-y-0">
-          
-          {/* Elegant preview canvas container styled like a real print certificate */}
-          <div className="space-y-3 print:space-y-0">
-            <p className="text-[10px] uppercase tracking-widest text-[#9CA3AF] font-bold print:hidden">Authorized Proof Certificate (HQ Resolution)</p>
-            
-            <div className="bg-white border border-[#E9ECEF] rounded-2xl p-1 sm:p-6 md:p-10 shadow-2xl overflow-hidden print:p-0 print:border-none print:shadow-none printable-certificate-outer">
+        {/* Right: certificate preview + history */}
+        <div className="order-1 space-y-6 lg:order-2 lg:col-span-8 print:m-0 print:space-y-0 print:p-0">
+
+          {/* Certificate preview */}
+          <div className="print:space-y-0">
+            <div className="overflow-hidden rounded-lg border border-slate-200 bg-white p-1 sm:p-6 md:p-10 print:border-none print:p-0 printable-certificate-outer">
               <div 
                 ref={printRef}
                 style={{
@@ -959,56 +858,86 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
             </div>
           </div>
 
-          {/* Secure Audit Trail chronological list displaying all verification attempts */}
-          <div className="bg-white border border-[#E9ECEF] rounded-2xl p-6 space-y-6 card-shadow print:hidden overflow-hidden">
-            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
-              <h4 className="text-xs font-bold text-slate-950 uppercase tracking-widest flex items-center gap-1.5">
-                <Database className="w-4 h-4 text-slate-900" />
-                Certificate history
+          {/* Certificate ID + actions, anchored under the preview */}
+          <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center print:hidden">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-slate-400">Certificate ID</span>
+              <span className="rounded bg-slate-100 px-2 py-0.5 font-mono text-[12px] font-medium text-slate-700">{cert.id}</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {cert.status !== 'revoked' && (
+                <button onClick={executeDownloadStat} className={btnSecondaryCls}>
+                  <Printer className="h-3.5 w-3.5" /> Print
+                </button>
+              )}
+              <button
+                onClick={executePdfDownload}
+                disabled={isDownloadingPdf || cert.status === 'revoked'}
+                className={btnPrimaryCls}
+              >
+                <Download className="h-3.5 w-3.5" /> {cert.status === 'revoked' ? 'Unavailable' : (isDownloadingPdf ? 'Downloading…' : 'Download PDF')}
+              </button>
+            </div>
+          </div>
+
+          {/* Certificate history */}
+          <div className={`${cardCls} space-y-5 p-5 print:hidden`}>
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h4 className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-900">
+                <Database className="h-4 w-4 text-slate-400" /> Certificate history
               </h4>
-              <span className="text-[10px] font-mono text-slate-400 font-semibold uppercase">{auditTrail.length} events</span>
+              <span className="text-[11px] text-slate-400">
+                {publicHistory.length} {publicHistory.length === 1 ? 'event' : 'events'}
+              </span>
             </div>
 
-            <div className="relative border-l border-slate-200 ml-3 pl-6 space-y-6 overflow-hidden">
-              {auditTrail.map((log, idx) => (
-                <div key={idx} className="relative">
-                  {/* Event indicator dot */}
-                  <span className={`absolute -left-[30px] top-1 w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
-                    log.event === 'REVOKED' ? 'bg-red-500 border-red-200 text-white' : 
-                    log.event === 'VERIFIED' ? 'bg-indigo-500 border-indigo-200 text-white' : 
-                    log.event === 'ISSUED' ? 'bg-emerald-500 border-emerald-200 text-white' : 'bg-slate-950 border-slate-200'
-                  }`} />
-
-                  <div className="space-y-1">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className="text-[10px] font-mono text-[#9CA3AF]">
-                        {new Date(log.timestamp).toLocaleString()}
-                      </span>
-                      <span className={`px-2 py-0.5 rounded font-mono text-[9px] font-bold uppercase tracking-wider ${
-                        log.event === 'REVOKED' ? 'bg-rose-50 text-rose-700 border border-rose-100' :
-                        log.event === 'VERIFIED' ? 'bg-indigo-50 text-indigo-700 border border-indigo-100' :
-                        log.event === 'ISSUED' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' :
-                        'bg-slate-50 text-slate-700 border border-slate-100'
-                      }`}>
-                        {log.event}
-                      </span>
-                      <span className="text-[10px] text-slate-400">by {log.performedBy}</span>
+            <ol>
+              {publicHistory.map((log, idx) => {
+                const isLast = idx === publicHistory.length - 1;
+                const dotCls =
+                  log.event === 'REVOKED' ? 'bg-rose-500' :
+                  log.event === 'EXPIRED' ? 'bg-amber-500' :
+                  log.event === 'RESTORED' ? 'bg-sky-500' :
+                  log.event === 'ISSUED' ? 'bg-emerald-500' : 'bg-slate-400';
+                const badgeCls =
+                  log.event === 'REVOKED' ? 'border-rose-200 bg-rose-50 text-rose-700' :
+                  log.event === 'EXPIRED' ? 'border-amber-200 bg-amber-50 text-amber-700' :
+                  log.event === 'RESTORED' ? 'border-sky-200 bg-sky-50 text-sky-700' :
+                  log.event === 'ISSUED' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' :
+                  'border-slate-200 bg-slate-50 text-slate-600';
+                return (
+                  <li key={idx} className="grid grid-cols-[12px_1fr] gap-x-3">
+                    {/* Marker column: dot + connector share one centered axis, so they always line up */}
+                    <div className="flex flex-col items-center">
+                      <span className={`mt-1 h-3 w-3 shrink-0 rounded-full ${dotCls}`} />
+                      {!isLast && <span className="mt-1 w-px grow bg-slate-200" />}
                     </div>
-                    <p className="text-xs text-slate-700 break-all leading-relaxed overflow-hidden w-full">
-                      {log.details}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
+                    <div className={`space-y-1 ${isLast ? '' : 'pb-5'}`}>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${badgeCls}`}>
+                          {log.event}
+                        </span>
+                        <span className="text-[11px] text-slate-400">{new Date(log.timestamp).toLocaleString()}</span>
+                      </div>
+                      {log.details && <p className="text-[12px] leading-relaxed text-slate-600">{log.details}</p>}
+                      {/*
+                        Attribution is always the issuing organization, never a
+                        person. The server already maps this to the org name, but
+                        the public page never renders `log.performedBy` directly —
+                        that field can be a staff email, which must never surface
+                        here even if a stale/older backend leaves it unmapped.
+                      */}
+                      <p className="text-[11px] text-slate-400">{issuerName}</p>
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
 
-            <div className="text-center pt-2">
-              <p className="text-[10px] text-slate-400 leading-normal font-mono">
-                {/* This block used to claim "RFC-6962 Signed Certificate Timestamp Protocol",
-                    which is Certificate Transparency for TLS and has nothing to do with this. */}
-                Timestamps are recorded in UTC by the issuing registry.
-              </p>
-            </div>
+            <p className="border-t border-slate-100 pt-3 text-[11px] text-slate-400">
+              Timestamps are recorded in UTC by the issuer.
+            </p>
           </div>
         </div>
 

@@ -34,25 +34,33 @@ import {
   globalLimiter,
   issuanceLimiter,
   issueToken,
+  passwordResetLimiter,
   publicReadLimiter,
   registerLimiter,
   requireAdmin,
   requireCronSecret,
+  requireSuperAdmin,
   securityHeaders,
   statsLimiter,
   verifyLimiter,
 } from './lib/http.js';
 import {
+  adminCreateUserSchema,
   certificateStatusSchema,
+  changePasswordSchema,
   createProgramSchema,
   createWorkspaceSchema,
+  forgotPasswordSchema,
   generateTemplateSchema,
   issueSchema,
   loginSchema,
   parseBody,
   parseSampleSchema,
+  recoveryEmailSchema,
   registerSchema,
+  resetPasswordSchema,
   sendCertificateEmailsSchema,
+  setPasswordSchema,
   statsSchema,
   templateBodySchema,
   updateProgramSchema,
@@ -60,6 +68,10 @@ import {
 } from './lib/schemas.js';
 import {
   evaluateCertificate,
+  generateResetToken,
+  hashToken,
+  isAdminRole,
+  isSuperAdminRole,
   maskEmail,
   newCertificateId,
   newId,
@@ -74,8 +86,17 @@ import {
   maybeOpportunisticDrain,
   renderIssuanceEmailText,
   scheduleDrain,
+  sendAccountEmail,
 } from './lib/mailer.js';
 import { applyResendEvent, verifyResendSignature } from './lib/resendWebhook.js';
+import {
+  type Plan,
+  PLAN_LABEL,
+  asPlan,
+  highestPlan,
+  limitsFor,
+  formatLimit,
+} from './lib/plans.js';
 import bcrypt from 'bcryptjs';
 
 const app = express();
@@ -189,6 +210,10 @@ function mapTemplate(row: any) {
     ),
     id: row.id,
     workspaceId: row.workspace_id,
+    // Present only when the row was fetched with the workspaces join (the
+    // template list endpoint). Lets the dashboard label a template with the
+    // organization that owns it when reusing it across the issuer's orgs.
+    organizationName: row.organization_name ?? undefined,
     name: row.name,
     layout: row.layout,
     backgroundColor: row.background_color,
@@ -260,6 +285,7 @@ function mapCertificate(row: any) {
     expiryDate: row.expiry_date ?? undefined,
     status: row.status,
     revocationReason: row.revocation_reason ?? undefined,
+    issuerName: row.issuer_name ?? undefined,
     signature: row.signature,
     signatureAlg: row.signature_alg,
     signatureVersion: row.signature_version,
@@ -291,6 +317,7 @@ function mapPublicCertificate(row: any) {
     expiryDate: row.expiry_date ?? undefined,
     status: row.status,
     revocationReason: row.revocation_reason ?? undefined,
+    issuerName: row.issuer_name ?? undefined,
     signature: row.signature,
     signatureAlg: row.signature_alg,
     signatureVersion: row.signature_version,
@@ -360,9 +387,116 @@ async function loadEvents(certificateId: string, publicOnly: boolean) {
   }));
 }
 
+/** What appears in "Certificate history" on the public page. */
+const PUBLIC_HISTORY_EVENTS = new Set(['ISSUED', 'REVOKED', 'RESTORED']);
+
+/**
+ * The public timeline only. This is deliberately a much smaller view than
+ * `loadEvents(id, true)`: it drops VIEWED/DOWNLOADED/SHARED/VERIFIED entirely
+ * (a recipient's certificate history is not a log of who has been looking at
+ * it), and it never names the issuing *person* — `performed_by` on ISSUED/
+ * REVOKED/RESTORED rows is a staff email address, which has no business being
+ * visible to whoever opens the public link. The organization name stands in
+ * for it instead.
+ *
+ * "Expired" is not a recorded event — nothing flips `certificates.status` to
+ * 'expired' in the database, `evaluateCertificate` computes it from
+ * `expiry_date` on read. So it is synthesized here, not queried.
+ */
+async function loadPublicHistory(
+  cert: { id: string; status: string; expiry_date: string | null },
+  orgName: string,
+) {
+  const events = await loadEvents(cert.id, true);
+  const visible = events
+    .filter((e) => PUBLIC_HISTORY_EVENTS.has(e.event))
+    .map((e) => ({ ...e, performedBy: orgName }));
+
+  if (cert.status === 'expired' && cert.expiry_date) {
+    visible.push({
+      timestamp: new Date(`${cert.expiry_date}T23:59:59.999Z`).toISOString(),
+      event: 'EXPIRED',
+      performedBy: orgName,
+      details: 'Certificate reached its expiry date.',
+    });
+    visible.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  }
+
+  return visible;
+}
+
+// =============================================================================
+// Plan enforcement
+// =============================================================================
+//  workspaces.plan is the stored tier. Limits live in lib/plans.ts, shared with
+//  the dashboard so the UI greys out exactly what the server would reject.
+//  Admins bypass every limit.
+// =============================================================================
+
+/** A plan limit blocked the action. `code: 'PLAN_LIMIT'` is what the UI keys on. */
+function planLimitError(message: string): HttpError {
+  return new HttpError(403, message, 'PLAN_LIMIT');
+}
+
+/** Every organization an issuer owns, with its stored plan. */
+async function ownedWorkspaces(
+  email: string,
+  primaryWorkspaceId: string | null,
+): Promise<Array<{ id: string; plan: Plan }>> {
+  const r = await pool.query<{ id: string; plan: string }>(
+    'SELECT id, plan FROM workspaces WHERE created_by_email = $1 OR id = $2',
+    [email, primaryWorkspaceId],
+  );
+  return r.rows.map((row) => ({ id: row.id, plan: asPlan(row.plan) }));
+}
+
+/**
+ * The tier that governs a workspace's per-workspace limits (templates, valid
+ * certificates, bulk size, email). It is the most capable plan the owning issuer
+ * holds — an issuer's organizations share one subscription, so upgrading the
+ * account lifts the ceiling on all of them, not only the workspace that was
+ * clicked in a billing screen.
+ */
+async function planForWorkspace(workspaceId: string): Promise<Plan> {
+  const r = await pool.query<{ created_by_email: string; plan: string }>(
+    'SELECT created_by_email, plan FROM workspaces WHERE id = $1',
+    [workspaceId],
+  );
+  if (r.rows.length === 0) return 'free';
+  const owned = await ownedWorkspaces(r.rows[0].created_by_email, workspaceId);
+  return highestPlan([r.rows[0].plan, ...owned.map((w) => w.plan)]);
+}
+
+/** Count of valid (non-revoked, non-expired) certificates in a workspace. */
+async function validCertificateCount(
+  db: PoolClient | typeof pool,
+  workspaceId: string,
+): Promise<number> {
+  const r = await db.query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM certificates
+      WHERE workspace_id = $1 AND status = 'valid'
+        AND (expiry_date IS NULL OR expiry_date >= (now() AT TIME ZONE 'utc')::date)`,
+    [workspaceId],
+  );
+  return r.rows[0].n;
+}
+
+type AuthEvent =
+  | 'LOGIN_SUCCESS'
+  | 'LOGIN_FAILED'
+  | 'LOCKED_OUT'
+  | 'REGISTERED'
+  | 'TOKEN_REJECTED'
+  | 'FORGOT_PASSWORD_REQUEST'
+  | 'PASSWORD_RESET'
+  | 'PASSWORD_SET_BY_ADMIN'
+  | 'PASSWORD_CHANGED'
+  | 'RECOVERY_EMAIL_UPDATED'
+  | 'ISSUER_CREATED_BY_ADMIN';
+
 async function logAuthEvent(
   email: string,
-  event: 'LOGIN_SUCCESS' | 'LOGIN_FAILED' | 'LOCKED_OUT' | 'REGISTERED' | 'TOKEN_REJECTED',
+  event: AuthEvent,
   req: AuthedRequest,
   userId?: string,
 ): Promise<void> {
@@ -513,11 +647,270 @@ app.post(
   }),
 );
 
+/** The authenticated user plus their recovery address (not carried in the JWT). */
+async function meWithRecovery(req: AuthedRequest): Promise<Record<string, unknown>> {
+  const r = await pool.query<{ recovery_email: string | null }>(
+    'SELECT recovery_email FROM users WHERE id = $1',
+    [req.user!.id],
+  );
+  return { ...req.user, recoveryEmail: r.rows[0]?.recovery_email ?? null };
+}
+
+/** Minimal, self-contained HTML for the password-reset email. */
+function renderPasswordResetEmailHtml(name: string, resetUrl: string, ttlMinutes: number): string {
+  const esc = (v: string) =>
+    v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  // The URL is our own (env.appUrl + a hex token), but escape it as an attribute
+  // regardless — defence in depth, not a trust decision.
+  const url = esc(resetUrl);
+  return `<!doctype html>
+<html><body style="margin:0;background:#f1f5f9;padding:24px;font-family:system-ui,-apple-system,'Segoe UI',sans-serif">
+  <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0">
+    <div style="padding:28px">
+      <h1 style="margin:0 0 12px;font-size:20px;color:#0f172a">Reset your password</h1>
+      <p style="margin:0 0 8px;font-size:14px;line-height:1.6;color:#475569">Hello ${esc(name)},</p>
+      <p style="margin:0 0 20px;font-size:14px;line-height:1.6;color:#475569">
+        We received a request to reset the password on your Glint account. This link expires in ${ttlMinutes} minutes.
+      </p>
+      <div style="text-align:center;margin:24px 0">
+        <a href="${url}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;font-size:14px">Choose a new password</a>
+      </div>
+      <p style="margin:20px 0 0;font-size:12px;color:#64748b">
+        If you did not request this, you can safely ignore this email — your password will not change.
+      </p>
+    </div>
+  </div>
+</body></html>`;
+}
+
 app.get(
   '/api/auth/me',
   authenticate,
   asyncHandler(async (req: AuthedRequest, res) => {
-    res.json(req.user);
+    res.json(await meWithRecovery(req));
+  }),
+);
+
+/**
+ * The logged-in user sets or clears their own recovery email. An empty string
+ * clears it. Stored lowercased (the zod `email` primitive lowercases). This is
+ * the address forgot-password can resolve the account by, in addition to the
+ * primary email.
+ */
+app.put(
+  '/api/auth/recovery',
+  authenticate,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { recoveryEmail } = parseBody(recoveryEmailSchema, req.body);
+    const value = recoveryEmail === '' ? null : recoveryEmail;
+
+    // Don't let a recovery address point at another account's primary login —
+    // that would turn "recover my account" into "reset someone else's".
+    if (value) {
+      const clash = await pool.query('SELECT 1 FROM users WHERE email = $1 AND id <> $2', [
+        value,
+        req.user!.id,
+      ]);
+      if (clash.rows.length > 0) {
+        throw new HttpError(409, 'That address is already in use by another account');
+      }
+    }
+
+    await pool.query('UPDATE users SET recovery_email = $2 WHERE id = $1', [req.user!.id, value]);
+    await logAuthEvent(req.user!.email, 'RECOVERY_EMAIL_UPDATED', req, req.user!.id);
+    res.json(await meWithRecovery(req));
+  }),
+);
+
+/**
+ * The logged-in user changes their own password. The current password is
+ * verified against the stored hash before the change is applied. On success the
+ * token_version is bumped — which invalidates every OTHER session the user holds
+ * — and a fresh token issued against the new version is returned so THIS session
+ * stays logged in. The client swaps its stored token for the returned one.
+ *
+ * `authLimiter` throttles current-password guessing even though a valid session
+ * is already required to reach here.
+ */
+app.post(
+  '/api/auth/change-password',
+  authLimiter,
+  authenticate,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { currentPassword, newPassword } = parseBody(changePasswordSchema, req.body);
+
+    const result = await pool.query<{ password_hash: string }>(
+      'SELECT password_hash FROM users WHERE id = $1',
+      [req.user!.id],
+    );
+    const row = result.rows[0];
+    if (!row) throw new HttpError(401, 'Authentication required');
+
+    if (!(await bcrypt.compare(currentPassword, row.password_hash))) {
+      throw new HttpError(400, 'Your current password is incorrect.');
+    }
+
+    // Reject a no-op change so "changed" always means the secret actually rotated.
+    if (await bcrypt.compare(newPassword, row.password_hash)) {
+      throw new HttpError(400, 'Choose a password different from your current one.');
+    }
+
+    const newHash = await bcrypt.hash(newPassword, env.BCRYPT_ROUNDS);
+    const updated = await pool.query<{ token_version: number }>(
+      `UPDATE users
+          SET password_hash = $2,
+              token_version = token_version + 1,
+              failed_login_attempts = 0,
+              locked_until = NULL
+        WHERE id = $1
+        RETURNING token_version`,
+      [req.user!.id, newHash],
+    );
+
+    await logAuthEvent(req.user!.email, 'PASSWORD_CHANGED', req, req.user!.id);
+
+    res.json({
+      message: 'Your password has been changed.',
+      // A fresh token against the bumped version keeps THIS session valid while
+      // every other outstanding session is now invalid.
+      token: issueToken(req.user!.id, updated.rows[0].token_version),
+    });
+  }),
+);
+
+/**
+ * Start of the self-service reset. Looks the account up by primary OR recovery
+ * email, mints a single-use token, stores only its hash with a short expiry, and
+ * emails the raw token as a link to the account's primary address.
+ *
+ * The response is ALWAYS a generic 200 — identical body and status whether or
+ * not an account matched — so this endpoint cannot be used to enumerate which
+ * addresses are registered.
+ */
+const RESET_TOKEN_TTL_MINUTES = 45;
+
+app.post(
+  '/api/auth/forgot-password',
+  passwordResetLimiter,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { email } = parseBody(forgotPasswordSchema, req.body);
+    const generic = { message: 'If an account exists, a reset link has been sent.' };
+
+    const found = await pool.query<{ id: string; email: string; name: string }>(
+      'SELECT id, email, name FROM users WHERE email = $1 OR recovery_email = $1 LIMIT 1',
+      [email],
+    );
+    const account = found.rows[0];
+    if (!account) {
+      // No user row, no token, no email — but the same response and roughly the
+      // same amount of work, so a miss is indistinguishable from a hit.
+      res.json(generic);
+      return;
+    }
+
+    // Suppress spamming: if a still-valid unused token already exists, reuse the
+    // window rather than minting another on every click.
+    const existing = await pool.query(
+      `SELECT 1 FROM password_reset_tokens
+        WHERE user_id = $1 AND used_at IS NULL AND expires_at > now() LIMIT 1`,
+      [account.id],
+    );
+
+    if (existing.rows.length === 0) {
+      const { token, tokenHash } = generateResetToken();
+      await pool.query(
+        `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at)
+         VALUES ($1, $2, $3, now() + make_interval(mins => $4))`,
+        [newId('prt'), account.id, tokenHash, RESET_TOKEN_TTL_MINUTES],
+      );
+
+      const resetUrl = `${env.appUrl}/reset-password?token=${token}`;
+      const subject = 'Reset your Glint password';
+      const text = [
+        `Hello ${account.name},`,
+        '',
+        'We received a request to reset the password on your Glint account.',
+        `Use the link below within ${RESET_TOKEN_TTL_MINUTES} minutes to choose a new password:`,
+        '',
+        resetUrl,
+        '',
+        'If you did not request this, you can safely ignore this email — your password will not change.',
+      ].join('\n');
+
+      // Always send to the account's PRIMARY address, never to the address that
+      // was typed in. A reset requested via the recovery email still lands in the
+      // account owner's real inbox. Sent in the background so a slow SMTP round
+      // trip cannot make a hit measurably slower than a miss (a timing oracle).
+      void sendAccountEmail({
+        to: account.email,
+        subject,
+        text,
+        html: renderPasswordResetEmailHtml(account.name, resetUrl, RESET_TOKEN_TTL_MINUTES),
+      }).catch((err) => logger.error('Failed to send password reset email', err));
+      await logAuthEvent(account.email, 'FORGOT_PASSWORD_REQUEST', req, account.id);
+    }
+
+    res.json(generic);
+  }),
+);
+
+/**
+ * Completes the reset. Hashes the presented token, finds an unused, unexpired
+ * row, applies the new password (held to the registration policy), marks the
+ * token used, and bumps token_version so every existing session for that user is
+ * invalidated. Errors are generic so the endpoint never confirms whether a token
+ * existed.
+ */
+app.post(
+  '/api/auth/reset-password',
+  passwordResetLimiter,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { token, password } = parseBody(resetPasswordSchema, req.body);
+    const tokenHash = hashToken(token);
+
+    const result = await withTransaction(async (client) => {
+      // Lock the token row so two concurrent resets cannot both consume it.
+      const row = await client.query<{ id: string; user_id: string }>(
+        `SELECT id, user_id FROM password_reset_tokens
+          WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()
+          FOR UPDATE`,
+        [tokenHash],
+      );
+      const match = row.rows[0];
+      if (!match) throw new HttpError(400, 'This reset link is invalid or has expired.');
+
+      const passwordHash = await bcrypt.hash(password, env.BCRYPT_ROUNDS);
+      const updated = await client.query<{ email: string; name: string; token_version: number }>(
+        `UPDATE users
+            SET password_hash = $2,
+                token_version = token_version + 1,
+                failed_login_attempts = 0,
+                locked_until = NULL
+          WHERE id = $1
+          RETURNING email, name, token_version`,
+        [match.user_id, passwordHash],
+      );
+
+      await client.query('UPDATE password_reset_tokens SET used_at = now() WHERE id = $1', [match.id]);
+      // Invalidate every other outstanding token for this user too — a reset is
+      // a clean slate.
+      await client.query(
+        `UPDATE password_reset_tokens SET used_at = now()
+          WHERE user_id = $1 AND used_at IS NULL`,
+        [match.user_id],
+      );
+
+      return { userId: match.user_id, ...updated.rows[0] };
+    });
+
+    await logAuthEvent(result.email, 'PASSWORD_RESET', req, result.userId);
+
+    // Issue a fresh token against the bumped version so the user lands logged in.
+    res.json({
+      message: 'Your password has been reset.',
+      token: issueToken(result.userId, result.token_version),
+      user: { id: result.userId, email: result.email, name: result.name },
+    });
   }),
 );
 
@@ -658,6 +1051,151 @@ app.get(
 );
 
 // =============================================================================
+// Admin — user management & account recovery
+// =============================================================================
+
+/** Serialises a user row for admin views. Never includes password_hash. */
+function mapAdminUser(row: {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  workspace_id: string | null;
+  workspace_name: string | null;
+  recovery_email: string | null;
+  last_login_at: Date | string | null;
+  locked_until: Date | string | null;
+}) {
+  const lockedUntil = row.locked_until ? new Date(row.locked_until) : null;
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    role: row.role,
+    workspaceId: row.workspace_id,
+    workspaceName: row.workspace_name,
+    recoveryEmail: row.recovery_email,
+    lastLoginAt: row.last_login_at,
+    locked: lockedUntil ? lockedUntil.getTime() > Date.now() : false,
+  };
+}
+
+app.get(
+  '/api/admin/users',
+  authenticate,
+  requireAdmin,
+  asyncHandler(async (_req, res) => {
+    const result = await pool.query(`
+      SELECT u.id, u.email, u.name, u.role, u.workspace_id, u.recovery_email,
+             u.last_login_at, u.locked_until, w.name AS workspace_name
+      FROM users u
+      LEFT JOIN workspaces w ON u.workspace_id = w.id
+      ORDER BY u.created_time DESC
+    `);
+    res.json(result.rows.map(mapAdminUser));
+  }),
+);
+
+app.post(
+  '/api/admin/users',
+  authenticate,
+  requireAdmin,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { email, password, name, workspaceId } = parseBody(adminCreateUserSchema, req.body);
+
+    // If a workspace is named it must exist; a dangling FK would create an
+    // issuer nobody can ever reach.
+    if (workspaceId) {
+      const ws = await pool.query('SELECT 1 FROM workspaces WHERE id = $1', [workspaceId]);
+      if (ws.rows.length === 0) throw new HttpError(404, 'Workspace not found');
+    }
+
+    const passwordHash = await bcrypt.hash(password, env.BCRYPT_ROUNDS);
+    const userId = newId('u');
+
+    const created = await pool
+      .query<{
+        id: string;
+        email: string;
+        name: string;
+        role: string;
+        workspace_id: string | null;
+        recovery_email: string | null;
+        last_login_at: Date | null;
+        locked_until: Date | null;
+      }>(
+        `INSERT INTO users (id, email, password_hash, name, role, workspace_id)
+         VALUES ($1, $2, $3, $4, 'issuer', $5)
+         RETURNING id, email, name, role, workspace_id, recovery_email, last_login_at, locked_until`,
+        [userId, email, passwordHash, name, workspaceId ?? null],
+      )
+      .catch((err) => {
+        if ((err as any)?.code === UNIQUE_VIOLATION) {
+          throw new HttpError(409, 'An account with this email already exists');
+        }
+        throw err;
+      });
+
+    const row = created.rows[0];
+    const workspaceName = workspaceId
+      ? (await pool.query<{ name: string }>('SELECT name FROM workspaces WHERE id = $1', [workspaceId])).rows[0]?.name ?? null
+      : null;
+
+    await logAuthEvent(email, 'ISSUER_CREATED_BY_ADMIN', req, userId);
+    res.status(201).json(mapAdminUser({ ...row, workspace_name: workspaceName }));
+  }),
+);
+
+/**
+ * A super_admin sets a target user's password to a provided value.
+ *
+ * Bumps token_version so every session the target holds is immediately
+ * invalidated, and clears any lockout. A super_admin may reset issuers and
+ * admins, and may reset their OWN password here, but not another super_admin's —
+ * so no operator can silently seize a peer's account.
+ */
+app.post(
+  '/api/admin/users/:id/set-password',
+  authenticate,
+  requireSuperAdmin,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { password } = parseBody(setPasswordSchema, req.body);
+
+    const target = await pool.query<{ id: string; email: string; role: string }>(
+      'SELECT id, email, role FROM users WHERE id = $1',
+      [req.params.id],
+    );
+    const user = target.rows[0];
+    if (!user) throw new HttpError(404, 'User not found');
+
+    if (isSuperAdminRole(user.role) && user.id !== req.user!.id) {
+      throw new HttpError(403, "You cannot reset another super administrator's password");
+    }
+
+    const passwordHash = await bcrypt.hash(password, env.BCRYPT_ROUNDS);
+    await pool.query(
+      `UPDATE users
+          SET password_hash = $2,
+              token_version = token_version + 1,
+              failed_login_attempts = 0,
+              locked_until = NULL
+        WHERE id = $1`,
+      [user.id, passwordHash],
+    );
+
+    // Any outstanding self-service reset tokens are now stale — burn them.
+    await pool.query(
+      `UPDATE password_reset_tokens SET used_at = now()
+        WHERE user_id = $1 AND used_at IS NULL`,
+      [user.id],
+    );
+
+    await logAuthEvent(user.email, 'PASSWORD_SET_BY_ADMIN', req, user.id);
+    res.json({ success: true });
+  }),
+);
+
+// =============================================================================
 // Workspaces
 // =============================================================================
 
@@ -690,6 +1228,21 @@ app.post(
   authenticate,
   asyncHandler(async (req: AuthedRequest, res) => {
     const body = parseBody(createWorkspaceSchema, req.body);
+
+    // Plan limit: organizations an issuer may own. The plan is account-wide (the
+    // most capable tier across their workspaces), so adding an org is gated by
+    // the issuer's overall subscription, not any single workspace.
+    if (!isAdminRole(req.user!.role)) {
+      const owned = await ownedWorkspaces(req.user!.email, req.user!.workspaceId ?? null);
+      const plan = highestPlan(owned.map((w) => w.plan));
+      const limit = limitsFor(plan).organizations;
+      if (owned.length >= limit) {
+        throw planLimitError(
+          `Your ${PLAN_LABEL[plan]} plan includes ${formatLimit(limit)} organization${limit === 1 ? '' : 's'}. Upgrade to add more.`,
+        );
+      }
+    }
+
     const id = newId('ws');
     const baseSlug = body.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
     const brandName = body.brandName || body.name;
@@ -725,9 +1278,20 @@ app.put(
     const body = parseBody(updateWorkspaceSchema, req.body);
     const b = body.branding ?? {};
 
+    // Plan limit: designing a custom email template. Clearing back to the
+    // default (null) is always allowed — only setting a bespoke design is gated.
+    if (!isAdminRole(req.user!.role)) {
+      const settingCustomEmail =
+        (body.emailTemplate !== undefined && body.emailTemplate !== null) ||
+        (body.digestEmailTemplate !== undefined && body.digestEmailTemplate !== null);
+      if (settingCustomEmail && !limitsFor(await planForWorkspace(req.params.id)).customEmailTemplate) {
+        throw planLimitError('Custom email templates are available on the Pro plan. Upgrade to design your own.');
+      }
+    }
+
     // `plan` is a billing attribute. A tenant must not be able to upgrade
     // themselves to 'enterprise' by PUTting their own workspace.
-    const plan = req.user!.role === 'admin' ? body.plan ?? null : null;
+    const plan = isAdminRole(req.user!.role) ? body.plan ?? null : null;
 
     const result = await pool.query(
       `UPDATE workspaces SET
@@ -824,13 +1388,13 @@ app.post(
     const body = parseBody(createProgramSchema, req.body);
     await assertWorkspaceAccess(req, body.workspaceId);
 
-    // A program may only point at a template belonging to the same workspace.
+    // A program may point at a template from ANY workspace the issuer can access
+    // (the same issuer can own several organizations and reuse a template across
+    // them), but never at a stranger's template.
     if (body.templateId) {
       const t = await pool.query('SELECT workspace_id FROM templates WHERE id = $1', [body.templateId]);
       if (t.rows.length === 0) throw new HttpError(400, 'Template not found');
-      if (t.rows[0].workspace_id !== body.workspaceId) {
-        throw new HttpError(403, 'Template belongs to another workspace');
-      }
+      await assertWorkspaceAccess(req, t.rows[0].workspace_id);
     }
 
     const id = newId('prg');
@@ -865,12 +1429,12 @@ app.put(
 
     const body = parseBody(updateProgramSchema, req.body);
 
+    // Cross-org reuse is allowed as long as the issuer can access the template's
+    // owning workspace; a template from a workspace they do not own is rejected.
     if (body.templateId) {
       const t = await pool.query('SELECT workspace_id FROM templates WHERE id = $1', [body.templateId]);
       if (t.rows.length === 0) throw new HttpError(400, 'Template not found');
-      if (t.rows[0].workspace_id !== existing.rows[0].workspace_id) {
-        throw new HttpError(403, 'Template belongs to another workspace');
-      }
+      await assertWorkspaceAccess(req, t.rows[0].workspace_id);
     }
 
     const fields = body.recipientFields
@@ -923,18 +1487,31 @@ app.get(
   '/api/templates',
   authenticate,
   asyncHandler(async (req: AuthedRequest, res) => {
+    // Every template carries its owning organization's display name so the
+    // dashboard can label cross-org templates. `brand_name` is the org's
+    // display name; fall back to the raw workspace name when it is blank.
+    const SELECT_WITH_ORG =
+      `SELECT t.*, COALESCE(NULLIF(w.brand_name, ''), w.name) AS organization_name
+       FROM templates t JOIN workspaces w ON w.id = t.workspace_id`;
+
     const wsId = req.query.workspaceId as string | undefined;
     if (wsId) {
       await assertWorkspaceAccess(req, wsId);
-      const result = await pool.query('SELECT * FROM templates WHERE workspace_id = $1 ORDER BY created_time DESC', [wsId]);
+      const result = await pool.query(
+        `${SELECT_WITH_ORG} WHERE t.workspace_id = $1 ORDER BY t.created_time DESC`,
+        [wsId],
+      );
       res.json(result.rows.map(mapTemplate));
       return;
     }
     const scope = await accessibleWorkspaceIds(req);
     const result =
       scope === 'all'
-        ? await pool.query('SELECT * FROM templates ORDER BY created_time DESC')
-        : await pool.query('SELECT * FROM templates WHERE workspace_id = ANY($1) ORDER BY created_time DESC', [scope]);
+        ? await pool.query(`${SELECT_WITH_ORG} ORDER BY t.created_time DESC`)
+        : await pool.query(
+            `${SELECT_WITH_ORG} WHERE t.workspace_id = ANY($1) ORDER BY t.created_time DESC`,
+            [scope],
+          );
     res.json(result.rows.map(mapTemplate));
   }),
 );
@@ -1015,6 +1592,25 @@ app.post(
   asyncHandler(async (req: AuthedRequest, res) => {
     const body = parseBody(templateBodySchema, req.body);
     await assertWorkspaceAccess(req, body.workspaceId);
+
+    // Plan limit: number of certificate templates a workspace may hold. Editing
+    // an existing template (PUT) is always allowed — only creating new ones is
+    // capped, which is why the check lives here and not in the PUT handler.
+    if (!isAdminRole(req.user!.role)) {
+      const plan = await planForWorkspace(body.workspaceId);
+      const limit = limitsFor(plan).templates;
+      if (Number.isFinite(limit)) {
+        const count = await pool.query<{ n: number }>(
+          'SELECT count(*)::int AS n FROM templates WHERE workspace_id = $1',
+          [body.workspaceId],
+        );
+        if (count.rows[0].n >= limit) {
+          throw planLimitError(
+            `Your ${PLAN_LABEL[plan]} plan includes ${formatLimit(limit)} certificate template${limit === 1 ? '' : 's'}. Upgrade to add more.`,
+          );
+        }
+      }
+    }
 
     const id = newId('tpl');
     const values = templateValues(body, body.workspaceId);
@@ -1106,6 +1702,41 @@ app.post(
     });
     const duplicatesDropped = recipients.length - unique.length;
 
+    // Plan limits: bulk batch size and the workspace's valid-certificate ceiling.
+    if (!isAdminRole(req.user!.role)) {
+      const plan = await planForWorkspace(program.workspace_id);
+      const limits = limitsFor(plan);
+
+      if (unique.length > limits.bulkIssueMax) {
+        throw planLimitError(
+          limits.bulkIssueMax === 1
+            ? `Bulk issuance is available on the Pro plan. Your ${PLAN_LABEL[plan]} plan issues one certificate at a time.`
+            : `Your ${PLAN_LABEL[plan]} plan issues up to ${limits.bulkIssueMax} certificates per batch.`,
+        );
+      }
+
+      if (Number.isFinite(limits.validCertificates)) {
+        // Recipients who already hold a non-revoked certificate for this program
+        // are skipped on insert, so they do not consume new quota.
+        const existing = await pool.query<{ recipient_email: string }>(
+          `SELECT recipient_email FROM certificates
+            WHERE program_id = $1 AND status <> 'revoked' AND recipient_email = ANY($2)`,
+          [program.id, unique.map((r) => r.email)],
+        );
+        const existingSet = new Set(existing.rows.map((r) => r.recipient_email));
+        const newCount = unique.filter((r) => !existingSet.has(r.email)).length;
+
+        const current = await validCertificateCount(pool, program.workspace_id);
+        if (current + newCount > limits.validCertificates) {
+          const remaining = Math.max(0, limits.validCertificates - current);
+          throw planLimitError(
+            `Your ${PLAN_LABEL[plan]} plan allows ${formatLimit(limits.validCertificates)} valid certificates ` +
+              `(${current} in use, ${remaining} remaining). Revoke unused certificates or upgrade to issue more.`,
+          );
+        }
+      }
+    }
+
     const workspaceResult = await pool.query('SELECT brand_name FROM workspaces WHERE id = $1', [program.workspace_id]);
     const brandName = workspaceResult.rows[0]?.brand_name ?? 'Glint';
     const issueDate = program.issue_date ?? new Date().toISOString().slice(0, 10);
@@ -1132,8 +1763,9 @@ app.post(
         const inserted = await client.query(
           `INSERT INTO certificates
              (id, workspace_id, program_id, program_name, recipient_name, recipient_email,
-              custom_fields, issue_date, expiry_date, status, signature, signature_alg, signature_version)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'valid', $10, $11, $12)
+              custom_fields, issue_date, expiry_date, status, signature, signature_alg, signature_version,
+              issuer_name)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'valid', $10, $11, $12, $13)
            ON CONFLICT (program_id, recipient_email) WHERE status <> 'revoked' DO NOTHING
            RETURNING *`,
           [
@@ -1149,6 +1781,9 @@ app.post(
             signature,
             SIGNATURE_ALG,
             SIGNATURE_VERSION,
+            // Freeze the organization name at issue time so a later rename does
+            // not rewrite this certificate's public attribution.
+            brandName,
           ],
         );
 
@@ -1530,46 +2165,99 @@ app.get(
 
     const brandingResult = await pool.query('SELECT * FROM workspaces WHERE id = $1', [cert.workspace_id]);
     const workspace = brandingResult.rows[0];
+    // Prefer the name frozen onto the certificate at issue time; fall back to the
+    // workspace's current brand name only for legacy rows issued before the
+    // snapshot column existed.
+    const liveOrgName = workspace ? (workspace.brand_name || workspace.name) : 'the issuing organization';
+    const orgName = cert.issuer_name || liveOrgName;
 
     res.json({
       certificate: mapPublicCertificate(cert),
       template: templateResult?.rows[0] ? mapTemplate(templateResult.rows[0]) : null,
       branding: workspace ? mapWorkspace(workspace).branding : null,
-      auditTrail: await loadEvents(cert.id, true),
+      auditTrail: await loadPublicHistory(cert, orgName),
     });
   }),
 );
 
-/** Analytics counters. Returns only the counters, never the certificate record. */
+const STATS_EVENT: Record<'view' | 'download' | 'share', CertEvent> = {
+  view: 'VIEWED',
+  download: 'DOWNLOADED',
+  share: 'SHARED',
+};
+
+/**
+ * Analytics counters. Returns only the counters, never the certificate record.
+ *
+ * `view` and `download` are deduplicated per source IP within a rolling hour.
+ * `share` is a deliberate user action (LinkedIn post, copy link) and is not
+ * deduplicated, only rate limited by `statsLimiter`.
+ *
+ * The dedupe check ("has this IP already been counted in the last hour?")
+ * and the counter bump run inside one transaction, serialized by an advisory
+ * lock keyed on (certificate, event, ip). Two requests for the same key that
+ * land close together — React StrictMode double-invoking the mount effect,
+ * a doubled click, two tabs opening at once — used to both pass the "is
+ * there a recent row" check before either one's INSERT had committed, so
+ * both got counted. The lock makes the second request wait for the first to
+ * finish before it looks.
+ */
 app.post(
   '/api/certificates/:id/stats',
   statsLimiter,
   asyncHandler(async (req, res) => {
     const { action } = parseBody(statsSchema, req.body);
-
+    const ipHash = clientIpHash(req);
+    const event = STATS_EVENT[action as 'view' | 'download' | 'share'];
     const column = { view: 'view_count', download: 'download_count', share: 'share_count' }[action];
-    const result = await pool.query(
-      `UPDATE certificates
-         SET ${column} = ${column} + 1
-             ${action === 'view' ? ', last_viewed = now()' : ''}
-       WHERE id = $1
-       RETURNING view_count, download_count, share_count, verify_count`,
-      [req.params.id],
-    );
-    if (result.rows.length === 0) throw new HttpError(404, 'Certificate not found');
 
-    if (action !== 'view') {
-      await recordEvent(pool, req.params.id, action === 'download' ? 'DOWNLOADED' : 'SHARED', {
+    const counters = await withTransaction(async (client) => {
+      if (action === 'view' || action === 'download') {
+        await client.query('SELECT pg_advisory_xact_lock(hashtext($1)::bigint)', [
+          `${req.params.id}:${event}:${ipHash ?? 'null'}`,
+        ]);
+
+        const recent = await client.query(
+          `SELECT 1 FROM certificate_events
+           WHERE certificate_id = $1 AND event = $2 AND actor_ip_hash IS NOT DISTINCT FROM $3
+             AND created_at > now() - interval '1 hour'
+           LIMIT 1`,
+          [req.params.id, event, ipHash],
+        );
+        if (recent.rows.length > 0) {
+          const existing = await client.query(
+            `SELECT view_count, download_count, share_count, verify_count FROM certificates WHERE id = $1`,
+            [req.params.id],
+          );
+          if (existing.rows.length === 0) throw new HttpError(404, 'Certificate not found');
+          return existing.rows[0];
+        }
+      }
+
+      const result = await client.query(
+        `UPDATE certificates
+           SET ${column} = ${column} + 1
+               ${action === 'view' ? ', last_viewed = now()' : ''}
+         WHERE id = $1
+         RETURNING view_count, download_count, share_count, verify_count`,
+        [req.params.id],
+      );
+      if (result.rows.length === 0) throw new HttpError(404, 'Certificate not found');
+
+      await recordEvent(client, req.params.id, event, {
         performedBy: 'recipient',
-        ipHash: clientIpHash(req),
+        ipHash,
+        isPublic: action === 'share',
       });
-    }
+
+      return result.rows[0];
+    });
 
     res.json({
-      viewCount: result.rows[0].view_count,
-      downloadCount: result.rows[0].download_count,
-      shareCount: result.rows[0].share_count,
-      verifyCount: result.rows[0].verify_count,
+      viewCount: counters.view_count,
+      downloadCount: counters.download_count,
+      shareCount: counters.share_count,
+      verifyCount: counters.verify_count,
     });
   }),
 );

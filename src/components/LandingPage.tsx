@@ -3,898 +3,711 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import {
-  Award, ShieldAlert, CheckCircle, Search, ArrowRight,
-  Check, Zap, Layers, Sparkles, Star, RefreshCw,
-  Terminal, Copy, Globe
+  ArrowRight,
+  BadgeCheck,
+  BarChart3,
+  Braces,
+  Check,
+  CheckCircle2,
+  ChevronRight,
+  Download,
+  Eye,
+  FileCheck2,
+  FileText,
+  Image as ImageIcon,
+  Layers3,
+  Link2,
+  Mail,
+  MailCheck,
+  MousePointer2,
+  Palette,
+  PenLine,
+  QrCode,
+  RefreshCw,
+  RotateCw,
+  ScanLine,
+  Send,
+  ShieldCheck,
+  Sparkles,
+  Upload,
+  UsersRound,
 } from 'lucide-react';
-import { HeroScrollDemo } from './ui/demo';
-import { useQrDataUrl } from '../lib/qr';
-import { motion, AnimatePresence } from 'framer-motion';
+import {
+  MotionConfig,
+  motion,
+  useReducedMotion,
+  useScroll,
+  useSpring,
+  useTransform,
+} from 'framer-motion';
+import { PLAN_LABEL, PLAN_LIMITS, PLAN_ORDER, type Plan } from '../../lib/plans';
+import { VerifyCertificateModal } from './VerifyCertificateModal';
+import { LifecycleStory } from './landing/LifecycleStory';
 
 interface LandingPageProps {
   onStartFree: () => void;
-  onViewSample: (id: string) => void;
-  onSelectWorkspace: (id: string) => void;
+  onSignIn: () => void;
 }
 
-export function LandingPage({ onStartFree, onViewSample, onSelectWorkspace }: LandingPageProps) {
-  const [previewName, setPreviewName] = useState('Dr. Elias Vance');
-  const [previewLayout, setPreviewLayout] = useState<'google' | 'stellar'>('google');
-  const [scrollY, setScrollY] = useState(0);
-  const [hoverCard, setHoverCard] = useState({ x: 0, y: 0, hover: false });
-  const [activeFeatureTab, setActiveFeatureTab] = useState(0);
+const EASE = [0.16, 1, 0.3, 1] as const;
 
-  // Decorative. Generated in the browser rather than fetched from api.qrserver.com.
-  const previewQrDataUrl = useQrDataUrl(`${window.location.origin}/`);
+const reveal = {
+  hidden: { opacity: 0, y: 26 },
+  visible: { opacity: 1, y: 0 },
+};
 
-  // SHA-256 hash explorer. This one is genuine — it is the browser's own
-  // SubtleCrypto, hashing whatever you type. It illustrates what a digest is;
-  // it is not what signs a certificate (that is a keyed HMAC, server-side).
-  const [sandboxInput, setSandboxInput] = useState(
-    'Recipient: John Doe\nProgram: B.S. Cybersecurity\nIssued: 2026-07-08',
+const studioFeatures = [
+  {
+    icon: MousePointer2,
+    title: 'Place with intent',
+    body: 'Snap, align, pan, zoom, rotate, flip, resize, undo and redo with precise canvas controls.',
+  },
+  {
+    icon: Palette,
+    title: 'Build your identity in layers',
+    body: 'Add logos, uploaded imagery, signatures, frames, backgrounds, seals and verification QR codes.',
+  },
+  {
+    icon: Braces,
+    title: 'Design once. Personalize every issue.',
+    body: 'Place recipient, program, certificate ID, date and custom program fields anywhere in the layout.',
+  },
+  {
+    icon: Upload,
+    title: 'Keep designs portable',
+    body: 'Import and export .glint templates with their assets and fonts, then reuse them across organizations.',
+  },
+];
+
+const operationCards = [
+  {
+    icon: BarChart3,
+    title: 'See the signal',
+    body: 'Follow issuance and verification activity alongside page views, downloads and shares.',
+  },
+  {
+    icon: FileCheck2,
+    title: 'Find any certificate',
+    body: 'Search the registry by recipient, email, certificate ID or program.',
+  },
+  {
+    icon: MailCheck,
+    title: 'Follow delivery',
+    body: 'Review send attempts and delivery outcomes, then resend when needed.',
+  },
+  {
+    icon: RefreshCw,
+    title: 'Keep status current',
+    body: 'Revoke with a reason, restore when appropriate and reflect the state publicly.',
+  },
+];
+
+const planBullets: Record<Plan, string[]> = {
+  free: [
+    '1 organization and 1 template',
+    'Up to 5 valid certificates',
+    'One recipient per issuance',
+    'Workspace-branded default emails',
+  ],
+  pro: [
+    'Up to 2 organizations',
+    '5 templates and 50 valid certificates per workspace',
+    'Up to 10 recipients per batch',
+    'Custom templates for issuance and digest emails',
+  ],
+  enterprise: [
+    'Up to 5 organizations',
+    'No plan limit on templates or valid certificates per workspace',
+    'Up to 1,000 recipients per batch',
+    'No Powered by Glint attribution on Enterprise-workspace emails',
+  ],
+};
+
+function Brand({ inverse = false }: { inverse?: boolean }) {
+  return (
+    <span className="inline-flex items-center gap-2.5">
+      <img src="/favicon.svg" alt="" aria-hidden="true" className="h-8 w-8 rounded-[9px]" />
+      <span className={`font-display text-[15px] font-semibold tracking-[-0.02em] ${inverse ? 'text-white' : 'text-[#0B1020]'}`}>
+        Glint
+      </span>
+    </span>
   );
-  const [sandboxHash, setSandboxHash] = useState('');
-  const [copied, setCopied] = useState(false);
+}
 
-  useEffect(() => {
-    const calculateHash = async () => {
-      if (!sandboxInput) {
-        // SHA-256 of the empty string.
-        setSandboxHash('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
-        return;
-      }
-      try {
-        const msgBuffer = new TextEncoder().encode(sandboxInput);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        setSandboxHash(hashArray.map(b => b.toString(16).padStart(2, '0')).join(''));
-      } catch {
-        // SubtleCrypto requires a secure context. Say so rather than printing a
-        // made-up "simulated_hash_..." string that looks like a real digest.
-        setSandboxHash('unavailable — SHA-256 requires HTTPS or localhost');
-      }
-    };
-    calculateHash();
-  }, [sandboxInput]);
+function SectionEyebrow({ children, light = false }: { children: React.ReactNode; light?: boolean }) {
+  return (
+    <div className={`inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] ${light ? 'text-[#F5C96A]' : 'text-[#3157E5]'}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${light ? 'bg-[#F2B84B]' : 'bg-[#3157E5]'}`} />
+      {children}
+    </div>
+  );
+}
 
-  const handleCopyHash = () => {
-    navigator.clipboard.writeText(sandboxHash);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+function HeroCredential() {
+  return (
+    <div className="relative mx-auto w-full max-w-[690px] [perspective:1400px]" aria-hidden="true">
+      <motion.div
+        initial={{ opacity: 0, y: 38, rotateX: 7, rotateY: -5 }}
+        animate={{ opacity: 1, y: 0, rotateX: 0, rotateY: 0 }}
+        transition={{ duration: 1.05, delay: 0.22, ease: EASE }}
+        className="relative overflow-hidden rounded-[28px] border border-white/80 bg-white/80 p-2 shadow-[0_40px_100px_-45px_rgba(11,16,32,0.5)] backdrop-blur-xl"
+      >
+        <div className="overflow-hidden rounded-[22px] border border-[#DDE1EA] bg-[#EEF1F6]">
+          <div className="flex h-11 items-center justify-between border-b border-[#DDE1EA] bg-white px-4">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-[#F2B84B]" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[#DBE2F3]" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[#DBE2F3]" />
+              <span className="ml-2 text-[10px] font-semibold text-slate-500">Certificate studio</span>
+            </div>
+            <div className="flex items-center gap-2 text-[9px] font-medium text-slate-400">
+              <span className="rounded-md bg-slate-100 px-2 py-1">92%</span>
+              <span className="rounded-md bg-[#0B1020] px-2 py-1 text-white">Saved</span>
+            </div>
+          </div>
 
-  // Card Mouse Move for 3D Tilt Effect
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    const card = e.currentTarget;
-    const rect = card.getBoundingClientRect();
-    const x = e.clientX - rect.left - rect.width / 2;
-    const y = e.clientY - rect.top - rect.height / 2;
-    setHoverCard({ x: x / 20, y: y / 20, hover: true });
-  };
+          <div className="grid min-h-[420px] grid-cols-[48px_1fr] sm:grid-cols-[56px_1fr_132px]">
+            <div className="flex flex-col items-center gap-4 border-r border-[#DDE1EA] bg-white py-4 text-slate-400">
+              {[MousePointer2, PenLine, ImageIcon, Layers3].map((Icon, index) => (
+                <span key={index} className={`flex h-8 w-8 items-center justify-center rounded-lg ${index === 0 ? 'bg-[#3157E5] text-white shadow-md shadow-blue-200' : ''}`}>
+                  <Icon className="h-3.5 w-3.5" />
+                </span>
+              ))}
+            </div>
 
-  const handleMouseLeave = () => {
-    setHoverCard({ x: 0, y: 0, hover: false });
-  };
+            <div className="relative flex items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_center,rgba(49,87,229,0.08),transparent_66%)] p-5 sm:p-8">
+              <div className="absolute inset-0 opacity-35 [background-image:radial-gradient(#98A2B8_1px,transparent_1px)] [background-size:20px_20px]" />
+              <motion.div
+                initial={{ scale: 0.94, y: 14 }}
+                animate={{ scale: 1, y: 0 }}
+                transition={{ duration: 0.9, delay: 0.45, ease: EASE }}
+                className="relative aspect-[1.414/1] w-full max-w-[440px] overflow-hidden bg-[#FFFDF8] shadow-[0_20px_45px_-25px_rgba(15,23,42,0.45)] ring-1 ring-[#D6B553]"
+              >
+                <div className="absolute inset-3 border border-[#D6B553]/65" />
+                <div className="absolute left-5 top-5 flex items-center gap-1.5 text-[5px] font-semibold uppercase tracking-[0.2em] text-[#3157E5] sm:text-[7px]">
+                  <span className="h-1 w-1 rounded-full bg-[#F2B84B]" /> Sample Learning Studio
+                </div>
+                <div className="absolute inset-x-[12%] top-[24%] text-center">
+                  <p className="text-[5px] font-semibold uppercase tracking-[0.32em] text-slate-400 sm:text-[7px]">Certificate of completion</p>
+                  <p className="glint-display mt-2 text-[19px] font-semibold leading-none text-[#0B1020] sm:text-[28px]">Alex Rivera</p>
+                  <p className="mx-auto mt-3 max-w-[75%] text-[5px] leading-relaxed text-slate-500 sm:text-[7px]">
+                    has completed the Product Leadership intensive
+                  </p>
+                </div>
+                <div className="absolute inset-x-[10%] bottom-[14%] flex items-end justify-between">
+                  <div className="text-left text-[5px] text-slate-400 sm:text-[7px]">
+                    <span className="block uppercase tracking-wider">Issued</span>
+                    <span className="font-medium text-slate-700">11 Jul 2026</span>
+                  </div>
+                  <div className="text-center text-[5px] text-slate-400 sm:text-[7px]">
+                    <span className="glint-display block text-[10px] text-[#0B1020] sm:text-[13px]">Sample Signatory</span>
+                    Programme Director
+                  </div>
+                  <div className="flex h-7 w-7 items-center justify-center border border-slate-200 bg-white text-slate-700 sm:h-9 sm:w-9">
+                    <QrCode className="h-5 w-5 sm:h-7 sm:w-7" />
+                  </div>
+                </div>
+
+                <motion.div
+                  animate={{ opacity: [0.72, 1, 0.72], scale: [1, 1.015, 1] }}
+                  transition={{ duration: 3.6, repeat: Infinity, ease: 'easeInOut' }}
+                  className="absolute left-[24%] top-[39%] h-[22%] w-[50%] border border-[#3157E5] bg-blue-50/20"
+                >
+                  <span className="absolute -left-1 -top-1 h-2 w-2 border border-[#3157E5] bg-white" />
+                  <span className="absolute -right-1 -top-1 h-2 w-2 border border-[#3157E5] bg-white" />
+                  <span className="absolute -bottom-1 -left-1 h-2 w-2 border border-[#3157E5] bg-white" />
+                  <span className="absolute -bottom-1 -right-1 h-2 w-2 border border-[#3157E5] bg-white" />
+                </motion.div>
+              </motion.div>
+            </div>
+
+            <div className="hidden border-l border-[#DDE1EA] bg-white p-3 sm:block">
+              <p className="text-[9px] font-semibold text-[#0B1020]">Recipient name</p>
+              <div className="mt-4 space-y-3">
+                <div>
+                  <p className="text-[7px] uppercase tracking-wider text-slate-400">Placeholder</p>
+                  <div className="mt-1 rounded-md border border-[#DDE1EA] bg-slate-50 px-2 py-1.5 font-mono text-[8px] text-[#3157E5]">{'{{name}}'}</div>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <div className="rounded-md bg-slate-50 p-2 text-[7px] text-slate-500">X&nbsp; 50%</div>
+                  <div className="rounded-md bg-slate-50 p-2 text-[7px] text-slate-500">Y&nbsp; 42%</div>
+                </div>
+                <div className="h-px bg-slate-100" />
+                <div className="space-y-1.5">
+                  {['Font', 'Size', 'Colour', 'Alignment'].map((label) => (
+                    <div key={label} className="flex items-center justify-between rounded-md border border-slate-100 px-2 py-1.5 text-[7px] text-slate-500">
+                      {label}<ChevronRight className="h-2.5 w-2.5" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+
+      <motion.div
+        initial={{ opacity: 0, x: 24, y: 12 }}
+        animate={{ opacity: 1, x: 0, y: 0 }}
+        transition={{ duration: 0.75, delay: 1, ease: EASE }}
+        className="absolute -bottom-5 right-2 flex items-center gap-3 rounded-2xl border border-emerald-200 bg-white px-4 py-3 shadow-[0_18px_45px_-22px_rgba(16,185,129,0.7)] sm:-right-5"
+      >
+        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+          <BadgeCheck className="h-5 w-5" />
+        </span>
+        <span>
+          <span className="block text-[11px] font-semibold text-[#0B1020]">Ready to verify</span>
+          <span className="block text-[9px] text-slate-500">Protected fields · Live status check</span>
+        </span>
+      </motion.div>
+
+      <motion.div
+        initial={{ opacity: 0, x: -20 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.7, delay: 0.8, ease: EASE }}
+        className="absolute -left-2 top-[22%] hidden rounded-xl border border-[#E6D5A8] bg-[#FFF9E8] px-3 py-2 text-[9px] font-semibold text-[#74530A] shadow-lg sm:block"
+      >
+        <span className="flex items-center gap-1.5"><Braces className="h-3 w-3" /> Custom fields connected</span>
+      </motion.div>
+    </div>
+  );
+}
+
+function StudioScene() {
+  return (
+    <div className="relative min-h-[470px] overflow-hidden rounded-[28px] border border-[#DDE1EA] bg-[#EDF0F5] p-3 shadow-[0_35px_90px_-55px_rgba(11,16,32,0.55)]" aria-hidden="true">
+      <div className="flex h-11 items-center justify-between rounded-t-[20px] border border-[#DDE1EA] bg-white px-4">
+        <div className="flex items-center gap-2 text-[10px] font-semibold text-[#0B1020]"><Layers3 className="h-3.5 w-3.5 text-[#3157E5]" /> Leadership credential</div>
+        <div className="flex items-center gap-2 text-[9px] text-slate-400"><RotateCw className="h-3 w-3" /> Undo <span className="rounded-md bg-[#0B1020] px-2 py-1 text-white">Save</span></div>
+      </div>
+      <div className="grid min-h-[395px] grid-cols-1 overflow-hidden rounded-b-[20px] border-x border-b border-[#DDE1EA] bg-[#E8ECF2] sm:grid-cols-[148px_1fr_138px]">
+        <div className="hidden border-r border-[#DDE1EA] bg-white p-3 sm:block">
+          <p className="text-[8px] font-semibold uppercase tracking-wider text-slate-400">Dynamic fields</p>
+          <div className="mt-3 space-y-2">
+            {['{{name}}', '{{program}}', '{{date}}', '{{credential_id}}'].map((field, i) => (
+              <motion.div
+                key={field}
+                initial={{ opacity: 0, x: -10 }}
+                whileInView={{ opacity: 1, x: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: i * 0.08 }}
+                className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 font-mono text-[8px] text-[#3157E5]"
+              >{field}</motion.div>
+            ))}
+          </div>
+          <div className="mt-5 border-t border-slate-100 pt-4">
+            <p className="text-[8px] font-semibold uppercase tracking-wider text-slate-400">Layers</p>
+            <div className="mt-2 space-y-2 text-[8px] text-slate-500">
+              <div className="flex items-center gap-2"><Eye className="h-3 w-3" /> Recipient</div>
+              <div className="flex items-center gap-2"><Eye className="h-3 w-3" /> Program</div>
+              <div className="flex items-center gap-2"><Eye className="h-3 w-3" /> Signature</div>
+            </div>
+          </div>
+        </div>
+        <div className="relative flex items-center justify-center overflow-hidden p-5">
+          <div className="absolute inset-0 opacity-30 [background-image:radial-gradient(#98A2B8_1px,transparent_1px)] [background-size:18px_18px]" />
+          <motion.div
+            initial={{ rotate: -2, scale: 0.92 }}
+            whileInView={{ rotate: 0, scale: 1 }}
+            viewport={{ once: true, amount: 0.45 }}
+            transition={{ duration: 0.8, ease: EASE }}
+            className="relative aspect-[1.414/1] w-full max-w-[430px] bg-[#FFFDF8] shadow-xl ring-1 ring-[#D6B553]"
+          >
+            <div className="absolute inset-3 border border-[#D6B553]/60" />
+            <div className="absolute inset-x-0 top-[18%] text-center">
+              <p className="text-[6px] font-semibold uppercase tracking-[0.26em] text-[#3157E5] sm:text-[8px]">Advanced facilitation</p>
+              <p className="glint-display mt-3 text-[20px] font-semibold text-[#0B1020] sm:text-[29px]">Alex Rivera</p>
+                  <p className="mt-2 text-[6px] text-slate-500 sm:text-[8px]">Sample Learning Studio · Cohort 07</p>
+            </div>
+            <motion.div
+              initial={{ opacity: 0, scaleX: 0.8 }}
+              whileInView={{ opacity: 1, scaleX: 1 }}
+              viewport={{ once: true }}
+              transition={{ delay: 0.35, duration: 0.55 }}
+              className="absolute left-[24%] top-[38%] h-[22%] w-[52%] border border-[#3157E5]"
+            >
+              {['-left-1 -top-1', '-right-1 -top-1', '-bottom-1 -left-1', '-bottom-1 -right-1'].map((pos) => <span key={pos} className={`absolute ${pos} h-2 w-2 border border-[#3157E5] bg-white`} />)}
+            </motion.div>
+            <div className="absolute inset-x-[12%] bottom-[14%] flex items-end justify-between text-[5px] text-slate-400 sm:text-[7px]">
+              <span>ISSUED 11 JUL 2026</span><span className="glint-display text-[10px] text-[#0B1020] sm:text-[13px]">Sample Signatory</span><QrCode className="h-7 w-7 text-[#0B1020]" />
+            </div>
+          </motion.div>
+        </div>
+        <div className="hidden border-l border-[#DDE1EA] bg-white p-3 sm:block">
+          <p className="text-[9px] font-semibold text-[#0B1020]">Typography</p>
+          <div className="mt-4 space-y-2">
+            <div className="rounded-md border border-slate-200 px-2 py-2 text-[8px] text-slate-500">Cormorant Garamond</div>
+            <div className="grid grid-cols-2 gap-1.5"><span className="rounded-md bg-slate-50 p-2 text-[8px] text-slate-500">28 px</span><span className="rounded-md bg-slate-50 p-2 text-[8px] text-slate-500">600</span></div>
+            <div className="flex h-8 items-center gap-2 rounded-md border border-slate-200 px-2 text-[8px] text-slate-500"><span className="h-3 w-3 rounded-sm bg-[#0B1020]" /> #0B1020</div>
+          </div>
+          <div className="mt-5 border-t border-slate-100 pt-4">
+            <p className="text-[8px] font-semibold uppercase tracking-wider text-slate-400">Position</p>
+            <div className="mt-2 grid grid-cols-2 gap-1.5 text-[8px] text-slate-500"><span className="rounded bg-slate-50 p-2">X 50%</span><span className="rounded bg-slate-50 p-2">Y 41%</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DeliveryScene() {
+  const rows = [
+    ['Alex Rivera', 'alex@example.org', 'Ready'],
+    ['Jordan Lee', 'jordan@example.org', 'Ready'],
+    ['Priya Shah', 'priya@example.org', 'Ready'],
+  ];
 
   return (
-    <div className="min-h-screen bg-[#F9FBFC] text-slate-900 font-sans overflow-x-hidden relative selection:bg-indigo-500 selection:text-white">
-      {/* Dynamic Embedded Styles for Custom Animations */}
-      <style>{`
-        @keyframes scan-line {
-          0% { top: 0%; opacity: 0.7; }
-          50% { top: 100%; opacity: 1; }
-          100% { top: 0%; opacity: 0.7; }
-        }
-        .animate-scan {
-          animation: scan-line 3s ease-in-out infinite;
-        }
-        .perspective-1000 {
-          perspective: 1000px;
-        }
-        .glossy-glow {
-          box-shadow: 0 0 30px rgba(99, 102, 241, 0.05), inset 0 1px 1px rgba(255,255,255,0.8);
-        }
-      `}</style>
-
-      {/* Grid Pattern Background with Scroll Parallax */}
-      <div 
-        style={{ 
-          transform: `translateY(${scrollY * 0.15}px)`,
-          backgroundImage: 'radial-gradient(rgba(99, 102, 241, 0.06) 1.5px, transparent 1.5px)',
-          backgroundSize: '32px 32px'
-        }}
-        className="absolute top-0 left-0 w-full h-[150vh] pointer-events-none z-0"
-      />
-
-      {/* Ambient Color Blobs with Dynamic Framer Motion Animations */}
-      <motion.div 
-        animate={{
-          x: [0, 40, -20, 0],
-          y: [0, -35, 25, 0],
-          scale: [1, 1.05, 0.95, 1],
-        }}
-        transition={{
-          duration: 15,
-          repeat: Infinity,
-          ease: "easeInOut"
-        }}
-        className="absolute top-[-10%] right-[-10%] w-[600px] h-[600px] rounded-full bg-gradient-to-br from-indigo-500/10 to-purple-500/10 blur-[120px] pointer-events-none z-0"
-      />
-      <motion.div 
-        animate={{
-          x: [0, -30, 25, 0],
-          y: [0, 40, -20, 0],
-          scale: [1, 0.95, 1.05, 1],
-        }}
-        transition={{
-          duration: 18,
-          repeat: Infinity,
-          ease: "easeInOut"
-        }}
-        className="absolute top-[25%] left-[-15%] w-[500px] h-[500px] rounded-full bg-gradient-to-br from-blue-500/10 to-emerald-500/10 blur-[100px] pointer-events-none z-0"
-      />
-
-      {/* Premium Sticky Navigation with Glossy Glassmorphism Effect */}
-      <header className={`sticky top-0 z-50 flex items-center justify-between px-4 sm:px-6 lg:px-16 transition-all duration-500 ${
-        scrollY > 20 
-          ? "h-14 bg-white/75 backdrop-blur-2xl border-b border-white/50 shadow-[0_10px_35px_rgba(0,0,0,0.03)] glossy-glow" 
-          : "h-16 bg-white/45 backdrop-blur-xl border-b border-white/20 shadow-none"
-      }`}>
-        <div className="flex items-center gap-2">
-          <svg className="w-6 h-6 sm:w-8 sm:h-8 shrink-0 hover:scale-105 transition-transform duration-300" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M23 16C23 19.866 19.866 23 16 23C12.134 23 9 19.866 9 16C9 12.134 12.134 9 16 9C18.6 9 20.9 10.4 22.1 12.5" stroke="#0F172A" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M15 16H23" stroke="#0F172A" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M24 7C24 9.2 25.2 10 27 10C25.2 10 24 10.8 24 13C24 10.8 22.8 10 21 10C22.8 10 24 9.2 24 7Z" fill="#F59E0B" />
-          </svg>
-          <span className="font-display font-extrabold tracking-wider text-slate-950 text-xs sm:text-sm md:text-base uppercase">GLINT REGISTRY</span>
+    <div className="relative overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.06] p-4 shadow-2xl" aria-hidden="true">
+      <div className="overflow-hidden rounded-[20px] border border-white/10 bg-[#11182A]">
+        <div className="flex h-12 items-center justify-between border-b border-white/10 px-4">
+          <div className="flex items-center gap-2 text-[10px] font-semibold text-white"><UsersRound className="h-3.5 w-3.5 text-[#F2B84B]" /> Product Leadership · Cohort 07</div>
+          <span className="rounded-full bg-emerald-400/10 px-2.5 py-1 text-[8px] font-semibold text-emerald-300">3 valid rows</span>
         </div>
+        <div className="p-4">
+          <div className="overflow-hidden rounded-xl border border-white/10">
+            <div className="grid grid-cols-[1fr_1.4fr_62px] bg-white/[0.06] px-3 py-2 text-[8px] font-semibold uppercase tracking-wider text-slate-400">
+              <span>Recipient</span><span>Email</span><span>Status</span>
+            </div>
+            {rows.map((row, i) => (
+              <motion.div
+                key={row[1]}
+                initial={{ opacity: 0, x: -12 }}
+                whileInView={{ opacity: 1, x: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: 0.15 + i * 0.12 }}
+                className="grid grid-cols-[1fr_1.4fr_62px] border-t border-white/10 px-3 py-3 text-[9px] text-slate-300"
+              >
+                <span className="font-medium text-white">{row[0]}</span><span className="truncate">{row[1]}</span><span className="text-emerald-300">{row[2]}</span>
+              </motion.div>
+            ))}
+          </div>
+          <div className="mt-4 flex flex-col gap-3 rounded-xl border border-white/10 bg-white/[0.035] p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[9px] font-semibold text-white">Choose the delivery moment</p>
+              <p className="mt-1 text-[8px] text-slate-400">Issue only, send now, or deliver later from the registry.</p>
+            </div>
+            <div className="flex gap-2">
+              <span className="rounded-lg border border-white/10 px-3 py-2 text-[8px] font-semibold text-slate-300">Issue only</span>
+              <span className="flex items-center gap-1.5 rounded-lg bg-[#3157E5] px-3 py-2 text-[8px] font-semibold text-white"><Send className="h-3 w-3" /> Issue &amp; send</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <motion.div
+        initial={{ opacity: 0, y: 18 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true }}
+        transition={{ delay: 0.55, duration: 0.65, ease: EASE }}
+        className="absolute -bottom-2 right-7 flex items-center gap-2 rounded-xl border border-emerald-400/25 bg-[#0D281F] px-3 py-2 text-[8px] font-semibold text-emerald-300 shadow-lg"
+      >
+        <MailCheck className="h-3.5 w-3.5" /> Delivery activity recorded
+      </motion.div>
+    </div>
+  );
+}
 
-        <div className="flex items-center gap-1.5 sm:gap-3">
-          <button 
-            onClick={onStartFree}
-            className="text-[10px] sm:text-xs font-semibold text-slate-700 hover:text-slate-950 px-2.5 sm:px-3.5 py-1.5 sm:py-2 transition-all border border-[#E9ECEF]/85 hover:bg-white rounded-lg shadow-[0_1px_2px_rgba(0,0,0,0.02)] whitespace-nowrap"
-          >
-            Sign In
-          </button>
-          <button 
-            onClick={onStartFree}
-            className="bg-slate-950 text-white text-[10px] sm:text-xs px-3 sm:px-5 py-2 sm:py-2.5 rounded-full font-semibold shadow-[0_4px_12px_rgba(0,0,0,0.05)] hover:bg-indigo-650 hover:shadow-indigo-100 transition-all duration-300 flex items-center gap-1 group whitespace-nowrap"
-          >
-            Start Free <ArrowRight className="w-3 sm:w-3.5 h-3 sm:h-3.5 group-hover:translate-x-1 transition-transform" />
+function VerificationScene({ onOpen }: { onOpen: () => void }) {
+  return (
+    <div className="relative mx-auto w-full max-w-[590px]" aria-label="Example of an authentic Glint verification result">
+      <div className="relative overflow-hidden rounded-[30px] border border-[#DDE1EA] bg-white p-3 shadow-[0_35px_90px_-50px_rgba(11,16,32,0.5)]">
+        <div className="rounded-[22px] bg-[#F7F8FA] p-5 sm:p-7">
+          <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+            <Brand />
+            <span className="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[9px] font-semibold text-emerald-700"><BadgeCheck className="h-3 w-3" /> Authentic</span>
+          </div>
+          <div className="py-7 text-center">
+            <motion.div
+              initial={{ scale: 0.75, opacity: 0 }}
+              whileInView={{ scale: 1, opacity: 1 }}
+              viewport={{ once: true }}
+              transition={{ type: 'spring', stiffness: 180, damping: 18 }}
+              className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-600"
+            >
+              <ShieldCheck className="h-8 w-8" />
+            </motion.div>
+            <h3 className="mt-5 text-xl font-semibold tracking-[-0.03em] text-[#0B1020]">Glint’s integrity check passes.</h3>
+            <p className="mx-auto mt-2 max-w-sm text-[12px] leading-relaxed text-slate-500">The protected issuance fields match, and this credential is neither expired nor revoked.</p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-[9px] sm:grid-cols-4">
+            {[
+              ['Recipient', 'Alex Rivera'],
+              ['Program', 'Product Leadership'],
+              ['Issued', '11 Jul 2026'],
+              ['Status', 'Valid'],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-xl border border-slate-200 bg-white p-3">
+                <span className="block text-slate-400">{label}</span><span className="mt-1 block truncate font-semibold text-[#0B1020]">{value}</span>
+              </div>
+            ))}
+          </div>
+          <button type="button" onClick={onOpen} className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0B1020] px-4 py-3 text-[12px] font-semibold text-white transition-colors hover:bg-[#3157E5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3157E5] focus-visible:ring-offset-2">
+            Try the real verifier <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         </div>
+      </div>
+      <div className="absolute -left-4 top-24 hidden rounded-2xl border border-[#E6D5A8] bg-[#FFF9E8] p-3 shadow-lg sm:block" aria-hidden="true">
+        <QrCode className="h-8 w-8 text-[#0B1020]" />
+      </div>
+      <div className="absolute -right-5 bottom-24 hidden rounded-2xl border border-blue-100 bg-white px-3 py-2 text-[9px] font-semibold text-[#3157E5] shadow-lg sm:flex sm:items-center sm:gap-2" aria-hidden="true">
+        <ScanLine className="h-3.5 w-3.5" /> ID · Link · PDF
+      </div>
+    </div>
+  );
+}
+
+export function LandingPage({ onStartFree, onSignIn }: LandingPageProps) {
+  const [verifierOpen, setVerifierOpen] = useState(false);
+  const heroRef = useRef<HTMLElement>(null);
+  const reducedMotion = useReducedMotion();
+  const { scrollYProgress } = useScroll({ target: heroRef, offset: ['start start', 'end start'] });
+  const rawHeroY = useTransform(scrollYProgress, [0, 1], [0, reducedMotion ? 0 : 110]);
+  const rawHeroOpacity = useTransform(scrollYProgress, [0, 0.82], [1, reducedMotion ? 1 : 0]);
+  const heroY = useSpring(rawHeroY, { stiffness: 90, damping: 24, mass: 0.35 });
+
+  const openVerifier = () => setVerifierOpen(true);
+
+  return (
+    <MotionConfig reducedMotion="user">
+    <div className="glint-landing min-h-screen overflow-x-clip bg-[#F8F6F1] text-[#0B1020] selection:bg-[#F2B84B] selection:text-[#0B1020]">
+      <a href="#main-content" className="fixed left-4 top-3 z-[100] -translate-y-20 rounded-lg bg-[#0B1020] px-4 py-2 text-sm font-semibold text-white transition-transform focus:translate-y-0">Skip to content</a>
+
+      <header className="fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-5">
+        <nav aria-label="Main navigation" className="mx-auto flex h-14 max-w-[1240px] items-center justify-between rounded-2xl border border-white/80 bg-white/78 px-3 shadow-[0_12px_40px_-25px_rgba(11,16,32,0.32)] backdrop-blur-xl sm:px-5">
+          <a href="#top" aria-label="Glint home" className="rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3157E5]"><Brand /></a>
+          <div className="hidden items-center gap-1 lg:flex">
+            {[
+              ['Workflow', '#workflow'],
+              ['Certificate studio', '#studio'],
+              ['Verification', '#verification'],
+              ['Plans', '#plans'],
+            ].map(([label, href]) => (
+              <a key={href} href={href} className="rounded-lg px-3 py-2 text-[12px] font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-[#0B1020] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3157E5]">{label}</a>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={openVerifier} className="hidden min-h-10 rounded-xl px-3 text-[12px] font-semibold text-slate-600 transition-colors hover:bg-slate-50 hover:text-[#0B1020] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3157E5] md:block">Verify</button>
+            <button type="button" onClick={onSignIn} className="hidden min-h-10 rounded-xl px-3 text-[12px] font-semibold text-slate-600 transition-colors hover:bg-slate-50 hover:text-[#0B1020] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3157E5] sm:block">Sign in</button>
+            <button type="button" onClick={onStartFree} className="group flex min-h-10 items-center gap-1.5 rounded-xl bg-[#0B1020] px-4 text-[11px] font-semibold text-white transition-all hover:bg-[#3157E5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3157E5] focus-visible:ring-offset-2 sm:text-[12px]">
+              Start free <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+            </button>
+          </div>
+        </nav>
       </header>
 
-      {/* Hero Section */}
-      <section className="px-6 lg:px-16 pt-16 pb-12 grid grid-cols-1 lg:grid-cols-12 gap-12 max-w-7xl mx-auto items-center relative z-10">
-        <motion.div 
-          initial="hidden"
-          animate="visible"
-          variants={{
-            hidden: { opacity: 0 },
-            visible: { opacity: 1, transition: { staggerChildren: 0.12 } }
-          }}
-          className="lg:col-span-6 space-y-8"
-        >
-          {/* Subtle upper badge */}
-          <motion.div 
-            variants={{
-              hidden: { y: 15, opacity: 0 },
-              visible: { y: 0, opacity: 1, transition: { type: "spring", stiffness: 100 } }
-            }}
-            className="inline-flex items-center gap-2 px-3 py-1 bg-white border border-slate-200/80 shadow-[0_2px_8px_rgba(0,0,0,0.02)] rounded-full hover:border-indigo-200 transition-colors cursor-default"
-          >
-            <Sparkles className="w-3 h-3 text-amber-500 fill-amber-500" />
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-650">Enterprise Certificate Infrastructure</span>
+      <main id="main-content">
+        <section ref={heroRef} id="top" className="relative flex min-h-[960px] items-center overflow-hidden px-5 pb-24 pt-28 sm:px-8 lg:min-h-[900px] lg:pt-32">
+          <motion.div style={{ y: heroY, opacity: rawHeroOpacity }} className="absolute inset-0" aria-hidden="true">
+            <div className="absolute -left-24 top-24 h-[420px] w-[420px] rounded-full bg-[#3157E5]/10 blur-[110px]" />
+            <div className="absolute -right-20 top-8 h-[380px] w-[380px] rounded-full bg-[#F2B84B]/15 blur-[100px]" />
+            <div className="absolute inset-x-0 top-[62%] h-[520px] -skew-y-6 bg-[#EEE9DF]" />
+            <div className="absolute left-[8%] top-[26%] h-2 w-2 rounded-full bg-[#F2B84B] shadow-[0_0_24px_7px_rgba(242,184,75,0.5)]" />
           </motion.div>
 
-          <motion.h1 
-            variants={{
-              hidden: { y: 25, opacity: 0 },
-              visible: { y: 0, opacity: 1, transition: { type: "spring", stiffness: 80, damping: 14 } }
-            }}
-            className="font-serif text-4xl sm:text-5xl md:text-6.5xl italic text-slate-950 leading-[1.12]"
-          >
-            Certificate trust is <br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 via-indigo-500 to-indigo-750 font-sans tracking-tight font-extrabold not-italic">
-              an absolute standard.
-            </span>
-          </motion.h1>
-
-          <motion.p 
-            variants={{
-              hidden: { y: 15, opacity: 0 },
-              visible: { y: 0, opacity: 1, transition: { duration: 0.6 } }
-            }}
-            className="text-slate-500 text-sm max-w-lg leading-relaxed font-sans"
-          >
-            Create, bulk-issue, and instantly audit secure professional certificates at industrial scale. Supported by permanent cryptographic seals, custom branding overrides, and public-facing high-fidelity verification boards.
-          </motion.p>
-
-          {/* Professional Action Buttons */}
-          <motion.div 
-            variants={{
-              hidden: { y: 15, opacity: 0 },
-              visible: { y: 0, opacity: 1, transition: { duration: 0.6 } }
-            }}
-            className="flex flex-col sm:flex-row gap-4 pt-4"
-          >
-            <button 
-              onClick={onStartFree}
-              className="relative group overflow-hidden bg-slate-950 text-white text-xs px-8 py-4 rounded-xl font-bold shadow-lg hover:shadow-indigo-600/10 transition-all flex items-center justify-center gap-2"
-            >
-              <span className="relative z-10 flex items-center gap-1.5">
-                Launch Console <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-              </span>
-              <div className="absolute inset-0 bg-indigo-600 scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-350" />
-            </button>
-            <button 
-              onClick={() => {
-                document.getElementById('sandbox')?.scrollIntoView({ behavior: 'smooth' });
-              }}
-              className="group border border-slate-200 bg-white text-xs px-8 py-4 rounded-xl font-bold text-slate-700 hover:text-indigo-600 hover:bg-indigo-50/20 hover:border-indigo-200 transition-all flex items-center justify-center gap-2 shadow-sm"
-            >
-              <Award className="w-4 h-4 text-amber-500 group-hover:scale-110 transition-transform" />
-              See a sample certificate
-            </button>
-          </motion.div>
-
-          {/*
-            A "Trusted by verification authorities" row listed COLUMBIA UNIVERSITY,
-            GOOGLE.CLOUD.SECURE, Stellar.Academy, and MIT_COGNITIVE. None of them
-            are customers. Naming a real university and a real company as endorsers
-            is a false-endorsement and trademark problem, not stray demo copy.
-
-            Restore this block when there are real logos to put in it, with
-            permission to use them.
-          */}
-        </motion.div>
-
-        {/* Hero Interactive Certificate Preview Card */}
-        <motion.div 
-          initial={{ opacity: 0, x: 50, rotateY: 10 }}
-          animate={{ opacity: 1, x: 0, rotateY: 0 }}
-          transition={{ type: "spring", stiffness: 70, damping: 15, delay: 0.25 }}
-          id="preview" 
-          className="lg:col-span-6 flex flex-col items-center relative perspective-1000"
-        >
-          <div 
-            onMouseMove={handleMouseMove}
-            onMouseLeave={handleMouseLeave}
-            style={{
-              transform: hoverCard.hover 
-                ? `rotateY(${hoverCard.x}deg) rotateX(${-hoverCard.y}deg) scale(1.025)` 
-                : 'rotateY(0deg) rotateX(0deg) scale(1)',
-              transition: hoverCard.hover ? 'none' : 'all 0.5s cubic-bezier(0.16, 1, 0.3, 1)'
-            }}
-            className="w-full max-w-xl bg-white border border-[#E9ECEF] rounded-2xl p-4 sm:p-6 shadow-2xl relative overflow-hidden group cursor-pointer"
-          >
-            {/* Top Editor controls on preview */}
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-6">
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); setPreviewLayout('google'); }}
-                  className={`text-[10px] font-bold px-3 py-1 rounded-lg transition-all uppercase tracking-wide cursor-pointer ${previewLayout === 'google' ? 'bg-slate-950 text-white shadow-sm' : 'bg-slate-105 text-slate-500 hover:bg-slate-200'}`}
-                >
-                  Classic Minimalist
+          <div className="relative mx-auto grid w-full max-w-[1240px] grid-cols-1 items-center gap-16 lg:grid-cols-[0.88fr_1.12fr] lg:gap-12">
+            <motion.div initial="hidden" animate="visible" transition={{ staggerChildren: 0.1 }} className="max-w-[590px]">
+              <motion.div variants={reveal} transition={{ duration: 0.65, ease: EASE }}>
+                <SectionEyebrow>Credential operations, end to end</SectionEyebrow>
+              </motion.div>
+              <motion.h1 variants={reveal} transition={{ duration: 0.75, ease: EASE }} className="glint-display mt-6 text-[clamp(3.8rem,7vw,6.7rem)] font-semibold leading-[0.82] tracking-[-0.055em] text-[#0B1020]">
+                Design it.<br />
+                <span className="text-[#3157E5]">Issue it.</span><br />
+                <span className="relative italic">Prove it.<motion.span initial={{ scaleX: 0 }} animate={{ scaleX: 1 }} transition={{ delay: 0.75, duration: 0.8, ease: EASE }} className="absolute -bottom-1 left-0 h-[3px] w-full origin-left bg-[#F2B84B]" /></span>
+              </motion.h1>
+              <motion.p variants={reveal} transition={{ duration: 0.7, ease: EASE }} className="mt-7 max-w-[540px] text-[15px] leading-7 text-slate-600 sm:text-[17px]">
+                Create branded certificates, personalize them for one recipient or an entire cohort, deliver them by email, and give every credential a live page anyone can verify.
+              </motion.p>
+              <motion.div variants={reveal} transition={{ duration: 0.7, ease: EASE }} className="mt-8 flex flex-col gap-3 sm:flex-row">
+                <button type="button" onClick={onStartFree} className="group flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-[#0B1020] px-6 text-[13px] font-semibold text-white shadow-[0_15px_35px_-18px_rgba(11,16,32,0.7)] transition-all hover:-translate-y-0.5 hover:bg-[#3157E5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3157E5] focus-visible:ring-offset-2">
+                  Create free workspace <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" aria-hidden="true" />
                 </button>
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); setPreviewLayout('stellar'); }}
-                  className={`text-[10px] font-bold px-3 py-1 rounded-lg transition-all uppercase tracking-wide cursor-pointer ${previewLayout === 'stellar' ? 'bg-slate-950 text-white shadow-sm' : 'bg-slate-105 text-slate-500 hover:bg-slate-200'}`}
-                >
-                  Slate Modern
+                <button type="button" onClick={openVerifier} className="flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-[#CCD2DE] bg-white/75 px-6 text-[13px] font-semibold text-[#0B1020] transition-all hover:-translate-y-0.5 hover:border-[#3157E5] hover:text-[#3157E5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3157E5] focus-visible:ring-offset-2">
+                  <ShieldCheck className="h-4 w-4" aria-hidden="true" /> Verify a certificate
                 </button>
-              </div>
-              <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-650 bg-emerald-50/70 px-2.5 py-1 rounded-lg border border-emerald-100 animate-pulse">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 inline-block"></span>
-                LIVE BUILD PREVIEW
-              </div>
-            </div>
+              </motion.div>
+              <motion.div variants={reveal} transition={{ duration: 0.65, ease: EASE }} className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-2 text-[11px] font-medium text-slate-500">
+                {['Free workspace', 'No card required', 'Public verification'].map((item) => (
+                  <span key={item} className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-[#3157E5]" aria-hidden="true" /> {item}</span>
+                ))}
+              </motion.div>
+            </motion.div>
 
-            {/* Simulated Live Renderer */}
-            <div 
-              style={{
-                backgroundColor: previewLayout === 'google' ? '#ffffff' : '#F8FAFC',
-                borderWidth: previewLayout === 'google' ? '0.6cqw' : '0.8cqw',
-                borderColor: previewLayout === 'google' ? '#1a73e8' : '#0F172A',
-                containerType: 'inline-size'
-              }}
-              className="aspect-[1.414/1] rounded-lg p-[4cqw] relative flex flex-col justify-between transition-all duration-500 border-double overflow-hidden shadow-inner"
-            >
-              {/* Top Banner Branding */}
-              <div className="flex justify-between items-start">
-                <div>
-                  <p style={{ color: previewLayout === 'google' ? '#1a73e8' : '#ec4899' }} className="font-mono text-[1.8cqw] uppercase tracking-widest font-bold">
-                    {previewLayout === 'google' ? 'Google Cloud Certificates' : 'Stellar Tech Academy'}
-                  </p>
-                  <p className="text-[1.4cqw] text-[#9CA3AF] tracking-tight">VERIFIED ID: GLNT-SAMPLE-PREVIEW</p>
-                </div>
-                <div className="w-[11cqw] h-[4.8cqw] border bg-white/60 p-[0.2cqw] rounded flex items-center justify-center text-[1.4cqw] font-bold border-slate-200 uppercase truncate">
-                  {previewLayout === 'google' ? '★ GOOGLE' : 'STELLAR'}
-                </div>
-              </div>
+            <HeroCredential />
+          </div>
+        </section>
 
-              {/* Title Center */}
-              <div className="text-center space-y-[0.3cqw] py-[0.2cqw]">
-                <p style={{ color: previewLayout === 'google' ? '#1B365D' : '#0F172A' }} className="font-display font-bold text-[2.2cqw] uppercase tracking-widest">
-                  {previewLayout === 'google' ? 'CERTIFICATE OF ACHIEVEMENT' : 'CREDENTIAL OF RECOGNITION'}
-                </p>
-                <p className="text-[1.4cqw] text-[#64748B] italic max-w-[80cqw] mx-auto">
-                  Acknowledging the successful validation and mastery of industrial design and infrastructure services.
-                </p>
-                
-                {/* Dynamic Input in-frame */}
-                <div className="relative inline-block mt-[1.5cqw] px-[1cqw]">
-                  <input
-                    type="text"
-                    value={previewName}
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => setPreviewName(e.target.value)}
-                    style={{ fontSize: '3.5cqw', width: '40cqw' }}
-                    className="serif text-center font-bold text-[#0F172A] border-b border-dashed border-slate-300 focus:border-slate-800 bg-transparent py-[0.1cqw] focus:outline-none min-w-[120px]"
-                    placeholder="Recipient Name"
-                  />
-                  <div className="text-[1.2cqw] text-slate-400 mt-[0.2cqw] uppercase tracking-widest font-mono">Click above to type your own name</div>
-                </div>
+        <section aria-label="Core Glint capabilities" className="relative z-10 border-y border-[#DCD8CF] bg-[#F2EEE5] px-5 py-5 sm:px-8">
+          <div className="mx-auto grid max-w-[1240px] grid-cols-2 gap-4 text-[11px] font-semibold text-slate-600 md:grid-cols-4">
+            {[
+              [Layers3, 'Visual certificate studio'],
+              [UsersRound, 'Single & batch issuance'],
+              [MailCheck, 'Branded email delivery'],
+              [ShieldCheck, 'Live public verification'],
+            ].map(([Icon, label]) => {
+              const CapabilityIcon = Icon as typeof Layers3;
+              return <div key={label as string} className="flex min-h-11 items-center gap-2.5"><CapabilityIcon className="h-4 w-4 text-[#3157E5]" aria-hidden="true" /><span>{label as string}</span></div>;
+            })}
+          </div>
+        </section>
 
-                <p className="text-[1.4cqw] text-[#64748B] px-[0.5cqw] pt-[0.2cqw]">
-                  for help integrating the <span className="font-medium text-slate-900">issuance and verification API</span>
-                </p>
-              </div>
+        <LifecycleStory id="workflow" />
 
-              {/* Bottom Row Footer */}
-              <div className="flex justify-between items-end pt-[1cqw] border-t border-slate-100">
-                <div className="text-left">
-                  <p className="font-mono text-[1.4cqw] text-slate-400 uppercase">ISSUED ON</p>
-                  <p className="font-mono text-[1.6cqw] font-bold text-slate-700">2026-06-17</p>
-                </div>
-                <div className="text-center">
-                  <div className="h-[4.8cqw] w-[11cqw] border-b border-slate-900 mx-auto"></div>
-                  {/* Was "Thomas Kurian / Chief Authority Officer" — the name of a
-                      real, identifiable executive, on a fabricated certificate. */}
-                  <p className="font-sans text-[1.2cqw] font-bold text-slate-700 mt-[0.2cqw]">Sample Signatory</p>
-                  <p className="font-sans text-[1cqw] text-slate-400">Programme Director</p>
-                </div>
-                <div className="text-right flex items-center gap-[0.2cqw]">
-                  <div className="w-[4.8cqw] h-[4.8cqw] bg-white p-[0.1cqw] rounded-sm border border-slate-200 shadow-sm flex items-center justify-center">
-                    {previewQrDataUrl && (
-                      <img src={previewQrDataUrl} alt="Sample verification QR" className="w-full h-full object-contain" />
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Quick Helper Explainer */}
-            <div className="bg-slate-50 border border-slate-105 rounded-xl p-3 mt-4 text-xs text-slate-505 flex items-start gap-2.5 group-hover:bg-indigo-50/20 group-hover:border-indigo-100 transition-colors duration-300">
-              <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+        <section id="studio" className="glint-anchor bg-white px-5 py-24 sm:px-8 sm:py-32">
+          <div className="mx-auto max-w-[1240px]">
+            <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-90px' }} transition={{ staggerChildren: 0.08 }} className="grid items-end gap-8 lg:grid-cols-[0.92fr_1.08fr]">
               <div>
-                <span className="font-bold text-slate-800">Real-time Rendering & Variables:</span> Play around! This is an interactive sandbox simulation. Recipients receive high-fidelity vectors optimized perfectly for print.
+                <motion.div variants={reveal} transition={{ duration: 0.65, ease: EASE }}><SectionEyebrow>Certificate studio</SectionEyebrow></motion.div>
+                <motion.h2 variants={reveal} transition={{ duration: 0.7, ease: EASE }} className="glint-display mt-5 max-w-[620px] text-5xl font-semibold leading-[0.95] tracking-[-0.045em] sm:text-6xl">A serious canvas for a meaningful artifact.</motion.h2>
               </div>
-            </div>
-          </div>
-        </motion.div>
-      </section>
+              <motion.p variants={reveal} transition={{ duration: 0.7, ease: EASE }} className="max-w-[540px] text-[15px] leading-7 text-slate-600 lg:justify-self-end">Drag, resize, rotate, align and layer every detail. Format selected text, upload fonts and brand assets, and preview dynamic fields before a certificate is issued.</motion.p>
+            </motion.div>
 
-      {/* Scroll Showcase Section */}
-      <section className="relative z-10 w-full overflow-hidden">
-        <HeroScrollDemo />
-      </section>
-
-      {/* Interactive Cryptographic Hash Sandbox & Registry Node Explorer */}
-      <motion.section 
-        initial={{ opacity: 0, y: 40 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true, margin: "-120px" }}
-        transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-        id="sandbox" 
-        className="py-24 px-6 lg:px-16 bg-white border-y border-slate-200/50 relative z-10 overflow-hidden"
-      >
-        {/* Subtle backdrop glows */}
-        <div className="absolute top-1/4 -left-1/4 w-[500px] h-[500px] bg-indigo-500/5 rounded-full blur-[120px] pointer-events-none" />
-        <div className="absolute bottom-1/4 -right-1/4 w-[500px] h-[500px] bg-emerald-500/5 rounded-full blur-[120px] pointer-events-none" />
-
-        <div className="max-w-7xl mx-auto space-y-12">
-          {/* Header */}
-          <div className="text-center max-w-2xl mx-auto space-y-4">
-            <span className="text-xs font-bold uppercase tracking-widest text-indigo-600 bg-indigo-50 px-3.5 py-1.5 rounded-full border border-indigo-100">
-              How verification works
-            </span>
-            <h2 className="font-serif text-3xl md:text-4.5xl italic text-slate-950">
-              Hash explorer
-            </h2>
-            <p className="text-slate-500 text-sm">
-              Type anything to see its SHA-256 digest, computed in your browser. Change one character and the whole
-              digest changes — that property is what makes a certificate's signature detect tampering.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-stretch">
-            {/* Left Column: SHA-256 Sandbox Console */}
-            <div className="lg:col-span-6 flex flex-col">
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col justify-between flex-1 relative overflow-hidden">
-                {/* Header of Console */}
-                <div className="flex items-center justify-between pb-4 border-b border-slate-800/80 mb-5">
-                  <div className="flex items-center gap-2">
-                    <Terminal className="w-4 h-4 text-indigo-400" />
-                    <span className="font-mono text-xs font-bold text-slate-200">hashing_console.exe</span>
-                  </div>
-                  <div className="flex gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500/80" />
-                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80" />
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
-                  </div>
-                </div>
-
-                <div className="space-y-4 flex-1 flex flex-col justify-between">
-                  <div>
-                    <label className="block text-[10px] uppercase font-mono tracking-wider text-indigo-400 mb-2 font-bold">
-                      INPUT PAYLOAD (STRING DATA)
-                    </label>
-                    <textarea 
-                      value={sandboxInput}
-                      onChange={(e) => setSandboxInput(e.target.value)}
-                      className="w-full bg-slate-950/80 border border-slate-800 rounded-xl p-4 font-mono text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 placeholder-slate-600 resize-none min-h-[110px]"
-                      placeholder="Type certificate details to compute cryptographic hash..."
-                    />
-                  </div>
-
-                  {/* Flow arrow/visual connector */}
-                  <div className="flex items-center justify-center gap-3 py-1">
-                    <div className="h-[1px] bg-gradient-to-r from-transparent via-slate-700 to-transparent flex-1" />
-                    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 font-mono text-[9px] uppercase tracking-wider animate-pulse">
-                      <RefreshCw className="w-2.5 h-2.5 animate-spin" /> SHA-256 Engine
+            <div className="mt-14 grid gap-10 lg:grid-cols-[1.18fr_0.82fr] lg:items-center">
+              <StudioScene />
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                {studioFeatures.map((feature, index) => (
+                  <motion.div key={feature.title} initial={{ opacity: 0, x: 18 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true, margin: '-45px' }} transition={{ delay: index * 0.08, duration: 0.55, ease: EASE }} className="group rounded-2xl border border-[#E0E3EA] bg-[#FAFAF9] p-5 transition-colors hover:border-[#B7C4F5] hover:bg-[#F7F9FF]">
+                    <div className="flex gap-4">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-[#3157E5] shadow-sm ring-1 ring-slate-200"><feature.icon className="h-4 w-4" aria-hidden="true" /></span>
+                      <div><h3 className="text-[14px] font-semibold text-[#0B1020]">{feature.title}</h3><p className="mt-1.5 text-[12px] leading-5 text-slate-500">{feature.body}</p></div>
                     </div>
-                    <div className="h-[1px] bg-gradient-to-r from-transparent via-slate-700 to-transparent flex-1" />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] uppercase font-mono tracking-wider text-emerald-400 mb-2 font-bold">
-                      SHA-256 CRYPTOGRAPHIC DIGEST
-                    </label>
-                    <div className="relative group/hash">
-                      <div className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 font-mono text-xs text-slate-100 pr-12 break-all min-h-[72px] leading-relaxed select-all">
-                        {sandboxHash}
-                      </div>
-                      <button 
-                        onClick={handleCopyHash}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 p-2 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-all border border-slate-700/50 cursor-pointer"
-                        title="Copy cryptographic signature"
-                      >
-                        {copied ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-400" />
-                        ) : (
-                          <Copy className="w-3.5 h-3.5" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Console Metadata Footer */}
-                <div className="grid grid-cols-3 gap-4 border-t border-slate-800/80 pt-4 mt-6 text-center">
-                  <div>
-                    <span className="block text-[8px] text-slate-500 uppercase font-mono">HASH LENGTH</span>
-                    <span className="font-mono text-xs font-bold text-slate-300">256 Bits</span>
-                  </div>
-                  <div>
-                    <span className="block text-[8px] text-slate-500 uppercase font-mono">COMPUTED</span>
-                    <span className="font-mono text-xs font-bold text-emerald-400">In your browser</span>
-                  </div>
-                  {/* Said "SECURITY: AES-HMAC". This is an unkeyed SHA-256 digest. */}
-                  <div>
-                    <span className="block text-[8px] text-slate-500 uppercase font-mono">ALGORITHM</span>
-                    <span className="font-mono text-xs font-bold text-indigo-400">SHA-256</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/*
-              Right column: what Glint actually does.
-
-              This was a "Distributed Registry Nodes" panel — Tokyo 14ms,
-              Frankfurt 28ms, Oregon 42ms, London 21ms, "4 Nodes Connected" —
-              above a live feed of "BLOCK #894012" entries carrying randomly
-              generated 64-char hex strings, appended every 4.5 seconds by a
-              setInterval. There are no nodes, no blocks, and no ledger. It ran
-              on the front page of a product that issues credentials people are
-              asked to trust.
-            */}
-            <div className="lg:col-span-6 flex flex-col justify-between space-y-6">
-              <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-6 shadow-sm flex flex-col flex-1">
-                <div className="flex items-center gap-2 pb-3 border-b border-slate-200">
-                  <Globe className="w-4 h-4 text-indigo-600" />
-                  <span className="font-sans text-xs font-bold text-slate-900">How a Glint certificate is signed</span>
-                </div>
-
-                <div className="py-5 space-y-5 flex-1">
-                  <div className="space-y-1.5">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono">1 · Sign at issuance</p>
-                    <p className="text-xs text-slate-600 leading-relaxed">
-                      When a certificate is issued, Glint computes an <span className="font-mono text-slate-900">HMAC-SHA256</span> over
-                      its recipient, program, and dates, using a secret key that never leaves the server.
-                    </p>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono">2 · Verify on request</p>
-                    <p className="text-xs text-slate-600 leading-relaxed">
-                      Opening a certificate link and pressing <span className="font-medium text-slate-900">Verify</span> asks the registry to
-                      recompute that signature and compare it, in constant time, with the stored value. Changing any signed
-                      field — even directly in the database — makes the comparison fail.
-                    </p>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono">3 · Revoke independently</p>
-                    <p className="text-xs text-slate-600 leading-relaxed">
-                      Revocation is a separate, mutable status. It does not break the signature — an issuer can withdraw a
-                      genuine certificate. A verifier checks both.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="bg-white border border-slate-200 rounded-xl p-4 text-[11px] text-slate-500 leading-relaxed">
-                  <span className="font-bold text-slate-700">What this does not do.</span>{' '}
-                  The key is symmetric, so only Glint can verify a signature. A third party cannot check one
-                  independently, and there is no blockchain or public ledger involved.
-                </div>
+                  </motion.div>
+                ))}
               </div>
             </div>
           </div>
-        </div>
-      </motion.section>
+        </section>
 
-      {/* Interactive Feature Explorer Section */}
-      <motion.section 
-        initial={{ opacity: 0, y: 40 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true, margin: "-120px" }}
-        transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-        id="features" 
-        className="py-24 px-6 lg:px-16 bg-[#F9FBFC] relative z-10"
-      >
-        <div className="max-w-7xl mx-auto space-y-16">
-          <div className="text-center max-w-2xl mx-auto space-y-4">
-            <span className="text-xs font-bold uppercase tracking-widest text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-full border border-indigo-100">
-              Interactive Explorer
-            </span>
-            <h2 className="font-serif text-3xl md:text-4.5xl italic text-slate-950">Industrial grade platform features</h2>
-            <p className="text-slate-500 text-sm">
-              Explore the core mechanics that make Glint the leading engine for bulk digital certificate operations.
-            </p>
+        <section id="delivery" className="glint-anchor relative overflow-hidden bg-[#0B1020] px-5 py-24 text-white sm:px-8 sm:py-32">
+          <div className="absolute inset-0 opacity-25 [background-image:radial-gradient(rgba(255,255,255,0.18)_1px,transparent_1px)] [background-size:30px_30px]" aria-hidden="true" />
+          <div className="absolute -right-40 top-0 h-[480px] w-[480px] rounded-full bg-[#3157E5]/20 blur-[120px]" aria-hidden="true" />
+          <div className="relative mx-auto grid max-w-[1240px] gap-16 lg:grid-cols-[0.84fr_1.16fr] lg:items-center">
+            <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-90px' }} transition={{ staggerChildren: 0.08 }}>
+              <motion.div variants={reveal} transition={{ duration: 0.65, ease: EASE }}><SectionEyebrow light>Programs &amp; delivery</SectionEyebrow></motion.div>
+              <motion.h2 variants={reveal} transition={{ duration: 0.7, ease: EASE }} className="glint-display mt-5 text-5xl font-semibold leading-[0.94] tracking-[-0.045em] sm:text-6xl">Recipient data in. Ready-to-share credentials out.</motion.h2>
+              <motion.p variants={reveal} transition={{ duration: 0.7, ease: EASE }} className="mt-6 max-w-[530px] text-[15px] leading-7 text-slate-300">Build each program around a template, issue and expiry dates, and the fields that matter. Validate recipient rows, issue carefully, and choose whether to send immediately or later from the registry.</motion.p>
+              <motion.div variants={reveal} transition={{ duration: 0.65, ease: EASE }} className="mt-8 grid gap-3 sm:grid-cols-2">
+                {[
+                  ['Custom program fields', Braces],
+                  ['Validated CSV rows', FileText],
+                  ['Issue now or send later', Send],
+                  ['Individual or digest email', Mail],
+                ].map(([label, Icon]) => {
+                  const ItemIcon = Icon as typeof Braces;
+                  return <div key={label as string} className="flex items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.045] px-3 py-3 text-[11px] font-medium text-slate-200"><ItemIcon className="h-3.5 w-3.5 text-[#F2B84B]" aria-hidden="true" />{label as string}</div>;
+                })}
+              </motion.div>
+            </motion.div>
+            <DeliveryScene />
           </div>
+        </section>
 
-          {/* Interactive Explorer Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-stretch">
-            {/* Left selector tabs with sliding glow background */}
-            <div className="lg:col-span-5 flex flex-col justify-center space-y-3 relative">
-              {[
-                {
-                  title: "1. Canva-Style Designer",
-                  desc: "Design custom certificates dynamically using drag-and-drop vectors, customizable seals, custom text elements, and signatory logos.",
-                  icon: Layers
-                },
-                {
-                  title: "2. Bulk CSV Dispatch Mapper",
-                  desc: "Import large recipient databases. Automatically validate emails and map dynamic fields (like grades, roles, or dates) dynamically.",
-                  icon: Zap
-                },
-                {
-                  title: "3. Cryptographic Verification Ledger",
-                  desc: "Provide public-facing lookup portals with immutable check logs, dynamic verification QR codes, and custom domain white-labeling.",
-                  icon: Search
-                }
-              ].map((tab, idx) => {
-                const IconComponent = tab.icon;
-                const isActive = activeFeatureTab === idx;
+        <section id="verification" className="glint-anchor relative overflow-hidden bg-[#F1EBDD] px-5 py-24 sm:px-8 sm:py-32">
+          <div className="absolute left-[9%] top-20 h-2 w-2 rounded-full bg-[#F2B84B] shadow-[0_0_24px_8px_rgba(242,184,75,0.42)]" aria-hidden="true" />
+          <div className="mx-auto grid max-w-[1240px] gap-16 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+            <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-90px' }} transition={{ staggerChildren: 0.08 }}>
+              <motion.div variants={reveal} transition={{ duration: 0.65, ease: EASE }}><SectionEyebrow>Public verification</SectionEyebrow></motion.div>
+              <motion.h2 variants={reveal} transition={{ duration: 0.7, ease: EASE }} className="glint-display mt-5 text-5xl font-semibold leading-[0.94] tracking-[-0.045em] sm:text-6xl">Proof, without the back-and-forth.</motion.h2>
+              <motion.p variants={reveal} transition={{ duration: 0.7, ease: EASE }} className="mt-6 max-w-[550px] text-[15px] leading-7 text-slate-600">A recipient, employer or auditor can check a Glint credential by certificate ID, public link or a PDF downloaded from Glint. Glint validates its protected issuance fields, then checks expiry and revocation.</motion.p>
+              <motion.div variants={reveal} transition={{ duration: 0.65, ease: EASE }} className="mt-8 space-y-3">
+                {[
+                  [Link2, 'Three ways in', 'ID, public link or a PDF downloaded from Glint.'],
+                  [RefreshCw, 'Status stays current', 'Expiry and revocation are checked at verification time.'],
+                  [Download, 'Made to travel', 'Recipients can print, download, copy or share the public page.'],
+                ].map(([Icon, title, body]) => {
+                  const RowIcon = Icon as typeof Link2;
+                  return <div key={title as string} className="flex gap-3 rounded-2xl border border-[#DDD5C6] bg-white/55 p-4"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-[#3157E5] shadow-sm"><RowIcon className="h-4 w-4" aria-hidden="true" /></span><span><span className="block text-[13px] font-semibold text-[#0B1020]">{title as string}</span><span className="mt-0.5 block text-[11px] leading-5 text-slate-500">{body as string}</span></span></div>;
+                })}
+              </motion.div>
+            </motion.div>
+            <VerificationScene onOpen={openVerifier} />
+          </div>
+        </section>
+
+        <section id="operations" className="glint-anchor bg-white px-5 py-24 sm:px-8 sm:py-32">
+          <div className="mx-auto max-w-[1240px]">
+            <div className="mx-auto max-w-[760px] text-center">
+              <SectionEyebrow>Workspace operations</SectionEyebrow>
+              <h2 className="glint-display mt-5 text-5xl font-semibold leading-[0.94] tracking-[-0.045em] sm:text-6xl">Know what happened after issue.</h2>
+              <p className="mx-auto mt-6 max-w-[650px] text-[15px] leading-7 text-slate-600">Track certificate activity, inspect history and signature details, follow email delivery, and manage status from one workspace.</p>
+            </div>
+            <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {operationCards.map((card, index) => (
+                <motion.article key={card.title} initial={{ opacity: 0, y: 22 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: '-55px' }} transition={{ delay: index * 0.08, duration: 0.6, ease: EASE }} className="relative min-h-[250px] overflow-hidden rounded-[24px] border border-[#E0E3EA] bg-[#F8F8F6] p-6">
+                  <div className="absolute -right-7 -top-7 h-28 w-28 rounded-full bg-[#3157E5]/[0.06]" aria-hidden="true" />
+                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-[#3157E5] shadow-sm ring-1 ring-slate-200"><card.icon className="h-5 w-5" aria-hidden="true" /></span>
+                  <h3 className="mt-12 text-[16px] font-semibold tracking-[-0.02em] text-[#0B1020]">{card.title}</h3>
+                  <p className="mt-2 text-[12px] leading-5 text-slate-500">{card.body}</p>
+                </motion.article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section id="plans" className="glint-anchor border-y border-[#DCD8CF] bg-[#F2EEE5] px-5 py-24 sm:px-8 sm:py-32">
+          <div className="mx-auto max-w-[1240px]">
+            <div className="grid gap-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-end">
+              <div><SectionEyebrow>Plans</SectionEyebrow><h2 className="glint-display mt-5 text-5xl font-semibold leading-[0.94] tracking-[-0.045em] sm:text-6xl">Start small. Expand when the work does.</h2></div>
+              <p className="max-w-[560px] text-[15px] leading-7 text-slate-600 lg:justify-self-end">Every plan includes the core design, issuance, public-page and verification workflow. Capacity and delivery controls scale with your operation.</p>
+            </div>
+            <div className="mt-14 grid gap-4 lg:grid-cols-3">
+              {PLAN_ORDER.map((plan, index) => {
+                const featured = plan === 'pro';
                 return (
-                  <button
-                    key={idx}
-                    onClick={() => setActiveFeatureTab(idx)}
-                    className="relative text-left p-6 rounded-2xl transition-all duration-350 flex items-start gap-4 cursor-pointer focus:outline-none w-full border border-transparent"
-                  >
-                    {isActive && (
-                      <motion.div
-                        layoutId="activeFeatureGlow"
-                        className="absolute inset-0 bg-white border border-indigo-100/70 rounded-2xl shadow-[0_12px_30px_rgba(99,102,241,0.03)] -z-10"
-                        transition={{ type: "spring", stiffness: 350, damping: 28 }}
-                      />
-                    )}
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-colors ${isActive ? 'bg-indigo-600 text-white' : 'bg-slate-200/60 text-slate-600'}`}>
-                      <IconComponent className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h3 className={`text-sm font-bold transition-colors duration-200 ${isActive ? 'text-indigo-950' : 'text-slate-700'}`}>{tab.title}</h3>
-                      <p className="text-xs text-slate-500 leading-relaxed mt-1.5">{tab.desc}</p>
-                    </div>
-                  </button>
+                  <motion.article key={plan} initial={{ opacity: 0, y: 22 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: '-60px' }} transition={{ delay: index * 0.08, duration: 0.6, ease: EASE }} className={`relative rounded-[26px] border p-6 sm:p-7 ${featured ? 'border-[#3157E5] bg-[#0B1020] text-white shadow-[0_28px_70px_-42px_rgba(49,87,229,0.75)]' : 'border-[#DCD8CF] bg-white text-[#0B1020]'}`}>
+                    {featured && <span className="absolute right-5 top-5 rounded-full bg-[#F2B84B] px-2.5 py-1 text-[8px] font-bold uppercase tracking-wider text-[#0B1020]">For repeat programs</span>}
+                    <p className={`text-[11px] font-semibold uppercase tracking-[0.16em] ${featured ? 'text-[#F5C96A]' : 'text-[#3157E5]'}`}>{PLAN_LABEL[plan]}</p>
+                    <p className={`mt-4 text-[12px] leading-5 ${featured ? 'text-slate-300' : 'text-slate-500'}`}>{plan === 'free' ? 'Learn the workflow with a small live set.' : plan === 'pro' ? 'Run recurring programs and smaller cohorts.' : 'Coordinate larger operations across organizations.'}</p>
+                    <ul className="mt-8 space-y-3">
+                      {planBullets[plan].map((item) => <li key={item} className={`flex gap-2.5 text-[11px] leading-5 ${featured ? 'text-slate-200' : 'text-slate-600'}`}><Check className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${featured ? 'text-[#F2B84B]' : 'text-[#3157E5]'}`} aria-hidden="true" />{item}</li>)}
+                    </ul>
+                    {plan === 'free' && <button type="button" onClick={onStartFree} className="mt-8 flex min-h-11 w-full items-center justify-center rounded-xl bg-[#0B1020] px-4 text-[12px] font-semibold text-white transition-colors hover:bg-[#3157E5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3157E5] focus-visible:ring-offset-2">Start with Free</button>}
+                    {plan !== 'free' && <div className={`mt-8 rounded-xl px-3 py-3 text-[9px] leading-4 ${featured ? 'bg-white/[0.07] text-slate-300' : 'bg-[#F5F5F2] text-slate-500'}`}>Plan access is assigned by a platform administrator.</div>}
+                    <span className="sr-only">Configured limit: {PLAN_LIMITS[plan].organizations} organizations.</span>
+                  </motion.article>
                 );
               })}
             </div>
+            <p className="mt-5 text-center text-[10px] leading-5 text-slate-500">Valid-certificate limits exclude revoked and expired credentials. Self-serve checkout is not currently available.</p>
+          </div>
+        </section>
 
-            {/* Right visual showcase box */}
-            <div className="lg:col-span-7 border border-slate-200/60 bg-white rounded-3xl p-6 shadow-xl flex items-center justify-center min-h-[350px] relative overflow-hidden">
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={activeFeatureTab}
-                  initial={{ opacity: 0, y: 15 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -15 }}
-                  transition={{ duration: 0.28, ease: "easeInOut" }}
-                  className="w-full"
-                >
-                  {/* Feature Tab 0: Canvas Designer Preview */}
-                  {activeFeatureTab === 0 && (
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between border-b border-slate-100 pb-3 text-xs text-slate-400">
-                        <span className="font-bold text-slate-800">Visual Layout Editor</span>
-                        <span>Layers (5)</span>
-                      </div>
-                      <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 space-y-4">
-                        <div className="flex flex-wrap gap-2">
-                          <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-1 rounded border border-indigo-100 font-bold font-mono">RecipientName [Dynamic]</span>
-                          <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-1 rounded border border-indigo-100 font-bold font-mono">ProgramTitle [Dynamic]</span>
-                          <span className="text-[10px] bg-slate-205 text-slate-600 px-2 py-1 rounded font-bold font-mono">SignatorySeal [Static]</span>
-                        </div>
-                        {/* Mock editor guides */}
-                        <div className="border border-indigo-400/30 rounded bg-white p-6 relative flex flex-col items-center justify-center aspect-[1.618/1] shadow-sm">
-                          {/* Interactive outline boxes */}
-                          <div className="absolute top-2 left-2 w-4 h-4 border-t-2 border-l-2 border-indigo-500" />
-                          <div className="absolute top-2 right-2 w-4 h-4 border-t-2 border-r-2 border-indigo-500" />
-                          <div className="absolute bottom-2 left-2 w-4 h-4 border-b-2 border-l-2 border-indigo-500" />
-                          <div className="absolute bottom-2 right-2 w-4 h-4 border-b-2 border-r-2 border-indigo-500" />
-                          
-                          <div className="border border-dashed border-indigo-450 px-4 py-2 text-xs font-bold text-indigo-600 bg-indigo-50/5">
-                            Drag & Position Element: {"{{name}}"}
-                          </div>
-                          <p className="text-[9px] text-slate-400 mt-2">X: 50% | Y: 45% (Center Align)</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Feature Tab 1: CSV Mapper Preview */}
-                  {activeFeatureTab === 1 && (
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between border-b border-slate-100 pb-3 text-xs text-slate-400">
-                        <span className="font-bold text-slate-800">CSV Column Mapping</span>
-                        <span className="text-emerald-600 font-bold">✓ 3 Dynamic columns mapped</span>
-                      </div>
-                      <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 space-y-3 font-mono text-[10px]">
-                        <table className="w-full border-collapse bg-white border border-slate-200 shadow-sm rounded-lg overflow-hidden">
-                          <thead>
-                            <tr className="bg-slate-100 border-b border-slate-202">
-                              <th className="p-2 text-left text-slate-600 font-bold border-r border-slate-200">CSV Header</th>
-                              <th className="p-2 text-left text-slate-600 font-bold border-r border-slate-200">Mapped Template Field</th>
-                              <th className="p-2 text-left text-slate-600 font-bold">Status</th>
-                            </tr>
-                          </thead>
-                          <tbody className="text-slate-700">
-                            <tr className="border-b border-slate-100">
-                              <td className="p-2 border-r border-slate-200 font-bold">full_name</td>
-                              <td className="p-2 border-r border-slate-200 text-indigo-600 font-bold">{"{{name}}"}</td>
-                              <td className="p-2 text-emerald-650 font-bold">OK</td>
-                            </tr>
-                            <tr className="border-b border-slate-100">
-                              <td className="p-2 border-r border-slate-200 font-bold">email_address</td>
-                              <td className="p-2 border-r border-slate-200 text-indigo-600 font-bold">RecipientEmail</td>
-                              <td className="p-2 text-emerald-655 font-bold">OK</td>
-                            </tr>
-                            <tr>
-                              <td className="p-2 border-r border-slate-200 font-bold">score_grade</td>
-                              <td className="p-2 border-r border-slate-200 text-indigo-600 font-bold">{"{{customFields.Grade}}"}</td>
-                              <td className="p-2 text-emerald-650 font-bold">OK</td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Feature Tab 2: Ledger Audit Preview */}
-                  {activeFeatureTab === 2 && (
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between border-b border-slate-100 pb-3 text-xs text-slate-400">
-                        <span className="font-bold text-slate-800">Stateful Cryptographic Audit Logs</span>
-                        <span>Audit Matches (248)</span>
-                      </div>
-                      <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 space-y-3 font-mono text-[9px] text-[#64748B]">
-                        <div className="p-3 bg-white rounded-lg border border-slate-200 shadow-sm flex items-center justify-between">
-                          <span className="flex items-center gap-1.5"><Check className="text-emerald-500 w-3.5 h-3.5" /> [2026-06-20] VIEW_ATTEMPT - Verified</span>
-                          <span className="text-slate-405">IP: 198.162.1.4</span>
-                        </div>
-                        <div className="p-3 bg-white rounded-lg border border-slate-200 shadow-sm flex items-center justify-between">
-                          <span className="flex items-center gap-1.5"><Check className="text-emerald-500 w-3.5 h-3.5" /> [2026-06-21] PDF_DOWNLOAD - Verified</span>
-                          <span className="text-slate-405">IP: 72.44.15.110</span>
-                        </div>
-                        <div className="p-3 bg-rose-50/50 border border-rose-100 text-rose-700 rounded-lg flex items-center justify-between">
-                          <span className="flex items-center gap-1.5"><ShieldAlert className="text-rose-550 w-3.5 h-3.5" /> [2026-06-23] STATUS_REVOKED - Academic Violation</span>
-                          <span className="text-rose-400">By Admin</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </motion.div>
-              </AnimatePresence>
+        <section className="relative overflow-hidden bg-[#3157E5] px-5 py-24 text-white sm:px-8 sm:py-28">
+          <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(rgba(255,255,255,0.5)_1px,transparent_1px)] [background-size:26px_26px]" aria-hidden="true" />
+          <div className="absolute -bottom-40 -left-24 h-[440px] w-[440px] rounded-full bg-[#0B1020]/35 blur-[110px]" aria-hidden="true" />
+          <div className="relative mx-auto max-w-[900px] text-center">
+            <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-100"><Sparkles className="h-3.5 w-3.5 text-[#F2B84B]" aria-hidden="true" /> Ready when the achievement is</div>
+            <h2 className="glint-display mt-5 text-5xl font-semibold leading-[0.92] tracking-[-0.045em] sm:text-7xl">Turn achievement into proof people can check.</h2>
+            <p className="mx-auto mt-6 max-w-[620px] text-[15px] leading-7 text-blue-100">Create your workspace, design your first template, and issue a certificate with a live verification page behind it.</p>
+            <div className="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
+              <button type="button" onClick={onStartFree} className="group flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-white px-6 text-[13px] font-semibold text-[#0B1020] transition-all hover:-translate-y-0.5 hover:bg-[#FFF6DA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F2B84B] focus-visible:ring-offset-2 focus-visible:ring-offset-[#3157E5]">Create free workspace <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" aria-hidden="true" /></button>
+              <button type="button" onClick={openVerifier} className="flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-white/30 bg-white/10 px-6 text-[13px] font-semibold text-white transition-all hover:-translate-y-0.5 hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#3157E5]"><ShieldCheck className="h-4 w-4" aria-hidden="true" /> Verify a certificate</button>
             </div>
+          </div>
+        </section>
+      </main>
+
+      <footer className="bg-[#0B1020] px-5 py-12 text-white sm:px-8">
+        <div className="mx-auto flex max-w-[1240px] flex-col gap-10 sm:flex-row sm:items-end sm:justify-between">
+          <div><Brand inverse /><p className="mt-4 max-w-[430px] text-[11px] leading-5 text-slate-400">Design, issue, deliver, verify and manage professional certificates from one connected workspace.</p></div>
+          <div className="flex flex-wrap gap-x-6 gap-y-3 text-[11px] font-medium text-slate-400">
+            <a href="#workflow" className="transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F2B84B]">Workflow</a>
+            <a href="#studio" className="transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F2B84B]">Studio</a>
+            <a href="#verification" className="transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F2B84B]">Verification</a>
+            <button type="button" onClick={onStartFree} className="transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F2B84B]">Create account</button>
+            <button type="button" onClick={onSignIn} className="transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F2B84B]">Sign in</button>
           </div>
         </div>
-      </motion.section>
-
-      {/* High-fidelity verification overview banner */}
-      <motion.section 
-        initial={{ opacity: 0, y: 40 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true, margin: "-120px" }}
-        transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-        className="bg-slate-955 text-white py-24 px-6 lg:px-16 overflow-hidden relative z-10 bg-slate-950"
-      >
-        {/* Parallax elements inside the dark section */}
-        <div 
-          style={{ transform: `translateY(${scrollY * 0.05}px)` }}
-          className="absolute top-[-30%] right-[-10%] w-[600px] h-[600px] bg-indigo-600/10 blur-[130px] rounded-full pointer-events-none"
-        />
-
-        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-12 items-center relative z-10">
-          <div className="lg:col-span-5 space-y-6">
-            <p className="text-xs font-mono uppercase tracking-widest text-[#B4C6FC] flex items-center gap-2">
-              <Star className="w-3.5 h-3.5 text-[#B4C6FC] fill-[#B4C6FC]" /> Tamper-Proof Audit Trails
-            </p>
-            <h2 className="font-serif text-4.5xl italic leading-tight">Verification is <br />the true product.</h2>
-            <p className="text-slate-400 text-xs leading-relaxed font-sans">
-              A certificate is only as valuable as its verification capacity. Glint features stateful revocation registers, tamper-evident hash indicators, and public blockchain-style check logs ensuring zero certificate forgery.
-            </p>
-            <div className="space-y-4 pt-4 border-t border-white/10">
-              <div className="flex gap-3 text-xs">
-                <Check className="text-emerald-400 w-4 h-4 shrink-0 mt-0.5" />
-                <span><strong className="text-white">White-Label Domains:</strong> Host lookup registries entirely on your school or workshop custom subdomains.</span>
-              </div>
-              <div className="flex gap-3 text-xs">
-                <Check className="text-emerald-400 w-4 h-4 shrink-0 mt-0.5" />
-                <span><strong className="text-white">Ledger Status Index:</strong> Update, audit, inspect, suspend, or revoke certificates instantly.</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="lg:col-span-7 bg-white/5 border border-white/10 rounded-2xl p-6 relative hover:border-white/20 transition-colors duration-300 shadow-2xl">
-            <h4 className="font-serif italic text-lg text-white mb-4">Verification Audit Ledger</h4>
-            <div className="space-y-3 font-mono text-[9px] text-[#9CA3AF]">
-              <div className="p-3 bg-white/5 rounded-lg border border-white/5 flex justify-between items-center hover:bg-white/10 transition-colors duration-200">
-                <span>[2026-06-12 10:00:00 UTC] WORKSPACE_BATCH_GENERATE</span>
-                <span className="text-emerald-400 font-bold">SUCCESS</span>
-              </div>
-              <div className="p-3 bg-white/5 rounded-lg border border-white/5 flex justify-between items-center hover:bg-white/10 transition-colors duration-200">
-                <span>[2026-06-12 10:01:15 UTC] DISPATCHED_VERIFICATION_MAIL - admissions@stellarworkshops.io</span>
-                <span className="text-emerald-400 font-bold">SENT</span>
-              </div>
-              <div className="p-3 bg-white/5 rounded-lg border border-white/5 flex justify-between items-center hover:bg-white/10 transition-colors duration-200">
-                <span>[2026-06-15 15:30:00 UTC] CRYPTOGRAPHIC_REHASH_LEDGER_AUDIT</span>
-                <span className="text-indigo-400 font-bold">VERIFIED sha256:0edf88cf...</span>
-              </div>
-              <div className="p-3 bg-[#3F111E]/40 rounded-lg border border-rose-900/30 flex justify-between items-center text-rose-300">
-                <span>[2026-06-16 11:24:10 UTC] REVOCATION_TRIGGER - Flagged Academic Integrity Non-compliance</span>
-                <span className="text-rose-455 font-bold text-rose-400">REVOKED STATE</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </motion.section>
-
-      {/* Pricing Matrix */}
-      <motion.section 
-        initial={{ opacity: 0, y: 40 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true, margin: "-120px" }}
-        transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-        id="pricing" 
-        className="py-24 px-6 lg:px-16 max-w-7xl mx-auto space-y-16 relative z-10"
-      >
-        <div className="text-center max-w-2xl mx-auto space-y-4">
-          <p className="text-xs font-bold uppercase tracking-widest text-[#9CA3AF]">SaaS Plans for Every Scale</p>
-          <h2 className="font-serif text-3xl md:text-4xl italic text-slate-950">Transparent, enterprise-ready options</h2>
-          <p className="text-slate-500 text-sm">
-            Self-serve onboarding in minutes, with clear visual feature limits. Upgrade dynamically as requirements expand.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          {/* Free Starter */}
-          <div className="bg-white rounded-2xl border border-[#E9ECEF] p-8 space-y-6 flex flex-col justify-between hover:shadow-xl hover:border-slate-300/60 transition-all duration-300">
-            <div className="space-y-4">
-              <p className="text-xs font-bold uppercase tracking-widest text-[#9CA3AF]">Free Trial</p>
-              <h3 className="text-2xl font-bold text-slate-950 font-sans">$0<span className="text-xs text-slate-400 font-normal"> / forever</span></h3>
-              <p className="text-xs text-slate-500 font-sans">Perfect to test layouts and seed sample program lists.</p>
-              <ul className="space-y-2.5 pt-4 text-xs text-slate-650 border-t border-slate-100">
-                <li className="flex gap-2 items-center"><Check className="w-3.5 h-3.5 text-emerald-500" /> up to 10 active certificates</li>
-                <li className="flex gap-2 items-center"><Check className="w-3.5 h-3.5 text-emerald-500" /> Landscape & Portrait layouts</li>
-                <li className="flex gap-2 items-center"><Check className="w-3.5 h-3.5 text-emerald-500" /> Default brand footer links</li>
-                <li className="flex gap-2 text-slate-300 line-through items-center"><Check className="w-3.5 h-3.5 text-slate-300" /> High-volume CSV loader</li>
-                <li className="flex gap-2 text-slate-300 line-through items-center"><Check className="w-3.5 h-3.5 text-slate-300" /> Custom domains & white-label</li>
-              </ul>
-            </div>
-            <button 
-              onClick={onStartFree}
-              className="w-full bg-slate-50 text-slate-900 border border-[#E9ECEF] hover:bg-slate-100 py-3 rounded-xl text-xs font-bold transition-all text-center cursor-pointer"
-            >
-              Start Instantly
-            </button>
-          </div>
-
-          {/* Premium Professional */}
-          <div className="bg-white rounded-2xl border-2 border-indigo-650 p-8 space-y-6 flex flex-col justify-between relative shadow-xl hover:scale-102 border-indigo-600 transition-all duration-300">
-            <div className="absolute top-0 right-6 -translate-y-1/2 bg-indigo-600 text-white text-[9px] font-bold uppercase tracking-widest px-3 py-1 rounded-full border border-white">
-              RECOMMENDED
-            </div>
-            <div className="space-y-4">
-              <p className="text-xs font-bold uppercase tracking-widest text-indigo-600 font-mono">Professional Tier</p>
-              <h3 className="text-3xl font-bold text-slate-950 font-sans">$49<span className="text-xs text-slate-400 font-normal"> / month</span></h3>
-              <p className="text-xs text-slate-500 font-sans">Excellent for intensive conference teams & professional workshops.</p>
-              <ul className="space-y-2.5 pt-4 text-xs text-slate-650 border-t border-slate-100">
-                <li className="flex gap-2 items-center"><Check className="w-3.5 h-3.5 text-emerald-500" /> Unlimited active certs</li>
-                <li className="flex gap-2 items-center"><Check className="w-3.5 h-3.5 text-emerald-500" /> Bulk CSV & excel mapper</li>
-                <li className="flex gap-2 items-center"><Check className="w-3.5 h-3.5 text-emerald-500" /> Interactive stats & downloads</li>
-                <li className="flex gap-2 items-center"><Check className="w-3.5 h-3.5 text-emerald-500" /> Sender email override</li>
-                <li className="flex gap-2 text-slate-300 line-through items-center"><Check className="w-3.5 h-3.5 text-slate-300" /> White-label domain proxy</li>
-              </ul>
-            </div>
-            <button 
-              onClick={onStartFree}
-              className="w-full bg-indigo-600 hover:bg-indigo-705 text-white py-3 rounded-xl text-xs font-bold transition-all text-center shadow-md shadow-indigo-100 cursor-pointer"
-            >
-              Upgrade & Onboard Workspace
-            </button>
-          </div>
-
-          {/* Enterprise Scaler */}
-          <div className="bg-white rounded-2xl border border-[#E9ECEF] p-8 space-y-6 flex flex-col justify-between hover:shadow-xl hover:border-slate-300/60 transition-all duration-300">
-            <div className="space-y-4">
-              <p className="text-xs font-bold uppercase tracking-widest text-[#9CA3AF]">Enterprise Scale</p>
-              <h3 className="text-2xl font-bold text-slate-950 font-sans">$249<span className="text-xs text-slate-400 font-normal"> / month</span></h3>
-              <p className="text-xs text-slate-500 font-sans">For universities, massive bootcamps, and government programs.</p>
-              <ul className="space-y-2.5 pt-4 text-xs text-slate-655 border-t border-slate-100">
-                <li className="flex gap-2 items-center"><Check className="w-3.5 h-3.5 text-emerald-500" /> All Pro features included</li>
-                <li className="flex gap-2 items-center"><Check className="w-3.5 h-3.5 text-emerald-500" /> Custom Domain (TLS automatic)</li>
-                <li className="flex gap-2 items-center"><Check className="w-3.5 h-3.5 text-emerald-500" /> 100% white-label system footprint</li>
-                <li className="flex gap-2 items-center"><Check className="w-3.5 h-3.5 text-emerald-500" /> L3 Integration & Webhook access</li>
-                <li className="flex gap-2 items-center"><Check className="w-3.5 h-3.5 text-emerald-500" /> Priority 24/7 compliance engineer</li>
-              </ul>
-            </div>
-            <button 
-              onClick={onStartFree}
-              className="w-full bg-slate-50 text-slate-900 border border-[#E9ECEF] hover:bg-slate-100 py-3 rounded-xl text-xs font-bold transition-all text-center cursor-pointer"
-            >
-              Configure Enterprise
-            </button>
-          </div>
-        </div>
-      </motion.section>
-
-      {/* Modern minimal footer */}
-      <footer className="bg-slate-900 text-slate-400 py-16 px-6 lg:px-16 border-t border-slate-800 text-xs relative z-10">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
-          <div className="flex items-center gap-2">
-            <svg className="w-6 h-6 shrink-0" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M23 16C23 19.866 19.866 23 16 23C12.134 23 9 19.866 9 16C9 12.134 12.134 9 16 9C18.6 9 20.9 10.4 22.1 12.5" stroke="#FFFFFF" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M15 16H23" stroke="#FFFFFF" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M24 7C24 9.2 25.2 10 27 10C25.2 10 24 10.8 24 13C24 10.8 22.8 10 21 10C22.8 10 24 9.2 24 7Z" fill="#F59E0B" />
-            </svg>
-            <span className="font-display font-extrabold tracking-wider text-white uppercase text-xs">GLINT REGISTRY</span>
-          </div>
-          <div className="flex gap-8">
-            <a href="#" className="hover:text-white transition-colors duration-200">Security Architecture</a>
-            <a href="#" className="hover:text-white transition-colors duration-200">API Reference</a>
-            <a href="#" className="hover:text-white transition-colors duration-200">Compliance Standard</a>
-            <a href="#" className="hover:text-white transition-colors duration-200">Legal Ledger</a>
-          </div>
-          <p>© 2026 Glint Inc. All rights reserved globally.</p>
+        <div className="mx-auto mt-10 flex max-w-[1240px] flex-col gap-2 border-t border-white/10 pt-5 text-[9px] leading-4 text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+          <p>© {new Date().getFullYear()} Glint. Certificate status remains subject to issuer expiry and revocation decisions.</p>
+          <button type="button" onClick={openVerifier} className="w-fit transition-colors hover:text-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F2B84B]">Public verification requires no account.</button>
         </div>
       </footer>
+
+      <VerifyCertificateModal open={verifierOpen} onClose={() => setVerifierOpen(false)} />
     </div>
+    </MotionConfig>
   );
 }

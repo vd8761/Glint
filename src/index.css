@@ -8,6 +8,38 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
+.glint-display {
+  font-family: "Cormorant Garamond", Georgia, serif;
+  text-wrap: balance;
+}
+
+.glint-anchor {
+  scroll-margin-top: 5.5rem;
+}
+
+.glint-landing button,
+.glint-landing a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .glint-landing *,
+  .glint-landing *::before,
+  .glint-landing *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
 /* Custom Scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
