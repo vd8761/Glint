@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Eye, EyeOff, Lock, Mail, User, Building, ArrowLeft, AlertCircle, X } from 'lucide-react';
+import { ShieldCheck, Eye, EyeOff, Lock, Mail, User, Building, ArrowLeft, AlertCircle, X, CheckCircle2, KeyRound } from 'lucide-react';
 
 interface AuthPageProps {
   onLoginSuccess: (token: string, user: any) => void;
@@ -30,6 +30,33 @@ export function AuthPage({ onLoginSuccess, onBackToHome }: AuthPageProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Forgot-password flow (revealed from the login view)
+  const [showForgot, setShowForgot] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
+
+  const handleForgotSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotEmail) return;
+    setForgotLoading(true);
+    try {
+      await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail }),
+      });
+    } catch {
+      // The response is deliberately uniform; even a network error should not
+      // reveal anything, so we show the same confirmation regardless.
+    } finally {
+      // Always show the same generic confirmation — never disclose whether the
+      // address is registered.
+      setForgotSent(true);
+      setForgotLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -119,7 +146,74 @@ export function AuthPage({ onLoginSuccess, onBackToHome }: AuthPageProps) {
           <p className="text-xs text-slate-500">Secure cryptographic certificates issuance portal</p>
         </div>
 
+        {/* Forgot-password panel — replaces the login/register form when active */}
+        {showForgot && (
+          <div className="space-y-5">
+            <button
+              type="button"
+              onClick={() => { setShowForgot(false); setForgotSent(false); }}
+              className="text-slate-500 hover:text-slate-900 flex items-center gap-1.5 text-[11px] font-semibold transition-colors"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" /> Back to log in
+            </button>
+
+            {forgotSent ? (
+              <div className="bg-emerald-50/70 border border-emerald-100 rounded-xl p-4 text-xs flex gap-3 items-start">
+                <div className="bg-emerald-100 rounded-lg p-1.5 text-emerald-600 shrink-0">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                </div>
+                <div className="flex-1 space-y-1">
+                  <h4 className="font-display font-extrabold uppercase tracking-wider text-[10px] text-emerald-950">Check your inbox</h4>
+                  <p className="text-emerald-900 leading-relaxed text-[11px] font-medium">
+                    If an account exists, a reset link has been sent. The link expires in 45 minutes.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleForgotSubmit} className="space-y-4">
+                <div className="space-y-1.5">
+                  <h3 className="text-sm font-bold text-slate-900">Reset your password</h3>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Enter your account email (or recovery email) and we'll send a link to choose a new password.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Email Address</label>
+                  <div className="relative">
+                    <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      type="email"
+                      required
+                      value={forgotEmail}
+                      onChange={(e) => setForgotEmail(e.target.value)}
+                      placeholder="you@organisation.com"
+                      autoComplete="email"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-11 pr-4 text-slate-800 text-xs placeholder-slate-400 focus:outline-none focus:border-slate-950 focus:bg-white transition-all"
+                    />
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  disabled={forgotLoading}
+                  className="w-full bg-slate-950 hover:bg-slate-900 text-white font-bold text-xs py-3.5 rounded-xl shadow-md active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-2"
+                >
+                  {forgotLoading ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                      Sending...
+                    </>
+                  ) : (
+                    <>Send reset link</>
+                  )}
+                </button>
+              </form>
+            )}
+          </div>
+        )}
+
         {/* Tab Selector */}
+        {!showForgot && (
+        <>
         <div className="flex bg-slate-50 border border-slate-100 p-1 rounded-xl relative">
           <button
             type="button"
@@ -219,6 +313,15 @@ export function AuthPage({ onLoginSuccess, onBackToHome }: AuthPageProps) {
           <div className="space-y-1.5">
             <div className="flex justify-between items-center">
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Password</label>
+              {isLogin && (
+                <button
+                  type="button"
+                  onClick={() => { setShowForgot(true); setForgotSent(false); setForgotEmail(email); setError(null); }}
+                  className="text-[10px] font-semibold text-slate-500 hover:text-slate-900 transition-colors"
+                >
+                  Forgot password?
+                </button>
+              )}
             </div>
             <div className="relative">
               <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -262,7 +365,177 @@ export function AuthPage({ onLoginSuccess, onBackToHome }: AuthPageProps) {
             )}
           </button>
         </form>
+        </>
+        )}
 
+      </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Reset password screen (reached from the emailed /reset-password?token=… link)
+// -----------------------------------------------------------------------------
+
+interface ResetPasswordPageProps {
+  token: string;
+  onDone: () => void;
+}
+
+export function ResetPasswordPage({ token, onDone }: ResetPasswordPageProps) {
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const missingToken = !token;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    if (password.length < 12) {
+      setError('Password must be at least 12 characters.');
+      return;
+    }
+    if (password !== confirm) {
+      setError('Passwords do not match.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, password }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || 'This reset link is invalid or has expired.');
+      }
+      setDone(true);
+      // Give the user a moment to read the confirmation, then return to login.
+      setTimeout(onDone, 1800);
+    } catch (err: any) {
+      setError(err.message || 'Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-[#F8F9FA] p-4 sm:p-6 relative overflow-hidden font-sans">
+      <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-indigo-500/5 rounded-full blur-[100px] pointer-events-none" />
+      <div className="absolute bottom-1/4 right-1/4 w-[500px] h-[500px] bg-amber-500/5 rounded-full blur-[100px] pointer-events-none" />
+
+      <div className="w-full max-w-md bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-xl relative z-10 space-y-6">
+        <div className="flex flex-col items-center text-center space-y-2 select-none">
+          <div className="w-12 h-12 rounded-2xl bg-slate-950 text-white flex items-center justify-center">
+            <KeyRound className="w-6 h-6" />
+          </div>
+          <h2 className="font-display font-extrabold text-slate-950 text-xl tracking-wider uppercase">Set a new password</h2>
+          <p className="text-xs text-slate-500">Choose a strong password for your Glint account.</p>
+        </div>
+
+        {done ? (
+          <div className="bg-emerald-50/70 border border-emerald-100 rounded-xl p-4 text-xs flex gap-3 items-start">
+            <div className="bg-emerald-100 rounded-lg p-1.5 text-emerald-600 shrink-0">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+            </div>
+            <div className="flex-1 space-y-1">
+              <h4 className="font-display font-extrabold uppercase tracking-wider text-[10px] text-emerald-950">Password updated</h4>
+              <p className="text-emerald-900 leading-relaxed text-[11px] font-medium">
+                Your password has been reset and all existing sessions were signed out. Redirecting you to log in…
+              </p>
+            </div>
+          </div>
+        ) : missingToken ? (
+          <div className="bg-rose-50/70 border border-rose-100 rounded-xl p-4 text-xs flex gap-3 items-start">
+            <div className="bg-rose-100 rounded-lg p-1.5 text-rose-600 shrink-0">
+              <AlertCircle className="w-3.5 h-3.5" />
+            </div>
+            <div className="flex-1 space-y-1">
+              <h4 className="font-display font-extrabold uppercase tracking-wider text-[10px] text-rose-950">Missing reset token</h4>
+              <p className="text-rose-900 leading-relaxed text-[11px] font-medium">
+                This link is incomplete. Request a new reset link from the log in screen.
+              </p>
+              <button type="button" onClick={onDone} className="text-[11px] font-semibold text-rose-700 hover:text-rose-900 underline">
+                Back to log in
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {error && (
+              <div className="bg-rose-50/70 border border-rose-100 rounded-xl p-3.5 text-xs flex gap-3 items-start">
+                <div className="bg-rose-100 rounded-lg p-1.5 text-rose-600 shrink-0">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                </div>
+                <p className="text-rose-900 leading-relaxed text-[11px] font-medium flex-1">{error}</p>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">New Password</label>
+              <div className="relative">
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  autoComplete="new-password"
+                  minLength={12}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-11 pr-11 text-slate-800 text-xs placeholder-slate-400 focus:outline-none focus:border-slate-950 focus:bg-white transition-all"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-400">At least 12 characters. A passphrase is fine.</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Confirm Password</label>
+              <div className="relative">
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
+                  placeholder="••••••••"
+                  autoComplete="new-password"
+                  minLength={12}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-11 pr-4 text-slate-800 text-xs placeholder-slate-400 focus:outline-none focus:border-slate-950 focus:bg-white transition-all"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-slate-950 hover:bg-slate-900 text-white font-bold text-xs py-3.5 rounded-xl shadow-md active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-2 mt-4"
+            >
+              {loading ? (
+                <>
+                  <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                  Updating...
+                </>
+              ) : (
+                <>Reset password</>
+              )}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );

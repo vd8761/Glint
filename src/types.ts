@@ -77,6 +77,12 @@ export interface CustomFontAsset {
 export interface CertificateTemplate {
   id: string;
   workspaceId: string;
+  /**
+   * Display name of the organization (workspace) that owns this template.
+   * Populated by the template list endpoint so the dashboard can label a
+   * template reused from one of the issuer's other organizations.
+   */
+  organizationName?: string;
   name: string;
   layout: 'landscape' | 'portrait';
   backgroundColor: string;

@@ -10,7 +10,7 @@ import {
   Award, BarChart3, Calendar, Check, CheckCircle2, ChevronLeft, ChevronRight,
   Database, Download, ExternalLink, Eye, Globe, Layers, List, LogOut, Mail, Menu,
   MoreHorizontal, PenLine, Play, Plus, RefreshCw, Search, Send, ShieldAlert,
-  ShieldCheck, Sliders, Trash2, Upload, X, AlertTriangle, ArrowLeft, ArrowUpRight,
+  ShieldCheck, Sliders, Trash2, Upload, X, AlertTriangle, ArrowLeft, ArrowUpRight, Info,
 } from 'lucide-react';
 import {
   OrganizationWorkspace, CertificateProgram, CertificateTemplate,
@@ -27,6 +27,8 @@ import {
   GlintFileError, isGlintFileName, parseGlintFile,
   serializeGlintFile, glintFileNameFor, downloadTextFile,
 } from '../lib/glintFile';
+import { type Plan, highestPlan, limitsFor, minPlanSatisfying, formatLimit } from '../../lib/plans';
+import { PlanLockButton, UpgradeModal } from './PlanGate';
 
 const capitalizeWords = (str: string) => {
   return str.replace(/\b\w/g, char => char.toUpperCase());
@@ -165,10 +167,58 @@ export function Dashboard({
   const [currentWorkspace, setCurrentWorkspace] = useState<OrganizationWorkspace | null>(null);
   const [programs, setPrograms] = useState<CertificateProgram[]>([]);
   const [templates, setTemplates] = useState<CertificateTemplate[]>([]);
+  // Certificate templates across ALL of the issuer's organizations, each tagged
+  // with its owning org name. The program editor picks from these so a template
+  // built in one org can be reused in another. The `templates` list above stays
+  // scoped to the current workspace (the Templates tab and plan-limit count).
+  const [allTemplates, setAllTemplates] = useState<CertificateTemplate[]>([]);
   const [certificates, setCertificates] = useState<Certificate[]>([]);
   const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
   const [selectedEmailLog, setSelectedEmailLog] = useState<EmailLog | null>(null);
   const [analytics, setAnalytics] = useState<WorkspaceAnalytics | null>(null);
+
+  // Plan gating (mirrors server enforcement). The effective plan is
+  // account-wide: the most capable plan across all of the issuer's workspaces.
+  // Admins are never plan-limited.
+  const isAdmin = user?.role === 'admin';
+  const effectivePlan = useMemo<Plan>(() => highestPlan(workspaces.map((w) => w.plan)), [workspaces]);
+  const planLimits = limitsFor(effectivePlan);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const openUpgradeModal = () => setShowUpgradeModal(true);
+
+  // Recovery email (self-service account recovery). Seeded from /api/auth/me,
+  // which returns recoveryEmail alongside the session user.
+  const [recoveryEmail, setRecoveryEmail] = useState('');
+  const [recoverySaving, setRecoverySaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/auth/me', { headers: authHeaders })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((me) => { if (!cancelled && me) setRecoveryEmail(me.recoveryEmail ?? ''); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [token]);
+
+  const handleSaveRecoveryEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRecoverySaving(true);
+    try {
+      const res = await fetch('/api/auth/recovery', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ recoveryEmail: recoveryEmail.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to save recovery email');
+      setRecoveryEmail(data.recoveryEmail ?? '');
+      toast.success(data.recoveryEmail ? 'Recovery email saved' : 'Recovery email cleared');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save recovery email');
+    } finally {
+      setRecoverySaving(false);
+    }
+  };
 
   // Loading States
   const [loading, setLoading] = useState(true);
@@ -192,6 +242,35 @@ export function Dashboard({
   const [progExpiryDate, setProgExpiryDate] = useState('');
   const [fieldString, setFieldString] = useState('');
   const [editingProgram, setEditingProgram] = useState<CertificateProgram | null>(null);
+
+  // Certificate-template picker for the program editor. Options span every org
+  // the issuer owns; they are grouped by organization with the current org
+  // first, so a cross-org template is clearly labelled with its owner.
+  const templateOrgGroups = useMemo(() => {
+    const groups = new Map<string, { organizationName: string; items: CertificateTemplate[] }>();
+    for (const t of allTemplates) {
+      const key = t.workspaceId;
+      const organizationName =
+        t.organizationName ||
+        workspaces.find((w) => w.id === t.workspaceId)?.branding.brandName ||
+        workspaces.find((w) => w.id === t.workspaceId)?.name ||
+        'Organization';
+      if (!groups.has(key)) groups.set(key, { organizationName, items: [] });
+      groups.get(key)!.items.push(t);
+    }
+    return Array.from(groups.entries())
+      .map(([workspaceId, g]) => ({ workspaceId, ...g }))
+      .sort((a, b) =>
+        a.workspaceId === currentWorkspaceId ? -1 : b.workspaceId === currentWorkspaceId ? 1 : 0,
+      );
+  }, [allTemplates, workspaces, currentWorkspaceId]);
+
+  // The template that will actually be attached, and whether it belongs to a
+  // different organization than the program being edited (drives the notice).
+  const effectiveProgTemplateId = progTemplateId || allTemplates[0]?.id || '';
+  const selectedProgTemplate = allTemplates.find((t) => t.id === effectiveProgTemplateId) || null;
+  const progTemplateCrossOrg =
+    !!selectedProgTemplate && selectedProgTemplate.workspaceId !== currentWorkspaceId;
 
   // Template Editor states
   const [editingTemplate, setEditingTemplate] = useState<CertificateTemplate | null>(null);
@@ -372,13 +451,16 @@ export function Dashboard({
     if (!options.silent) setLoading(true);
     try {
       // Parallel fetch to load workspace resources speed-first
-      const [programsRes, templatesRes, certsRes, emailsRes, analyticsRes, workspaceRes] = await Promise.all([
+      const [programsRes, templatesRes, certsRes, emailsRes, analyticsRes, workspaceRes, allTemplatesRes] = await Promise.all([
         fetch(`/api/programs?workspaceId=${currentWorkspaceId}`, { headers: authHeaders }),
         fetch(`/api/templates?workspaceId=${currentWorkspaceId}`, { headers: authHeaders }),
         fetch(`/api/certificates?workspaceId=${currentWorkspaceId}`, { headers: authHeaders }),
         fetch(`/api/email-logs?workspaceId=${currentWorkspaceId}`, { headers: authHeaders }),
         fetch(`/api/analytics?workspaceId=${currentWorkspaceId}`, { headers: authHeaders }),
-        fetch(`/api/workspaces/${currentWorkspaceId}`, { headers: authHeaders })
+        fetch(`/api/workspaces/${currentWorkspaceId}`, { headers: authHeaders }),
+        // No workspaceId → every template the issuer can reach, tagged with its
+        // owning organization name, for cross-org selection in the program editor.
+        fetch(`/api/templates`, { headers: authHeaders })
       ]);
 
       if (programsRes.status === 401) {
@@ -393,6 +475,7 @@ export function Dashboard({
       }
       if (programsRes.ok) setPrograms(await programsRes.json());
       if (templatesRes.ok) setTemplates(await templatesRes.json());
+      if (allTemplatesRes.ok) setAllTemplates(await allTemplatesRes.json());
       if (certsRes.ok) setCertificates(await certsRes.json());
       if (emailsRes.ok) setEmailLogs(await emailsRes.json());
       if (analyticsRes.ok) setAnalytics(await analyticsRes.json());
@@ -468,7 +551,7 @@ export function Dashboard({
   // 3. Create or Edit a Program
   const handleCreateProgram = async (e: React.FormEvent) => {
     e.preventDefault();
-    const selectedTemplateId = progTemplateId || templates[0]?.id || '';
+    const selectedTemplateId = progTemplateId || allTemplates[0]?.id || '';
     if (!progName || !selectedTemplateId) {
       toast.error('Add a program name and choose a certificate template.');
       return;
@@ -1725,12 +1808,17 @@ export function Dashboard({
               </select>
               <ChevronRight className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 rotate-90 text-slate-400" />
             </div>
-            <button
+            <PlanLockButton
+              locked={!isAdmin && workspaces.length >= planLimits.organizations}
+              minPlan={minPlanSatisfying((l) => l.organizations > workspaces.length)}
+              reason={`Your plan includes ${formatLimit(planLimits.organizations)} organization${planLimits.organizations === 1 ? '' : 's'}. Upgrade to add more.`}
+              onUpgrade={openUpgradeModal}
               onClick={() => setShowWorkspaceModal(true)}
-              className="flex items-center gap-1 px-1 pt-0.5 text-[12px] font-medium text-blue-600 transition-colors hover:text-blue-800"
+              align="left"
+              className="flex items-center gap-1 px-1 pt-0.5 text-[12px] font-medium text-blue-600 transition-colors hover:text-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Plus className="h-3 w-3" /> Add organization
-            </button>
+            </PlanLockButton>
           </div>
 
           {/* Navigation */}
@@ -1960,7 +2048,7 @@ export function Dashboard({
                         {!showProgramForm && (
                           <button
                             onClick={() => {
-                              if (templates.length === 0) {
+                              if (allTemplates.length === 0) {
                                 toast.error('Create at least one certificate template before configuring programs.');
                                 return;
                               }
@@ -1969,7 +2057,11 @@ export function Dashboard({
                               setProgDesc('');
                               setProgExpiryDate('');
                               setFieldString('');
-                              setProgTemplateId(templates[0].id);
+                              // Prefer a template from the current org, else fall
+                              // back to any of the issuer's other orgs.
+                              setProgTemplateId(
+                                (allTemplates.find((t) => t.workspaceId === currentWorkspaceId) ?? allTemplates[0]).id,
+                              );
                               setProgIssueDate(todayIso());
                               setShowProgramForm(true);
                             }}
@@ -2002,16 +2094,39 @@ export function Dashboard({
                             <div className="space-y-1.5">
                               <label className={labelBase}>Certificate template</label>
                               <select
-                                value={progTemplateId || templates[0]?.id || ''}
+                                value={effectiveProgTemplateId}
                                 onChange={(e) => setProgTemplateId(e.target.value)}
                                 className={`${inputBase} cursor-pointer`}
                               >
-                                {templates.map(t => (
-                                  <option key={t.id} value={t.id}>{t.name}</option>
+                                {templateOrgGroups.map((group) => (
+                                  <optgroup
+                                    key={group.workspaceId}
+                                    label={
+                                      group.workspaceId === currentWorkspaceId
+                                        ? group.organizationName
+                                        : `${group.organizationName} (other organization)`
+                                    }
+                                  >
+                                    {group.items.map((t) => (
+                                      <option key={t.id} value={t.id}>
+                                        {t.name}
+                                        {t.workspaceId !== currentWorkspaceId ? ` · ${group.organizationName}` : ''}
+                                      </option>
+                                    ))}
+                                  </optgroup>
                                 ))}
                               </select>
                             </div>
                           </div>
+
+                          {progTemplateCrossOrg && selectedProgTemplate && (
+                            <div className="flex items-start gap-2 rounded-md border border-sky-200 bg-sky-50 p-3 text-[12px] text-sky-800">
+                              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                              <span>
+                                This template belongs to '{selectedProgTemplate.organizationName}'.
+                              </span>
+                            </div>
+                          )}
 
                           <div className="space-y-1.5">
                             <label className={labelBase}>Description</label>
@@ -2137,9 +2252,17 @@ export function Dashboard({
                                           <button type="button" onClick={() => handleEditProgram(prog)} className="text-[12px] font-medium text-blue-600 hover:text-blue-800 hover:underline">
                                             Edit
                                           </button>
-                                          <button type="button" onClick={() => openBulkIssueModal(prog.id)} className="text-[12px] font-medium text-blue-600 hover:text-blue-800 hover:underline">
+                                          <PlanLockButton
+                                            locked={!isAdmin && planLimits.bulkIssueMax === 1}
+                                            minPlan={minPlanSatisfying((l) => l.bulkIssueMax > 1)}
+                                            reason="Bulk issuance from a CSV is available on the Pro plan. You can still issue certificates one at a time."
+                                            onUpgrade={openUpgradeModal}
+                                            onClick={() => openBulkIssueModal(prog.id)}
+                                            align="right"
+                                            className="text-[12px] font-medium text-blue-600 hover:text-blue-800 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                                          >
                                             Bulk issue
-                                          </button>
+                                          </PlanLockButton>
                                           <button
                                             type="button"
                                             disabled={isActionPending(`program:delete:${prog.id}`)}
@@ -2180,7 +2303,17 @@ export function Dashboard({
                                   <div className="flex items-center justify-between border-t border-slate-100 pt-3">
                                     <div className="flex gap-3">
                                       <button type="button" onClick={() => handleEditProgram(prog)} className="text-[12px] font-medium text-blue-600">Edit</button>
-                                      <button type="button" onClick={() => openBulkIssueModal(prog.id)} className="text-[12px] font-medium text-blue-600">Bulk issue</button>
+                                      <PlanLockButton
+                                        locked={!isAdmin && planLimits.bulkIssueMax === 1}
+                                        minPlan={minPlanSatisfying((l) => l.bulkIssueMax > 1)}
+                                        reason="Bulk issuance from a CSV is available on the Pro plan. You can still issue certificates one at a time."
+                                        onUpgrade={openUpgradeModal}
+                                        onClick={() => openBulkIssueModal(prog.id)}
+                                        align="left"
+                                        className="text-[12px] font-medium text-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
+                                      >
+                                        Bulk issue
+                                      </PlanLockButton>
                                     </div>
                                     <button
                                       type="button"
@@ -2210,7 +2343,10 @@ export function Dashboard({
                     <p className="text-[13px] text-slate-500">
                       Import or export designs as portable <span className="font-mono text-slate-600">.glint</span> files.
                     </p>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[12px] text-slate-500">
+                        {templates.length} / {formatLimit(planLimits.templates)} templates
+                      </span>
                       <button
                         onClick={() => document.getElementById('dashboard-design-upload')?.click()}
                         disabled={isActionPending('template:upload')}
@@ -2227,10 +2363,19 @@ export function Dashboard({
                         onChange={handleUploadCertificateDesign}
                         className="hidden"
                       />
-                      <button onClick={handleAddNewTemplate} disabled={isActionPending('template:create')} className={btnPrimary}>
+                      <PlanLockButton
+                        locked={!isAdmin && templates.length >= planLimits.templates}
+                        minPlan={minPlanSatisfying((l) => l.templates > planLimits.templates)}
+                        reason={`Your plan includes ${formatLimit(planLimits.templates)} template${planLimits.templates === 1 ? '' : 's'} per workspace. Upgrade to add more.`}
+                        onUpgrade={openUpgradeModal}
+                        onClick={handleAddNewTemplate}
+                        disabled={isActionPending('template:create')}
+                        align="right"
+                        className={btnPrimary}
+                      >
                         {isActionPending('template:create') ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
                         {isActionPending('template:create') ? 'Creating…' : 'New template'}
-                      </button>
+                      </PlanLockButton>
                     </div>
                   </div>
 
@@ -2307,9 +2452,17 @@ export function Dashboard({
                       <button onClick={() => openSingleIssueModal()} className={btnSecondary}>
                         <Plus className="h-3.5 w-3.5" /> Issue certificate
                       </button>
-                      <button onClick={() => openBulkIssueModal()} className={btnPrimary}>
+                      <PlanLockButton
+                        locked={!isAdmin && planLimits.bulkIssueMax === 1}
+                        minPlan={minPlanSatisfying((l) => l.bulkIssueMax > 1)}
+                        reason="Bulk issuance from a CSV is available on the Pro plan. You can still issue certificates one at a time."
+                        onUpgrade={openUpgradeModal}
+                        onClick={() => openBulkIssueModal()}
+                        align="right"
+                        className={btnPrimary}
+                      >
                         <Upload className="h-3.5 w-3.5" /> Bulk issue certificates
-                      </button>
+                      </PlanLockButton>
 
                       {/* Rows per page */}
                       <select
@@ -2671,9 +2824,17 @@ export function Dashboard({
                             Reset to default
                           </button>
                         )}
-                        <button onClick={() => setShowEmailDesigner(true)} className={btnPrimary}>
+                        <PlanLockButton
+                          locked={!isAdmin && !planLimits.customEmailTemplate}
+                          minPlan={minPlanSatisfying((l) => l.customEmailTemplate)}
+                          reason="Custom email designs are available on the Pro plan. Free workspaces send the default branded email."
+                          onUpgrade={openUpgradeModal}
+                          onClick={() => setShowEmailDesigner(true)}
+                          align="right"
+                          className={btnPrimary}
+                        >
                           <PenLine className="h-3.5 w-3.5" /> Open email designer
-                        </button>
+                        </PlanLockButton>
                       </div>
                     </div>
 
@@ -2720,9 +2881,17 @@ export function Dashboard({
                             Reset to default
                           </button>
                         )}
-                        <button onClick={() => setShowDigestDesigner(true)} className={btnPrimary}>
+                        <PlanLockButton
+                          locked={!isAdmin && !planLimits.customEmailTemplate}
+                          minPlan={minPlanSatisfying((l) => l.customEmailTemplate)}
+                          reason="Custom email designs are available on the Pro plan. Free workspaces send the default branded email."
+                          onUpgrade={openUpgradeModal}
+                          onClick={() => setShowDigestDesigner(true)}
+                          align="right"
+                          className={btnPrimary}
+                        >
                           <List className="h-3.5 w-3.5" /> Open digest designer
-                        </button>
+                        </PlanLockButton>
                       </div>
                     </div>
 
@@ -2838,6 +3007,42 @@ export function Dashboard({
                     </div>
                   </div>
 
+                  {/* Account recovery */}
+                  <div className={`${card} space-y-5 p-6`}>
+                    <div className="border-b border-slate-100 pb-4">
+                      <h3 className="text-[14px] font-semibold text-slate-900">Account recovery</h3>
+                      <p className="mt-1 text-[13px] leading-relaxed text-slate-500">
+                        Add an alternate email you control. If you ever forget your password, you can request a
+                        reset link using either your login email or this recovery email. The link is always sent to
+                        your primary login address.
+                      </p>
+                    </div>
+                    <form onSubmit={handleSaveRecoveryEmail} className="space-y-4">
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div className="space-y-1.5">
+                          <label className={labelBase}>Login email</label>
+                          <input type="email" value={user?.email ?? ''} disabled className={`${inputBase} bg-slate-50 font-mono text-slate-500`} />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className={labelBase}>Recovery email</label>
+                          <input
+                            type="email"
+                            value={recoveryEmail}
+                            onChange={(e) => setRecoveryEmail(e.target.value)}
+                            placeholder="you@personal.com"
+                            className={`${inputBase} font-mono`}
+                          />
+                          <p className="text-[12px] leading-snug text-slate-400">Leave blank to remove your recovery email.</p>
+                        </div>
+                      </div>
+                      <div className="flex justify-end">
+                        <button type="submit" disabled={recoverySaving} className={btnPrimary}>
+                          {recoverySaving ? 'Saving…' : 'Save recovery email'}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+
                 </div>
               )}
             </>
@@ -2845,6 +3050,9 @@ export function Dashboard({
 
         </div>
       </main>
+
+      {/* MODAL: Plan comparison / upgrade */}
+      <UpgradeModal open={showUpgradeModal} onClose={() => setShowUpgradeModal(false)} currentPlan={effectivePlan} />
 
       {/* MODAL: Bulk issue wizard */}
       {showBulkIssueModal && (
@@ -2919,6 +3127,11 @@ export function Dashboard({
                       <p className="mt-1 text-[12px] text-slate-500">
                         Expected columns: <span className="font-mono text-slate-700">{headerLine}</span>
                       </p>
+                      {!isAdmin && Number.isFinite(planLimits.bulkIssueMax) && planLimits.bulkIssueMax > 1 && (
+                        <p className="mt-1 text-[12px] text-slate-500">
+                          Your plan allows up to <span className="font-medium text-slate-700">{planLimits.bulkIssueMax}</span> recipients per batch.
+                        </p>
+                      )}
                     </div>
 
                     <div className="flex items-center justify-between">

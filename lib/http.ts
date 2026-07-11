@@ -14,7 +14,7 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { env } from './env.js';
 import { pool } from './db.js';
 import { logger } from './logger.js';
-import { hashIp, safeCompare } from './security.js';
+import { hashIp, safeCompare, isAdminRole, isSuperAdminRole, type Role } from './security.js';
 
 // -----------------------------------------------------------------------------
 // Request typing
@@ -24,7 +24,7 @@ export interface AuthUser {
   id: string;
   email: string;
   name: string;
-  role: 'admin' | 'issuer';
+  role: Role;
   workspaceId: string | null;
 }
 
@@ -250,6 +250,19 @@ export const registerLimiter = limiter({
   message: 'Too many accounts created from this address.',
 });
 
+/**
+ * Guards forgot-password and reset-password. Tight because both mint or consume
+ * account-takeover material: forgot-password sends reset mail (a spam and
+ * enumeration-timing vector) and reset-password grinds tokens. Not skipping
+ * successful requests — a valid reset is rare, so there is no legitimate reason
+ * to hit this endpoint often.
+ */
+export const passwordResetLimiter = limiter({
+  windowMs: 15 * 60_000,
+  max: 5,
+  message: 'Too many password reset requests. Try again in 15 minutes.',
+});
+
 /** Unauthenticated, publicly linked, and therefore a scraping target. */
 export const publicReadLimiter = limiter({
   windowMs: 60_000,
@@ -345,7 +358,7 @@ export const authenticate: RequestHandler = (req: AuthedRequest, res, next) => {
       id: string;
       email: string;
       name: string;
-      role: 'admin' | 'issuer';
+      role: Role;
       workspace_id: string | null;
       token_version: number;
     }>(
@@ -370,13 +383,31 @@ export const authenticate: RequestHandler = (req: AuthedRequest, res, next) => {
     .catch(next);
 };
 
-/** Platform operator. Determined by `users.role`, not by an email literal. */
+/**
+ * Platform operator or above. Determined by `users.role`, not by an email
+ * literal. A super_admin is a strict superset of an admin, so it passes here
+ * too — admin routes (workspace/program management, issuer creation) are open
+ * to both tiers.
+ */
 export const requireAdmin: RequestHandler = (req: AuthedRequest, res, next) => {
-  if (req.user?.role === 'admin') {
+  if (isAdminRole(req.user?.role)) {
     next();
     return;
   }
   res.status(403).json({ error: 'Administrator privileges required' });
+};
+
+/**
+ * The top tier only. Guards the account-recovery powers that let one operator
+ * set any user's password — deliberately narrower than requireAdmin so an
+ * ordinary admin cannot seize accounts.
+ */
+export const requireSuperAdmin: RequestHandler = (req: AuthedRequest, res, next) => {
+  if (isSuperAdminRole(req.user?.role)) {
+    next();
+    return;
+  }
+  res.status(403).json({ error: 'Super administrator privileges required' });
 };
 
 /**
@@ -391,7 +422,7 @@ export async function assertWorkspaceAccess(
 ): Promise<void> {
   const user = req.user;
   if (!user) throw new HttpError(401, 'Authentication required');
-  if (user.role === 'admin') return;
+  if (isAdminRole(user.role)) return;
   if (!workspaceId) throw new HttpError(403, 'Workspace access denied');
   if (user.workspaceId === workspaceId) return;
 
@@ -408,7 +439,7 @@ export async function assertWorkspaceAccess(
 export async function accessibleWorkspaceIds(req: AuthedRequest): Promise<string[] | 'all'> {
   const user = req.user;
   if (!user) throw new HttpError(401, 'Authentication required');
-  if (user.role === 'admin') return 'all';
+  if (isAdminRole(user.role)) return 'all';
 
   const result = await pool.query<{ id: string }>(
     'SELECT id FROM workspaces WHERE id = $1 OR created_by_email = $2',

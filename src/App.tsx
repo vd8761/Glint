@@ -8,17 +8,21 @@ import { LandingPage } from './components/LandingPage';
 const Dashboard = lazy(() => import('./components/Dashboard').then(m => ({ default: m.Dashboard })));
 const CertificateViewer = lazy(() => import('./components/CertificateViewer').then(m => ({ default: m.CertificateViewer })));
 const AuthPage = lazy(() => import('./components/AuthPage').then(m => ({ default: m.AuthPage })));
+const ResetPasswordPage = lazy(() => import('./components/AuthPage').then(m => ({ default: m.ResetPasswordPage })));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
 import { Toaster } from 'sonner';
 
-type RouteState = 
+type RouteState =
   | { type: 'home' }
   | { type: 'auth' }
+  | { type: 'reset'; token: string }
   | { type: 'dashboard'; workspaceId: string; tab: 'overview' | 'programs' | 'templates' | 'recipients' | 'issued' | 'branding' | 'settings' | 'emails' }
-  | { type: 'admin'; tab: 'workspaces' | 'programs' | 'certificates' }
+  | { type: 'admin'; tab: 'workspaces' | 'programs' | 'certificates' | 'users' }
   | { type: 'credential'; id: string };
 
-const isAdmin = (user: any): boolean => user?.role === 'admin';
+// admin OR super_admin reach the operator console; super_admin additionally
+// unlocks the per-user "set password" action inside it.
+const isAdmin = (user: any): boolean => user?.role === 'admin' || user?.role === 'super_admin';
 
 export default function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('glint_token'));
@@ -44,6 +48,14 @@ export default function App() {
       const pathMatch = window.location.pathname.match(/^\/c\/([^/]+)\/?$/);
       if (pathMatch) {
         setRoute({ type: 'credential', id: decodeURIComponent(pathMatch[1]) });
+        return;
+      }
+
+      // The password-reset link emailed by /api/auth/forgot-password. The SPA is
+      // served for this path; the token travels as a query param.
+      if (window.location.pathname === '/reset-password') {
+        const resetToken = new URLSearchParams(window.location.search).get('token') ?? '';
+        setRoute({ type: 'reset', token: resetToken });
         return;
       }
 
@@ -209,9 +221,22 @@ export default function App() {
         )}
 
         {route.type === 'auth' && (
-          <AuthPage 
+          <AuthPage
             onLoginSuccess={handleLoginSuccess}
             onBackToHome={navigateToHome}
+          />
+        )}
+
+        {route.type === 'reset' && (
+          <ResetPasswordPage
+            token={route.token}
+            onDone={() => {
+              // Land on the login screen at the SPA root; the reset just
+              // succeeded so the old session (if any) is already invalidated.
+              window.history.pushState({}, '', '/');
+              window.location.hash = '#auth';
+              setRoute({ type: 'auth' });
+            }}
           />
         )}
 

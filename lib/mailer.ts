@@ -31,6 +31,20 @@ import {
   type EmailTemplateDoc, type EmailTemplateVars, type DigestCertificate,
 } from './emailTemplateHtml.js';
 import { extractInlineImages } from './inlineImages.js';
+import { limitsFor } from './plans.js';
+
+/**
+ * "Powered by Glint" footer. Appended to every email on the Free and Pro plans;
+ * Enterprise mail ships without it. Inline styles only — email clients strip
+ * <style> and external CSS.
+ */
+function withGlintAttribution(html: string): string {
+  const block =
+    `<div style="max-width:560px;margin:8px auto 0;text-align:center">` +
+    `<p style="margin:0;font-size:11px;color:#94a3b8;font-family:system-ui,-apple-system,'Segoe UI',sans-serif">` +
+    `Powered by <a href="${env.appUrl}" style="color:#64748b;text-decoration:none;font-weight:600">Glint</a></p></div>`;
+  return html.includes('</body>') ? html.replace('</body>', `${block}</body>`) : html + block;
+}
 
 // -----------------------------------------------------------------------------
 // Transport
@@ -255,6 +269,48 @@ export async function enqueueEmail(
     ],
   );
   return id;
+}
+
+// -----------------------------------------------------------------------------
+// Account mail (outside the workspace outbox)
+// -----------------------------------------------------------------------------
+
+/**
+ * Sends a transactional account email — password reset and similar — directly,
+ * bypassing the issuance outbox.
+ *
+ * The outbox is the right tool for bulk, workspace-scoped issuance: its rows
+ * carry a NOT NULL workspace_id and are drained by a background worker. A reset
+ * email belongs to a user, not a workspace, and there is exactly one of it, so
+ * it is sent inline against the shared transport instead.
+ *
+ * When no transport is configured the message is logged and reported as
+ * simulated — identical to issuance mail — so a local or test environment never
+ * looks like it delivered something it did not. In that case the caller (and its
+ * tests) can read the reset token straight from the database.
+ */
+export async function sendAccountEmail(msg: {
+  to: string;
+  subject: string;
+  text: string;
+  html?: string;
+}): Promise<{ simulated: boolean; messageId?: string }> {
+  if (!transporter) {
+    logger.info(`[mail simulated] ${msg.to} — ${msg.subject}`);
+    return { simulated: true };
+  }
+
+  // env.mailFrom is guaranteed present whenever a transport exists (lib/env.ts
+  // refuses to boot otherwise), so the sender identity is always resolvable.
+  const info = await transporter.sendMail({
+    from: { name: env.mailFromName || 'Glint', address: env.mailFrom! },
+    to: msg.to,
+    subject: msg.subject,
+    text: msg.text,
+    ...(msg.html ? { html: msg.html } : {}),
+    ...(env.MAIL_CC ? { cc: env.MAIL_CC } : {}),
+  });
+  return { simulated: false, messageId: info.messageId };
 }
 
 // -----------------------------------------------------------------------------
@@ -533,12 +589,18 @@ async function deliver(row: ClaimedRow): Promise<{ simulated: boolean; messageId
     sender_email: string | null;
     email_template: EmailTemplateDoc | null;
     digest_email_template: EmailTemplateDoc | null;
+    plan: string;
   }>(
     `SELECT brand_name, primary_color, logo_url, footer_text, sender_name, sender_email,
-            email_template, digest_email_template
+            email_template, digest_email_template, plan
      FROM workspaces WHERE id = $1`,
     [row.workspace_id],
   );
+
+  // Enterprise mail is unbranded; Free and Pro carry the "Powered by Glint"
+  // footer. A workspace we cannot resolve is treated as Free (attributed).
+  const attribute = limitsFor(brandingResult.rows[0]?.plan).glintEmailAttribution;
+  const brand = (html: string) => (attribute ? withGlintAttribution(html) : html);
 
   const branding: WorkspaceBranding = brandingResult.rows[0]
     ? {
@@ -601,7 +663,7 @@ async function deliver(row: ClaimedRow): Promise<{ simulated: boolean; messageId
       certificates,
     };
     const digestSubject = renderEmailSubject(digestDoc.subject, digestVars) || row.subject;
-    const digestPrepared = extractInlineImages(renderEmailHtml(digestDoc, digestVars));
+    const digestPrepared = extractInlineImages(brand(renderEmailHtml(digestDoc, digestVars)));
 
     const digestInfo = await transporter.sendMail({
       from: { name: from.name, address: from.address },
@@ -653,7 +715,7 @@ async function deliver(row: ClaimedRow): Promise<{ simulated: boolean; messageId
     });
   }
 
-  const prepared = extractInlineImages(html);
+  const prepared = extractInlineImages(brand(html));
   const info = await transporter.sendMail({
     from: { name: from.name, address: from.address },
     to: row.recipient_email,
