@@ -144,6 +144,56 @@ export function maskEmail(email: string): string {
   return `${local[0]}${'*'.repeat(Math.min(local.length - 2, 8))}${local.at(-1)}${domain}`;
 }
 
+// -----------------------------------------------------------------------------
+// Roles
+// -----------------------------------------------------------------------------
+
+/**
+ * The three account tiers, most privileged first.
+ *   super_admin — can reset/set any account's password. Seeded from the 0001
+ *                 platform admin (see migration 0006).
+ *   admin       — platform operator; can create issuer accounts and manage
+ *                 every workspace.
+ *   issuer      — ordinary tenant user, scoped to their workspace.
+ */
+export type Role = 'super_admin' | 'admin' | 'issuer';
+
+/** admin-or-above. The guard behind requireAdmin. */
+export function isAdminRole(role: string | null | undefined): boolean {
+  return role === 'admin' || role === 'super_admin';
+}
+
+/** super_admin only. The guard behind requireSuperAdmin. */
+export function isSuperAdminRole(role: string | null | undefined): boolean {
+  return role === 'super_admin';
+}
+
+// -----------------------------------------------------------------------------
+// Password reset tokens
+// -----------------------------------------------------------------------------
+
+/**
+ * SHA-256 hex of a reset token.
+ *
+ * Only the hash is ever stored (password_reset_tokens.token_hash). Lookups hash
+ * the presented token and compare hashes, so the database never holds anything
+ * an attacker could replay, and a stolen table row cannot be turned back into a
+ * working reset link.
+ */
+export function hashToken(raw: string): string {
+  return crypto.createHash('sha256').update(raw, 'utf8').digest('hex');
+}
+
+/**
+ * A fresh reset token: 256 bits of CSPRNG entropy as the raw value to email,
+ * paired with the hash to persist. The raw token must never be written to the
+ * database or a log.
+ */
+export function generateResetToken(): { token: string; tokenHash: string } {
+  const token = crypto.randomBytes(32).toString('hex');
+  return { token, tokenHash: hashToken(token) };
+}
+
 /** Constant-time comparison of two secrets of arbitrary length. */
 export function safeCompare(a: string, b: string): boolean {
   const bufA = Buffer.from(a, 'utf8');
