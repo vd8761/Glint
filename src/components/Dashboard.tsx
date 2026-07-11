@@ -4,7 +4,7 @@ import { toast } from 'sonner';
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Award, BarChart3, Calendar, Check, CheckCircle2, ChevronLeft, ChevronRight,
@@ -311,7 +311,9 @@ export function Dashboard({
   const [resendingCertId, setResendingCertId] = useState<string | null>(null);
   const [revocationReason, setRevocationReason] = useState('');
   const [activeActionMenuId, setActiveActionMenuId] = useState<string | null>(null);
-  const [actionMenuPosition, setActionMenuPosition] = useState<{ top: number; left: number; direction: 'down' | 'up' } | null>(null);
+  const [actionMenuAnchor, setActionMenuAnchor] = useState<{ top: number; bottom: number; left: number } | null>(null);
+  const [actionMenuTop, setActionMenuTop] = useState<number | null>(null);
+  const actionMenuRef = useRef<HTMLDivElement>(null);
   const [selectedCryptoProofCert, setSelectedCryptoProofCert] = useState<Certificate | null>(null);
   const [selectedJsonEnvelopeCert, setSelectedJsonEnvelopeCert] = useState<Certificate | null>(null);
   const [selectedPreviewCert, setSelectedPreviewCert] = useState<Certificate | null>(null);
@@ -1560,13 +1562,13 @@ export function Dashboard({
 
   const closeCertActionMenu = () => {
     setActiveActionMenuId(null);
-    setActionMenuPosition(null);
+    setActionMenuAnchor(null);
+    setActionMenuTop(null);
   };
 
   const toggleCertActionMenu = (
     event: React.MouseEvent<HTMLButtonElement>,
     certId: string,
-    direction: 'down' | 'up',
   ) => {
     event.stopPropagation();
     if (activeActionMenuId === certId) {
@@ -1578,31 +1580,52 @@ export function Dashboard({
     const menuWidth = 208;
     const viewportPadding = 12;
     const maxLeft = Math.max(viewportPadding, window.innerWidth - menuWidth - viewportPadding);
-    setActionMenuPosition({
-      top: direction === 'up' ? rect.top - 4 : rect.bottom + 4,
+    setActionMenuTop(null);
+    setActionMenuAnchor({
+      top: rect.top,
+      bottom: rect.bottom,
       left: Math.min(maxLeft, Math.max(viewportPadding, rect.right - menuWidth)),
-      direction,
     });
     setActiveActionMenuId(certId);
   };
 
+  // Measures the menu once it mounts (hidden) and clamps it to the viewport —
+  // flips above the trigger when there isn't room below (e.g. the last rows
+  // in a long list), so it never runs off the bottom of the screen.
+  useLayoutEffect(() => {
+    if (!activeActionMenuId || !actionMenuAnchor || !actionMenuRef.current) return;
+    const viewportPadding = 12;
+    const menuHeight = actionMenuRef.current.offsetHeight;
+    const spaceBelow = window.innerHeight - actionMenuAnchor.bottom;
+    const spaceAbove = actionMenuAnchor.top;
+    const openUp = spaceBelow < menuHeight + viewportPadding && spaceAbove > spaceBelow;
+    const rawTop = openUp ? actionMenuAnchor.top - menuHeight - 4 : actionMenuAnchor.bottom + 4;
+    const maxTop = Math.max(viewportPadding, window.innerHeight - menuHeight - viewportPadding);
+    setActionMenuTop(Math.min(Math.max(rawTop, viewportPadding), maxTop));
+  }, [activeActionMenuId, actionMenuAnchor]);
+
   /** Kebab menu with every per-certificate operation. Used by both registries. */
-  const renderCertActionsMenu = (c: Certificate, direction: 'down' | 'up' = 'down') => (
+  const renderCertActionsMenu = (c: Certificate) => (
     <div className="inline-block text-left">
       <button
-        onClick={(e) => toggleCertActionMenu(e, c.id, direction)}
+        onClick={(e) => toggleCertActionMenu(e, c.id)}
         className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-900"
         title="Actions"
         type="button"
       >
         <MoreHorizontal className="h-4 w-4" />
       </button>
-      {activeActionMenuId === c.id && actionMenuPosition && createPortal(
+      {activeActionMenuId === c.id && actionMenuAnchor && createPortal(
         <>
           <div className="fixed inset-0 z-[80]" onClick={closeCertActionMenu} />
           <div
-            className={`fixed z-[90] w-52 divide-y divide-slate-100 rounded-md border border-slate-200 bg-white py-1 text-left shadow-2xl ${actionMenuPosition.direction === 'up' ? '-translate-y-full' : ''}`}
-            style={{ top: actionMenuPosition.top, left: actionMenuPosition.left }}
+            ref={actionMenuRef}
+            className="fixed z-[90] w-52 divide-y divide-slate-100 rounded-md border border-slate-200 bg-white py-1 text-left shadow-2xl"
+            style={{
+              top: actionMenuTop ?? actionMenuAnchor.bottom + 4,
+              left: actionMenuAnchor.left,
+              visibility: actionMenuTop === null ? 'hidden' : 'visible',
+            }}
           >
             <div className="py-1">
               <button
@@ -2826,7 +2849,7 @@ export function Dashboard({
                             </div>
                             <div className="relative flex items-center justify-between border-t border-slate-100 pt-2">
                               <span className="text-[12px] text-slate-400">{c.viewCount} views · {c.downloadCount} downloads</span>
-                              {renderCertActionsMenu(c, 'up')}
+                              {renderCertActionsMenu(c)}
                             </div>
                           </div>
                         ))}

@@ -6,13 +6,12 @@
 /**
  * Plan-enforcement UI. The server rejects over-limit actions with HTTP 403
  * `{ code: 'PLAN_LIMIT' }`; this is the visible half — it greys out the control
- * a plan does not allow, marks it with a superscript star, and offers an upgrade
- * path.
+ * a plan does not allow, marks it with a star, and offers an upgrade path.
  *
  * `PlanLockButton` is a drop-in for a plain <button>. When `locked` is false it
  * renders the button unchanged. When true it renders the button disabled, adds a
- * superscript star right after the label, and exposes a keyboard-focusable
- * tooltip explaining the minimum plan required with an Upgrade action.
+ * star right after the label, and exposes a keyboard-focusable tooltip
+ * explaining the minimum plan required with an Upgrade action.
  *
  * The tooltip renders through a portal to <body> with fixed positioning, so it
  * is never clipped by an ancestor's `overflow` (a table's horizontal scroll, a
@@ -117,9 +116,9 @@ export function PlanLockButton({
           trigger layered over it. */}
       <button type="button" className={`${className ?? ''} pointer-events-none`} disabled aria-disabled="true" tabIndex={-1}>
         {children}
-        <sup className="ml-0.5 -mt-1 inline-flex leading-none">
+        <span className="ml-1 inline-flex align-middle">
           <Star className="h-2.5 w-2.5 fill-amber-500 text-amber-500" />
-        </sup>
+        </span>
       </button>
 
       {/* Transparent, focusable trigger: the keyboard/click entry point. */}
@@ -289,9 +288,9 @@ export function UpgradeModal({ open, onClose, currentPlan }: UpgradeModalProps) 
                     {row.label}
                     {/* Star flags a feature the CURRENT plan does not include. */}
                     {!row.included(currentPlan) && (
-                      <sup className="ml-0.5 -top-1 inline-flex">
+                      <span className="ml-1 inline-flex align-middle">
                         <Star className="h-2.5 w-2.5 fill-amber-500 text-amber-500" />
-                      </sup>
+                      </span>
                     )}
                   </td>
                   {PLAN_ORDER.map((plan) => {
