@@ -16,7 +16,7 @@ type RouteState =
   | { type: 'home' }
   | { type: 'auth' }
   | { type: 'reset'; token: string }
-  | { type: 'dashboard'; workspaceId: string; tab: 'overview' | 'programs' | 'templates' | 'recipients' | 'issued' | 'branding' | 'settings' | 'emails' }
+  | { type: 'dashboard'; workspaceId: string; tab: 'overview' | 'programs' | 'templates' | 'recipients' | 'issued' | 'branding' | 'settings' | 'emails' | 'profile' }
   | { type: 'admin'; tab: 'workspaces' | 'programs' | 'certificates' | 'users' }
   | { type: 'credential'; id: string };
 
@@ -194,6 +194,13 @@ export default function App() {
     }
   };
 
+  /** Adopt a freshly-minted token (e.g. after a self-service password change) so
+   *  the session survives the token_version bump the server just applied. */
+  const handleSessionRefresh = (newToken: string) => {
+    localStorage.setItem('glint_token', newToken);
+    setToken(newToken);
+  };
+
   const handleLogout = () => {
     localStorage.removeItem('glint_token');
     localStorage.removeItem('glint_user');
@@ -247,6 +254,7 @@ export default function App() {
             token={token}
             user={user}
             onLogout={handleLogout}
+            onSessionRefresh={handleSessionRefresh}
             onTabChange={(tab) => navigateToDashboard(route.workspaceId, tab)}
             onWorkspaceChange={(id) => navigateToDashboard(id, route.tab)}
             onViewCertificatePage={(id) => navigateToCredential(id)}
