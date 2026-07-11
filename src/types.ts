@@ -197,6 +197,13 @@ export interface Certificate {
   revocationReason?: string;
 
   /**
+   * The issuing organization's name AS IT WAS when this certificate was issued.
+   * Frozen at issue time so a later rename in profile settings does not rewrite
+   * the attribution on already-issued credentials. Absent on legacy rows.
+   */
+  issuerName?: string;
+
+  /**
    * Lowercase hex HMAC-SHA256 over the issuance facts, keyed by a server-side
    * secret. Replaces the old `securityHash`, which was `Math.random()` with the
    * string "sha256:" glued to the front and was never checked by anything.
@@ -227,6 +234,8 @@ export interface PublicCertificate {
   expiryDate?: string;
   status: CertificateStatus;
   revocationReason?: string;
+  /** Issuing organization name, frozen at issue time. See Certificate.issuerName. */
+  issuerName?: string;
   signature: string;
   signatureAlg: string;
   signatureVersion: number;

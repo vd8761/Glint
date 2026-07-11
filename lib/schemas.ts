@@ -99,6 +99,17 @@ export const recoveryEmailSchema = z.object({
 });
 
 /**
+ * A logged-in user changing their own password. The current password is checked
+ * against the stored hash before the change is applied; the new password is held
+ * to the full registration policy. `currentPassword` is validated laxly (like
+ * the login path) so this endpoint never reveals the policy for the old value.
+ */
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1).max(128),
+  newPassword: password,
+});
+
+/**
  * Start of the forgot-password flow. Uses a lax email (like the login path):
  * revealing the policy here would leak nothing useful and the response is
  * uniform regardless of validity.

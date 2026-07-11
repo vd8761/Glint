@@ -142,13 +142,16 @@ async function main(): Promise<void> {
       const inserted = await client.query(
         `INSERT INTO certificates
            (id, workspace_id, program_id, program_name, recipient_name, recipient_email,
-            issue_date, status, signature, signature_alg, signature_version)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'valid', $8, $9, $10)
+            issue_date, status, signature, signature_alg, signature_version, issuer_name)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'valid', $8, $9, $10, $11)
          ON CONFLICT (program_id, recipient_email) WHERE status <> 'revoked' DO NOTHING
          RETURNING id`,
         [
           id, WORKSPACE_ID, PROGRAM_ID, signable.programName, recipient.name, recipient.email,
           issueDate, signCertificate(signable), SIGNATURE_ALG, SIGNATURE_VERSION,
+          // Freeze the organization name at issue time, exactly as the live issue
+          // path does (server.ts). Matches the workspace brand name seeded above.
+          'Touchmark',
         ],
       );
 

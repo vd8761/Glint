@@ -366,7 +366,10 @@ export function CertificateViewer({ certificateId, onBackToHome }: CertificateVi
 
   const statusBadge = STATUS_BADGE[cert.status] ?? STATUS_BADGE.valid;
   const StatusIcon = statusBadge.Icon;
-  const issuerName = branding?.brandName || cert.programName;
+  // Prefer the organization name frozen onto the certificate at issue time, so a
+  // later rename never rewrites this credential's attribution. Live brand name is
+  // only a fallback for legacy certificates issued before the snapshot existed.
+  const issuerName = cert.issuerName || branding?.brandName || cert.programName;
 
   return (
     <div className="min-h-screen bg-[#f6f7f9] font-sans text-slate-800 pb-16 print:bg-white print:pb-0">

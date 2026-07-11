@@ -47,6 +47,7 @@ import {
 import {
   adminCreateUserSchema,
   certificateStatusSchema,
+  changePasswordSchema,
   createProgramSchema,
   createWorkspaceSchema,
   forgotPasswordSchema,
@@ -284,6 +285,7 @@ function mapCertificate(row: any) {
     expiryDate: row.expiry_date ?? undefined,
     status: row.status,
     revocationReason: row.revocation_reason ?? undefined,
+    issuerName: row.issuer_name ?? undefined,
     signature: row.signature,
     signatureAlg: row.signature_alg,
     signatureVersion: row.signature_version,
@@ -315,6 +317,7 @@ function mapPublicCertificate(row: any) {
     expiryDate: row.expiry_date ?? undefined,
     status: row.status,
     revocationReason: row.revocation_reason ?? undefined,
+    issuerName: row.issuer_name ?? undefined,
     signature: row.signature,
     signatureAlg: row.signature_alg,
     signatureVersion: row.signature_version,
@@ -487,6 +490,7 @@ type AuthEvent =
   | 'FORGOT_PASSWORD_REQUEST'
   | 'PASSWORD_RESET'
   | 'PASSWORD_SET_BY_ADMIN'
+  | 'PASSWORD_CHANGED'
   | 'RECOVERY_EMAIL_UPDATED'
   | 'ISSUER_CREATED_BY_ADMIN';
 
@@ -715,6 +719,62 @@ app.put(
     await pool.query('UPDATE users SET recovery_email = $2 WHERE id = $1', [req.user!.id, value]);
     await logAuthEvent(req.user!.email, 'RECOVERY_EMAIL_UPDATED', req, req.user!.id);
     res.json(await meWithRecovery(req));
+  }),
+);
+
+/**
+ * The logged-in user changes their own password. The current password is
+ * verified against the stored hash before the change is applied. On success the
+ * token_version is bumped — which invalidates every OTHER session the user holds
+ * — and a fresh token issued against the new version is returned so THIS session
+ * stays logged in. The client swaps its stored token for the returned one.
+ *
+ * `authLimiter` throttles current-password guessing even though a valid session
+ * is already required to reach here.
+ */
+app.post(
+  '/api/auth/change-password',
+  authLimiter,
+  authenticate,
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { currentPassword, newPassword } = parseBody(changePasswordSchema, req.body);
+
+    const result = await pool.query<{ password_hash: string }>(
+      'SELECT password_hash FROM users WHERE id = $1',
+      [req.user!.id],
+    );
+    const row = result.rows[0];
+    if (!row) throw new HttpError(401, 'Authentication required');
+
+    if (!(await bcrypt.compare(currentPassword, row.password_hash))) {
+      throw new HttpError(400, 'Your current password is incorrect.');
+    }
+
+    // Reject a no-op change so "changed" always means the secret actually rotated.
+    if (await bcrypt.compare(newPassword, row.password_hash)) {
+      throw new HttpError(400, 'Choose a password different from your current one.');
+    }
+
+    const newHash = await bcrypt.hash(newPassword, env.BCRYPT_ROUNDS);
+    const updated = await pool.query<{ token_version: number }>(
+      `UPDATE users
+          SET password_hash = $2,
+              token_version = token_version + 1,
+              failed_login_attempts = 0,
+              locked_until = NULL
+        WHERE id = $1
+        RETURNING token_version`,
+      [req.user!.id, newHash],
+    );
+
+    await logAuthEvent(req.user!.email, 'PASSWORD_CHANGED', req, req.user!.id);
+
+    res.json({
+      message: 'Your password has been changed.',
+      // A fresh token against the bumped version keeps THIS session valid while
+      // every other outstanding session is now invalid.
+      token: issueToken(req.user!.id, updated.rows[0].token_version),
+    });
   }),
 );
 
@@ -1703,8 +1763,9 @@ app.post(
         const inserted = await client.query(
           `INSERT INTO certificates
              (id, workspace_id, program_id, program_name, recipient_name, recipient_email,
-              custom_fields, issue_date, expiry_date, status, signature, signature_alg, signature_version)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'valid', $10, $11, $12)
+              custom_fields, issue_date, expiry_date, status, signature, signature_alg, signature_version,
+              issuer_name)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'valid', $10, $11, $12, $13)
            ON CONFLICT (program_id, recipient_email) WHERE status <> 'revoked' DO NOTHING
            RETURNING *`,
           [
@@ -1720,6 +1781,9 @@ app.post(
             signature,
             SIGNATURE_ALG,
             SIGNATURE_VERSION,
+            // Freeze the organization name at issue time so a later rename does
+            // not rewrite this certificate's public attribution.
+            brandName,
           ],
         );
 
@@ -2101,7 +2165,11 @@ app.get(
 
     const brandingResult = await pool.query('SELECT * FROM workspaces WHERE id = $1', [cert.workspace_id]);
     const workspace = brandingResult.rows[0];
-    const orgName = workspace ? (workspace.brand_name || workspace.name) : 'the issuing organization';
+    // Prefer the name frozen onto the certificate at issue time; fall back to the
+    // workspace's current brand name only for legacy rows issued before the
+    // snapshot column existed.
+    const liveOrgName = workspace ? (workspace.brand_name || workspace.name) : 'the issuing organization';
+    const orgName = cert.issuer_name || liveOrgName;
 
     res.json({
       certificate: mapPublicCertificate(cert),
