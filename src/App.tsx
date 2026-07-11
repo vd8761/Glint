@@ -14,7 +14,7 @@ import { Toaster } from 'sonner';
 
 type RouteState =
   | { type: 'home' }
-  | { type: 'auth' }
+  | { type: 'auth'; mode?: 'login' | 'register' }
   | { type: 'reset'; token: string }
   | { type: 'dashboard'; workspaceId: string; tab: 'overview' | 'programs' | 'templates' | 'recipients' | 'issued' | 'branding' | 'settings' | 'emails' | 'profile' }
   | { type: 'admin'; tab: 'workspaces' | 'programs' | 'certificates' | 'users' }
@@ -114,7 +114,9 @@ export default function App() {
             window.location.hash = `#/dashboard?workspaceId=${user?.workspaceId ?? ''}&tab=overview`;
           }
         } else {
-          setRoute({ type: 'auth' });
+          const queryIndex = hash.indexOf('?');
+          const params = queryIndex === -1 ? null : new URLSearchParams(hash.substring(queryIndex));
+          setRoute({ type: 'auth', mode: params?.get('mode') === 'register' ? 'register' : 'login' });
         }
       } else {
         setRoute({ type: 'home' });
@@ -175,10 +177,10 @@ export default function App() {
     setRoute({ type: 'credential', id });
   };
 
-  const navigateToAuth = () => {
+  const navigateToAuth = (mode: 'login' | 'register' = 'login') => {
     leaveCertificatePath();
-    window.location.hash = '#auth';
-    setRoute({ type: 'auth' });
+    window.location.hash = mode === 'register' ? '#auth?mode=register' : '#auth';
+    setRoute({ type: 'auth', mode });
   };
 
   const handleLoginSuccess = (newToken: string, newUser: any) => {
@@ -221,9 +223,8 @@ export default function App() {
       }>
         {route.type === 'home' && (
           <LandingPage
-            onStartFree={token ? () => navigateToDashboard(user?.workspaceId, 'overview') : navigateToAuth}
-            onViewSample={(id) => navigateToCredential(id)}
-            onSelectWorkspace={token ? (id) => navigateToDashboard(id, 'overview') : navigateToAuth}
+            onStartFree={token ? () => navigateToDashboard(user?.workspaceId, 'overview') : () => navigateToAuth('register')}
+            onSignIn={token ? () => navigateToDashboard(user?.workspaceId, 'overview') : () => navigateToAuth('login')}
           />
         )}
 
@@ -231,6 +232,7 @@ export default function App() {
           <AuthPage
             onLoginSuccess={handleLoginSuccess}
             onBackToHome={navigateToHome}
+            initialMode={route.mode}
           />
         )}
 

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { X, Upload, ShieldCheck, ShieldAlert, Clock, Search, FileText, RefreshCw, ArrowRight } from 'lucide-react';
 import type { VerificationResult } from '../types';
 import { certIdFromInput, extractCertMetaFromPdf } from '../lib/certPdfMeta';
@@ -72,21 +72,61 @@ export function VerifyCertificateModal({ open, onClose }: VerifyCertificateModal
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const idInputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
 
-  if (!open) return null;
-
-  const reset = () => {
+  const reset = useCallback(() => {
     setInput('');
     setFile(null);
     setOutcome(null);
     setChecking(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
-  };
+  }, []);
 
-  const close = () => {
+  const close = useCallback(() => {
     reset();
     onClose();
-  };
+  }, [onClose, reset]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusTimer = window.setTimeout(() => idInputRef.current?.focus(), 0);
+
+    const handleDialogKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        close();
+        return;
+      }
+
+      if (event.key !== 'Tab') return;
+      const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable?.length) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleDialogKeyDown);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener('keydown', handleDialogKeyDown);
+      previousFocusRef.current?.focus();
+    };
+  }, [close, open]);
+
+  if (!open) return null;
 
   /** Resolve a bare id to an outcome via the registry. */
   const checkId = async (id: string): Promise<Outcome> => {
@@ -168,6 +208,7 @@ export function VerifyCertificateModal({ open, onClose }: VerifyCertificateModal
 
   return (
     <div
+      ref={dialogRef}
       className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm"
       onClick={close}
       role="dialog"
@@ -192,10 +233,11 @@ export function VerifyCertificateModal({ open, onClose }: VerifyCertificateModal
         {/* Body */}
         <div className="space-y-4 px-5 py-5">
           <div className="space-y-1.5">
-            <label className="block text-[12px] font-medium text-slate-600">Certificate ID or link</label>
+            <label htmlFor="verify-certificate-id" className="block text-[12px] font-medium text-slate-600">Certificate ID or link</label>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
               <input
+                id="verify-certificate-id"
                 ref={idInputRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
