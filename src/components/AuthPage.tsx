@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ShieldCheck, Eye, EyeOff, Lock, Mail, User, Building, ArrowLeft, AlertCircle, X, CheckCircle2, KeyRound } from 'lucide-react';
 
 interface AuthPageProps {
   onLoginSuccess: (token: string, user: any) => void;
   onBackToHome: () => void;
+  initialMode?: 'login' | 'register';
 }
 
 const capitalizeWords = (str: string) => {
@@ -21,8 +22,8 @@ const getErrorTitle = (msg: string) => {
   return 'Authentication Error';
 };
 
-export function AuthPage({ onLoginSuccess, onBackToHome }: AuthPageProps) {
-  const [isLogin, setIsLogin] = useState(true);
+export function AuthPage({ onLoginSuccess, onBackToHome, initialMode = 'login' }: AuthPageProps) {
+  const [isLogin, setIsLogin] = useState(initialMode !== 'register');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -36,6 +37,12 @@ export function AuthPage({ onLoginSuccess, onBackToHome }: AuthPageProps) {
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotSent, setForgotSent] = useState(false);
+
+  useEffect(() => {
+    setIsLogin(initialMode !== 'register');
+    setShowForgot(false);
+    setError(null);
+  }, [initialMode]);
 
   const handleForgotSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

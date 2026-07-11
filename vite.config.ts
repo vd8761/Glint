@@ -1,11 +1,25 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 
-export default defineConfig(() => {
+export default defineConfig(({ mode }) => {
+  const buildEnv = loadEnv(mode, process.cwd(), '');
+  const appUrl = /^https?:\/\//i.test(buildEnv.APP_URL ?? '')
+    ? buildEnv.APP_URL.replace(/\/+$/, '')
+    : '';
+
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      {
+        name: 'glint-absolute-social-image',
+        transformIndexHtml(html: string) {
+          return appUrl ? html.replaceAll('content="/og.png"', `content="${appUrl}/og.png"`) : html;
+        },
+      },
+    ],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
